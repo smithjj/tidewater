@@ -53,6 +53,7 @@ export class FishStand {
 			position: new Vector3( STAND.x + local.x, y + STALL_FLOOR, STAND.z + local.z ),
 			yaw: STAND.yaw,
 			radius: 3.2,
+			hours: [ 6, 19 ], // the stand opens early and shuts around dusk
 			greeting: 'Let\'s see what you caught. Fair prices, cash.',
 			idle: 'Nothing to sell? The grunts are biting off the pier.',
 			material: this.material,

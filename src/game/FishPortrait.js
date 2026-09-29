@@ -45,7 +45,9 @@ export class FishPortrait {
 		_f.makeTranslation( PARK.x, PARK.y, PARK.z );
 		FISH_IDS.forEach( ( id, i ) => {
 
-			fp.add( 'whole', FISH[ id ].model, _f, 'side', 0.3, { cloudy: 0.08, wet: 1, seed: 0.37 } );
+			// most species are a fish body from SPECIES; a trap catch (the lobster) has its own model
+			const f = FISH[ id ], kind = f.kind || 'whole';
+			fp.add( kind, kind === 'whole' ? f.model : null, _f, 'side', 0.3, { cloudy: 0.08, wet: 1, seed: 0.37 } );
 			this.slot[ id ] = i;
 
 		} );

@@ -152,6 +152,7 @@ export class BoatModel {
 		// ---- anchor points (boat frame)
 
 		this.helmEye = new Vector3( HOUSE.helmX, 1.85, 0.3 );
+		this.helmPoint = { x: HOUSE.helmX, z: HOUSE.seatZ }; // where the deck-walker takes the helm
 		this.boardPoint = new Vector3( 0, lines.deckY, - 1.75 );
 
 		this.exitPoints = [];

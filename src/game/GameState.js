@@ -1,5 +1,5 @@
-import { FISH, fishValue, fishLengthCm } from './FishTable.js';
-import { defaultUpgrades, gearStats, nextLevel, UPGRADES, FUEL_PRICE } from './Gear.js';
+import { FISH, FISH_IDS, fishValue, fishLengthCm } from './FishTable.js';
+import { defaultUpgrades, gearStats, nextLevel, UPGRADES, FUEL_PRICE, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
 
 const SAVE_KEY = 'tidewater.save.v1';
 
@@ -18,6 +18,15 @@ export class GameState {
 		this.lastCatch = null;
 		this.upgrades = defaultUpgrades();
 		this.fuel = null; // litres left (null = full tank)
+		// the world: which day it is, the time of day when the game was last saved, and the weather
+		this.day = 1;
+		this.clock = null;
+		this.weather = null;
+		// the trap line: traps aboard (bought, not yet set) and the ones fishing on the seabed
+		this.traps = 0;
+		this.sets = []; // { id, x, z, day, clock } — set at day * 24 + clock game hours
+		// Joe's prices move with the day: { day, mul: { species: factor } }
+		this.market = { day: 1, mul: {} };
 		this._nextId = 1;
 		this.listeners = new Set();
 
@@ -40,8 +49,44 @@ export class GameState {
 	get holdValue() {
 
 		let v = 0;
-		for ( const f of this.inventory ) v += f.value;
+		for ( const f of this.inventory ) v += this.priceOf( f );
 		return v;
+
+	}
+
+	// ---- the market: what Joe is paying today
+	// Prices are per species and per day, so holding a catch overnight is a real decision. Day 1
+	// pays the standard rate (rollMarket leaves it neutral), and the roll is a pure function of the
+	// day and the species, so it needs no random state in the save.
+
+	mulFor( species ) {
+
+		if ( this.market.day !== this.day ) this.rollMarket();
+		return this.market.mul[ species ] ?? 1;
+
+	}
+
+	// what a landed fish is worth at today's price (its own `value` is the standard price)
+	priceOf( f ) {
+
+		return Math.round( ( f.value ?? 0 ) * this.mulFor( f.species ) );
+
+	}
+
+	rollMarket( day = this.day ) {
+
+		const mul = {};
+		for ( const id of FISH_IDS ) {
+
+			if ( day <= 1 ) { mul[ id ] = 1; continue; }
+			const x = Math.sin( day * 127.1 + ( hashStr( id ) % 977 ) ) * 43758.5453;
+			const r = x - Math.floor( x ); // 0..1, same for this day and species every time
+			mul[ id ] = Math.round( ( 0.75 + 0.6 * r ) * 20 ) / 20; // 0.75 .. 1.35 in 5% steps
+
+		}
+
+		this.market = { day, mul };
+		return this.market;
 
 	}
 
@@ -95,7 +140,7 @@ export class GameState {
 		const keep = [], sold = [];
 		for ( const f of this.inventory ) ( ids === null || ids.includes( f.id ) ? sold : keep ).push( f );
 		let total = 0;
-		for ( const f of sold ) total += f.value;
+		for ( const f of sold ) total += this.priceOf( f );
 		this.inventory = keep;
 		this.money += total;
 		this.save();
@@ -180,6 +225,98 @@ export class GameState {
 
 	}
 
+	// ---- the trap line: buy traps, set them, haul them
+	// A trap is stock until it goes over the side; setting one spends it and a set comes back aboard
+	// when it is hauled, so a gear of traps is a fixed number of pots moving between the two.
+
+	get trapsSet() {
+
+		return this.sets.length;
+
+	}
+
+	get mayTrap() {
+
+		return this.stats.trapLicence === true;
+
+	}
+
+	// buy traps (n at a time); false when they are not affordable
+	buyTraps( n = 1 ) {
+
+		const cost = TRAP_PRICE * n;
+		if ( this.money < cost ) return false;
+		this.money -= cost;
+		this.traps = Math.min( this.traps + n, TRAP_LIMIT );
+		this.save();
+		this.emit();
+		return true;
+
+	}
+
+	// put a trap over the side at (x, z); null when there are none aboard
+	setTrap( x, z, timeOfDay ) {
+
+		if ( this.traps <= 0 ) return null;
+		this.traps --;
+		const s = { id: this._nextId ++, x, z, day: this.day, clock: timeOfDay };
+		this.sets.push( s );
+		this.save();
+		this.emit();
+		return s;
+
+	}
+
+	// bring a trap back aboard; returns the set, or null when it is not there
+	haulTrap( id ) {
+
+		const i = this.sets.findIndex( ( s ) => s.id === id );
+		if ( i < 0 ) return null;
+		const [ s ] = this.sets.splice( i, 1 );
+		this.traps = Math.min( this.traps + 1, TRAP_LIMIT );
+		this.save();
+		this.emit();
+		return s;
+
+	}
+
+	// the set nearest to a point, or null when none is within `maxM`
+	nearestSet( x, z, maxM = 12 ) {
+
+		let best = null, bestD = maxM;
+		for ( const s of this.sets ) {
+
+			const d = Math.hypot( s.x - x, s.z - z );
+			if ( d <= bestD ) { bestD = d; best = s; }
+
+		}
+
+		return best;
+
+	}
+
+	// ---- the world clock (written from the app each frame, saved with everything else)
+
+	setClock( hours ) {
+
+		if ( Number.isFinite( hours ) ) this.clock = hours;
+
+	}
+
+	setWeather( w ) {
+
+		if ( w ) this.weather = w;
+
+	}
+
+	// midnight: a new day. Phase 2 re-rolls the fish market here.
+	advanceDay() {
+
+		this.day = ( this.day | 0 ) + 1;
+		return this.day;
+
+	}
+
 	emit() {
 
 		for ( const fn of this.listeners ) fn( this );
@@ -188,7 +325,9 @@ export class GameState {
 
 	toJSON() {
 
-		return { v: 1, money: this.money, inventory: this.inventory, log: this.log, upgrades: this.upgrades, fuel: this.fuel, nextId: this._nextId };
+		return { v: 1, money: this.money, inventory: this.inventory, log: this.log, upgrades: this.upgrades, fuel: this.fuel, nextId: this._nextId,
+			day: this.day, clock: this.clock, weather: this.weather,
+			traps: this.traps, sets: this.sets, market: this.market };
 
 	}
 
@@ -203,7 +342,16 @@ export class GameState {
 		for ( const [ k, v ] of Object.entries( this.log ) ) if ( FISH[ k ] && v && v.bestKg > 0 && ! Number.isFinite( v.bestCm ) ) v.bestCm = Math.round( fishLengthCm( k, v.bestKg ) );
 		this.upgrades = { ...defaultUpgrades(), ...( d.upgrades || {} ) };
 		this.fuel = Number.isFinite( d.fuel ) ? d.fuel : null;
-		this._nextId = Math.max( d.nextId | 0, ...this.inventory.map( ( f ) => f.id + 1 ), 1 );
+		// saves from before the world clock existed simply start on day 1 at the default time
+		this.day = Number.isFinite( d.day ) && d.day >= 1 ? Math.floor( d.day ) : 1;
+		this.clock = Number.isFinite( d.clock ) ? d.clock : null;
+		this.weather = d.weather && typeof d.weather === 'object' ? d.weather : null;
+		// the trap line and the market (saves from before traps simply have none out)
+		this.traps = Number.isFinite( d.traps ) && d.traps > 0 ? Math.floor( d.traps ) : 0;
+		this.sets = Array.isArray( d.sets ) ? d.sets.filter( ( s ) => s && Number.isFinite( s.x ) && Number.isFinite( s.z ) && Number.isFinite( s.day ) && Number.isFinite( s.clock ) ) : [];
+		this.market = d.market && typeof d.market === 'object' && d.market.mul && Number.isFinite( d.market.day )
+			? { day: d.market.day, mul: d.market.mul } : { day: this.day, mul: {} };
+		this._nextId = Math.max( d.nextId | 0, ...this.inventory.map( ( f ) => f.id + 1 ), ...this.sets.map( ( s ) => ( s.id | 0 ) + 1 ), 1 );
 		return true;
 
 	}
@@ -242,10 +390,31 @@ export class GameState {
 		this.log = {};
 		this.upgrades = defaultUpgrades();
 		this.fuel = null;
+		this.day = 1;
+		this.clock = null;
+		this.weather = null;
+		this.traps = 0;
+		this.sets = [];
+		this.market = { day: 1, mul: {} };
 		this.save();
 		this.emit();
 
 	}
+
+}
+
+// FNV-1a of a species id: the market roll needs a stable number per name, not a random seed
+function hashStr( s ) {
+
+	let h = 2166136261;
+	for ( let i = 0; i < s.length; i ++ ) {
+
+		h ^= s.charCodeAt( i );
+		h = Math.imul( h, 16777619 );
+
+	}
+
+	return h >>> 0;
 
 }
 

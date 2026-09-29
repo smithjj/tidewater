@@ -61,7 +61,12 @@ export function pickSpecies( habitat, hour, rng = Math.random ) {
 
 	}
 
-	return FISH_IDS[ FISH_IDS.length - 1 ];
+	// rounding can leave `r` a hair above zero after the last subtraction: hand back the likeliest
+	// species here rather than the last in the table (a trap-only species has no weight at all, and
+	// must never come back from a cast, whatever the arithmetic does)
+	let best = 0;
+	for ( let i = 1; i < w.length; i ++ ) if ( w[ i ] > w[ best ] ) best = i;
+	return FISH_IDS[ best ];
 
 }
 

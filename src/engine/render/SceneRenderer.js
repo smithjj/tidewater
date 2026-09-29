@@ -75,7 +75,7 @@ export class SceneRenderer {
 	}
 
 	// register a closed volume that follows `object`
-	addHullMask( geometry, object ) {
+	addHullMask( geometry, object, cullBox = null ) {
 
 		geometry.computeBoundingBox();
 		geometry.computeBoundingSphere();
@@ -83,7 +83,12 @@ export class SceneRenderer {
 		mesh.matrixAutoUpdate = false;
 		mesh.frustumCulled = false;
 		this.hullMaskScene.add( mesh );
-		this.hullMasks.push( { mesh, object, box: geometry.boundingBox.clone().expandByScalar( 0.05 ), sphere: geometry.boundingSphere } );
+		// The mask is disabled while the camera is inside the box (under the hull / in the water
+		// around it, where masking the surface would be wrong). Defaults to the geometry's bounds;
+		// pass a tighter box for boats you can stand above or aboard (a tall box would switch the
+		// mask off for the helm / pier view and fill the interior with sea).
+		const box = cullBox || geometry.boundingBox.clone().expandByScalar( 0.05 );
+		this.hullMasks.push( { mesh, object, box, sphere: geometry.boundingSphere } );
 		return mesh;
 
 	}

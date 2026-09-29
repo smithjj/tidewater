@@ -1,4 +1,4 @@
-import { Vector3, Euler, Color, MathUtils, Mesh } from './engine/index.js';
+import { Vector3, Euler, Color, MathUtils, Mesh, Box3 } from './engine/index.js';
 import { GPU } from './engine/gpu/GPU.js';
 import { SunShadows } from './engine/render/Shadows.js';
 import { FrameUniforms } from './engine/render/Frame.js';
@@ -27,10 +27,12 @@ import { Colliders } from './world/Colliders.js';
 import { Village } from './world/Village.js';
 import { Reef } from './world/Reef.js';
 import { BoatModel } from './world/BoatModel.js';
+import { Pelagic30 } from './world/boats/Pelagic30.js';
 import { Rocks } from './world/Rocks.js';
 import { Debris } from './world/Debris.js';
 import { Wildlife } from './world/wildlife/Wildlife.js';
 import { Whale } from './world/marine/Whale.js';
+import { Weather } from './world/Weather.js';
 
 import { OceanFFT } from './ocean/OceanFFT.js';
 import { WaterSurface } from './ocean/WaterSurface.js';
@@ -75,11 +77,18 @@ export class App {
 		this.settings = {
 			timeOfDay: 16.2,
 			sunAzimuth: 0, // degrees: turns the sun's daily path about the vertical
-			timeSpeed: 0, // hours per real second
+			timeSpeed: 0.02, // hours per real second (24 h in 20 real minutes); 0 pauses the day
 			exposure: 0.55,
 			renderScale: 1, // internal resolution (the temporal upscaler reconstructs the output), Performance tab
 		};
 		this.qs = new URLSearchParams( location.search );
+
+	}
+
+	// the boat everything player-facing follows: whichever one you are aboard, else the lobster boat
+	get boatCtl() {
+
+		return this.player && ( this.player.mode === 'boat' || this.player.mode === 'deck' ) ? this.player.boat : this.lobsterCtl;
 
 	}
 
@@ -168,6 +177,23 @@ export class App {
 		this.boat.group.position.copy( WORLD.boatDock.position );
 		this.boat.group.rotation.y = WORLD.boatDock.heading;
 
+		// a second boat (static glTF) moored off the west side of the pier head
+		await progress( 0.24, 'Mooring a second boat…' );
+		this.pelagic = new Pelagic30();
+		try {
+
+			await this.pelagic.load();
+			scene.add( this.pelagic.group );
+			this.pelagic.group.position.copy( WORLD.pelagicMooring.position );
+			this.pelagic.group.rotation.y = WORLD.pelagicMooring.heading;
+
+		} catch ( e ) {
+
+			console.warn( 'pelagic model failed to load', e );
+			this.pelagic = null;
+
+		}
+
 		// ---------------------------------------------------------------- ocean
 		await progress( 0.3, 'Simulating the ocean…' );
 		this.fft = new OceanFFT( renderer );
@@ -215,6 +241,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		} );
 		underwaterMode( this.village.group, 'lite' );
 		underwaterMode( this.boat.group, 'lite' );
+		if ( this.pelagic ) underwaterMode( this.pelagic.group, 'lite' );
 		if ( this.vegetation ) underwaterMode( this.vegetation.group, 'none' );
 
 		this.underwaterLighting = installUnderwaterLighting( {
@@ -243,6 +270,10 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		} );
 		// the sea is not drawn inside the boat (its hull volume masks the surface)
 		this.sceneRenderer.addHullMask( this.boat.createHullVolumeGeometry(), this.boat.group );
+		const pelagicMask = this.pelagic && this.pelagic.createHullVolumeGeometry();
+		if ( pelagicMask ) this.sceneRenderer.addHullMask( pelagicMask, this.pelagic.group,
+			// only the below-waterline volume: standing at the helm / on the pier must not switch the mask off
+			new Box3( new Vector3( - 1.7, - 0.85, - 5.45 ), new Vector3( 1.7, 0.3, 5.4 ) ) );
 		this.waterMaterial = new WaterMaterial( {
 			surface: this.surface, sky: this.sky, sceneCopy: this.sceneRenderer.opaqueCopy, sceneDepthHalf: this.sceneRenderer.opaqueDepthHalf.texture, refraction: this.refraction,
 			hullMask: this.sceneRenderer.hullMaskRT.texture, hullMaskActive: this.sceneRenderer.hullMaskActive,
@@ -288,7 +319,10 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		// dust, pollen, salt aerosol, seed fluff and gnats drifting around the camera
 		this.airMotes = new AirMotes( { terrain: this.terrainGPU, clouds: this.clouds, csm: this.csm, reversedDepth: true } );
 		scene.add( this.airMotes.mesh );
-		this.boatCtl = new BoatController( { model: this.boat, query: this.query, terrain: this.terrainData, colliders: this.colliders } );
+		this.lobsterCtl = new BoatController( { model: this.boat, query: this.query, terrain: this.terrainData, colliders: this.colliders } );
+		// the Pelagic 30 gets its own controller, so it rides its mooring on the same physics
+		// (its hull samples are allocated there; the single-slot bob stays as a fallback only)
+		if ( this.pelagic ) this.pelagicCtl = new BoatController( { model: this.pelagic, query: this.query, terrain: this.terrainData, colliders: this.colliders, dock: WORLD.pelagicMooring } );
 		this.boatSpray = new BoatSpray( { boat: this.boatCtl, spray: this.spray } );
 		// humpback cruising the deep water around the island (model fetched from public/models/whale)
 		this.whale = new Whale( { scene, terrain: this.terrainData, query: this.query, spray: this.spray } );
@@ -307,7 +341,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		// interactive wake around the boat (Kelvin pattern, bow/stern waves, prop wash foam)
 		this.wake = new WakeSim( renderer, { terrainGPU: this.terrainGPU, boat: this.boatCtl, colliders: this.colliders } );
 		this.surface.wake = this.wake;
-		this.player = new Player( { camera, input: this.input, terrain: this.terrainData, colliders: this.colliders, query: this.query, boat: this.boatCtl, reef: this.reef } );
+		this.player = new Player( { camera, input: this.input, terrain: this.terrainData, colliders: this.colliders, query: this.query, boat: this.lobsterCtl, boats: this.pelagicCtl ? [ this.lobsterCtl, this.pelagicCtl ] : null, reef: this.reef } );
 		// birds, beach crabs, sanderlings (after spray / query / boat, which they use)
 		this.wildlife = new Wildlife( {
 			scene, renderer, terrain: this.terrainData, terrainGPU: this.terrainGPU, shore: this.shore,
@@ -341,6 +375,12 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.player.audio = this.audio;
 		// the fishing game (rod, bites, catch, cooler, fish stand)
 		this.game = new Game( this );
+		// the day resumes where it was left, then the weather takes over the sea state
+		const saved = this.game.state;
+		if ( saved.clock !== null ) this.settings.timeOfDay = saved.clock;
+		this.weather = new Weather( this );
+		this.weather.onAnnounce = ( text ) => this.game.toast( text, 3600 );
+		this.weather.restore( saved.weather );
 		// the lanterns at Joe's fish stand and Marta's chandlery (lit from dusk like the village lamps);
 		// positions are in each stall's frame (x right, z toward the customer), turned by its yaw
 		for ( const [ s, lx, ly, lz ] of [ [ STAND, - 0.9, 1.85, 0.1 ], [ CHANDLERY, - 0.75, 1.58, - 1.45 ] ] ) {
@@ -476,7 +516,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 	}
 
-	// T: let the day run (about 8 minutes per day) or stop it
+	// T: let the day run (about 20 minutes per day) or stop it
 	toggleTime() {
 
 		const s = this.settings;
@@ -487,7 +527,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 		} else {
 
-			s.timeSpeed = this._timeSpeed || 0.05;
+			s.timeSpeed = this._timeSpeed || 0.02;
 
 		}
 
@@ -498,6 +538,13 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			this.ui.ui.toast( s.timeSpeed !== 0 ? 'Time running' : 'Time paused' );
 
 		}
+
+	}
+
+	// midnight: the world turns over (the fish market re-rolls here in good time)
+	newDay() {
+
+		if ( this.game ) this.game.newDay();
 
 	}
 
@@ -603,7 +650,16 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.updateFPS( dt );
 		G.dt.value = dt;
 		G.time.value += dt;
-		if ( s.timeSpeed !== 0 ) s.timeOfDay = ( s.timeOfDay + dt * s.timeSpeed + 24 ) % 24;
+		if ( s.timeSpeed !== 0 ) {
+
+			const prev = s.timeOfDay;
+			s.timeOfDay = ( prev + dt * s.timeSpeed + 24 ) % 24;
+			if ( s.timeOfDay < prev && this.game ) this.newDay();
+
+		}
+
+		// the weather walks the sea state on in-game time (a no-op while the clock is paused)
+		if ( this.weather ) this.weather.update( dt );
 
 		// ---- player / boat (boat physics first so the cameras follow this frame's pose)
 		if ( this.input.hit( 'KeyF' ) ) this.setFreeCam( ! this.freeCam );
@@ -621,7 +677,8 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			if ( this.ui ) this.ui.ui.toast( this.audio.muted ? 'Sound off' : 'Sound on' );
 
 		}
-		this.boatCtl.update( dt );
+		this.lobsterCtl.update( dt );
+		if ( this.pelagicCtl ) this.pelagicCtl.update( dt );
 		this.boatSpray.update( dt );
 		this.wake.update( dt );
 		if ( this.freeCam ) this.fly.update( dt );
@@ -636,7 +693,8 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.fft.update( dt );
 		this.seaDetail.update( dt );
 		this.query.setCamera( this.camera.position.x, this.camera.position.z );
-		this.boatCtl.queueQueries();
+		this.lobsterCtl.queueQueries();
+		if ( this.pelagicCtl ) this.pelagicCtl.queueQueries();
 		this.query.update();
 		if ( this.query.cpuValid ) {
 
@@ -669,6 +727,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		if ( this.vegetation ) this.vegetation.update( dt, this.camera );
 		if ( this.whale ) this.whale.update( dt, this.camera );
 		this.boat.update( dt );
+		if ( this.pelagic && ! this.pelagicCtl ) this.pelagic.update( dt ); // bob only while there is no controller
 		this.wildlife.update( dt, this.camera, this.freeCam ? null : this.player );
 		this.localLights.update( this.camera, dt );
 

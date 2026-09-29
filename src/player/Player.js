@@ -1,8 +1,5 @@
 import * as THREE from '../engine/index.js';
 import { WORLD } from '../world/WorldLayout.js';
-import { HOUSE } from '../world/boat/Wheelhouse.js';
-
-const HOUSE_HELM = { x: HOUSE.helmX, z: HOUSE.seatZ };
 
 const EYE = 1.62;
 const SWIM_EYE = EYE * 0.1; // eyes above the body's float point while swimming
@@ -34,7 +31,7 @@ const HELM_REACH = 0.75; // m from the helm seat to take the wheel
 //   boat : at the helm, driving; V toggles helm (1st person) / chase (3rd person) camera, E stands up
 export class Player {
 
-	constructor( { camera, input, terrain, colliders, query, boat, reef = null, audio = null } ) {
+	constructor( { camera, input, terrain, colliders, query, boat, boats = null, reef = null, audio = null } ) {
 
 		this.camera = camera;
 		this.input = input;
@@ -42,6 +39,7 @@ export class Player {
 		this.colliders = colliders;
 		this.query = query;
 		this.boat = boat;
+		this.boats = boats || [ boat ]; // every boardable boat; `boat` is the one we're aboard
 		this.reef = reef;
 		this.audio = audio;
 
@@ -121,11 +119,18 @@ export class Player {
 
 	nearBoat() {
 
-		if ( ! this.boat ) return false;
-		const bp = this.boat.toWorld( this.boat.model.boardPoint, _v );
-		const d = Math.hypot( bp.x - this.position.x, bp.z - this.position.z );
-		const dy = Math.abs( bp.y - this.position.y );
-		return d < 4.2 && dy < 3.2;
+		// nearest boardable boat (there can be more than one in reach)
+		let best = null, bd = Infinity;
+		for ( const b of this.boats ) {
+
+			const bp = b.toWorld( b.model.boardPoint, _v );
+			const d = Math.hypot( bp.x - this.position.x, bp.z - this.position.z );
+			if ( d < 4.2 && Math.abs( bp.y - this.position.y ) < 3.2 && d < bd ) { bd = d; best = b; }
+
+		}
+
+		this._boardable = best;
+		return !! best;
 
 	}
 
@@ -160,7 +165,7 @@ export class Player {
 		// (not with a line out or a fish in hand: E belongs to the fishing then)
 		if ( this.nearBoat() && ! this.busy ) {
 
-			this.prompt = { key: 'E', text: 'Board boat' };
+			this.prompt = { key: 'E', text: this._boardable.model.lines ? 'Board boat' : 'Take the helm' };
 			if ( inp.hit( 'KeyE' ) ) {
 
 				this.boardBoat();
@@ -412,10 +417,18 @@ export class Player {
 
 	// ------------------------------------------------------------------ boat
 
-	// step aboard from the pier / beach / water: onto the cockpit sole at the boarding point
-	boardBoat() {
+	// step aboard from the pier / beach / water. Boats with a deck (`lines`) drop you on the
+	// cockpit sole; deckless boats (the Pelagic) take you straight to the helm.
+	boardBoat( b = this._boardable ) {
 
-		const b = this.boat;
+		this.boat = b;
+		if ( ! b.model.lines ) {
+
+			this.takeHelm();
+			return;
+
+		}
+
 		this.mode = 'deck';
 		this.deckPos.copy( b.model.boardPoint );
 		this.deckVel.set( 0, 0, 0 );
@@ -444,14 +457,21 @@ export class Player {
 
 	}
 
-	// get up from the helm: stand beside the seat, looking forward
+	// get up from the helm: stand beside the seat, looking forward (or get off a deckless boat)
 	leaveHelm() {
 
 		const b = this.boat;
 		b.driven = false;
 		b.throttle = 0;
+		if ( ! b.model.lines ) {
+
+			this.exitBoat();
+			return;
+
+		}
+
 		this.mode = 'deck';
-		this.deckPos.set( HOUSE_HELM.x + 0.45, b.model.lines.deckY, HOUSE_HELM.z - 0.1 );
+		this.deckPos.set( b.model.helmPoint.x + 0.45, b.model.lines.deckY, b.model.helmPoint.z - 0.1 );
 		this.deckVel.set( 0, 0, 0 );
 		this.deckYaw = this.helmYaw;
 		this.pitch = this.helmPitch;
@@ -480,7 +500,7 @@ export class Player {
 		// the exit point closest to something walkable (pier deck / sand)
 		let best = side ? null : this.ashoreTarget();
 
-		const dock = WORLD.boatDock.position;
+		const dock = b.homeDock.position;
 		if ( b.position.distanceTo( dock ) < 14 && b.speed < 1.5 ) {
 
 			b.moored = true;
@@ -636,7 +656,7 @@ export class Player {
 		}
 
 		// stay inside the hull (the bulwarks, plus a margin fore and aft)
-		p.z = THREE.MathUtils.clamp( p.z, L.zAft + L.shell + DECK_RADIUS, 4.0 );
+		p.z = THREE.MathUtils.clamp( p.z, L.zAft + L.shell + DECK_RADIUS, L.zFwd ?? 4.0 );
 		const halfIn = Math.max( 0.15, L.halfBreadth( L.tAtSheerZ( p.z ), Math.max( p.y, L.deckY ) ) - L.shell - DECK_RADIUS );
 		p.x = THREE.MathUtils.clamp( p.x, - halfIn, halfIn );
 
@@ -667,7 +687,7 @@ export class Player {
 		this.deckToWorld();
 
 		// prompts: take the helm, or step ashore
-		const hx = HOUSE_HELM.x, hz = HOUSE_HELM.z;
+		const hx = b.model.helmPoint.x, hz = b.model.helmPoint.z;
 		const nearHelm = Math.hypot( p.x - hx, p.z - hz ) < HELM_REACH && ! this.busy;
 		this._ashoreT -= dt;
 		if ( this._ashoreT <= 0 ) {

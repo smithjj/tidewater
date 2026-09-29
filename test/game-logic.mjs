@@ -171,6 +171,189 @@ ok( Object.keys( defaultUpgrades() ).length === Object.keys( UPGRADES ).length &
 	ok( st.buy( 'fishFinder' ) && st.stats.finder === true && st.buy( 'fishFinder' ) === null, 'fish finder: one level' );
 
 }
+// ---- the island day: the world clock in the save, and shop hours
+import { Vendor } from '../src/game/Vendor.js';
+import { CONDITIONS, SEA, conditionAt } from '../src/ocean/Conditions.js';
+import { Weather } from '../src/world/Weather.js';
+{
+	// the clock, the day and the weather ride in the save
+	const m = new Map();
+	const st = new GameState( { getItem: ( k ) => m.get( k ) ?? null, setItem: ( k, v ) => m.set( k, v ) } );
+	st.advanceDay();
+	st.setClock( 5.5 );
+	st.setWeather( { level: 2, target: 2 } );
+	st.save();
+	const st2 = new GameState( { getItem: ( k ) => m.get( k ) ?? null, setItem: ( k, v ) => m.set( k, v ) } );
+	ok( st2.load() && st2.day === 2 && st2.clock === 5.5 && st2.weather.level === 2, 'day, clock and weather survive a save / load' );
+	// a save from before the clock existed: day 1, no clock, weather fresh
+	const before = { v: 1, money: 3, inventory: [], log: {}, upgrades: {}, fuel: null, nextId: 1 };
+	const st3 = new GameState( { getItem: () => JSON.stringify( before ), setItem: () => {} } );
+	ok( st3.load() && st3.day === 1 && st3.clock === null && st3.weather === null, 'older saves start on day 1 with no clock' );
+	const st4 = new GameState( { getItem: () => JSON.stringify( { ...before, day: 0, clock: 'noon' } ), setItem: () => {} } );
+	ok( st4.load() && st4.day === 1 && st4.clock === null, 'a nonsense day / clock in a save falls back' );
+
+	// island hours, including one that wraps midnight
+	const joe = Vendor.prototype.openAt.bind( { hours: [ 6, 19 ] } );
+	ok( joe( 5.99 ) === false && joe( 6 ) === true && joe( 18.99 ) === true && joe( 19 ) === false, 'shop hours: open 6 am, shut at 7 pm' );
+	const night = Vendor.prototype.openAt.bind( { hours: [ 22, 6 ] } );
+	ok( night( 23 ) === true && night( 2 ) === true && night( 7 ) === false, 'shop hours wrap midnight' );
+	ok( Vendor.prototype.openAt.call( { hours: null }, 3 ) === true, 'a vendor with no hours is always open' );
+}
+{
+	// the weather walks the ladder on in-game time, writes the light uniforms continuously and
+	// rebuilds the wave spectrum (which clears the foam buffer) only when it crosses a step
+	const fft = {
+		local: { windSpeed: 7, windDirection: 25, fetch: 120 }, swell: { scale: 0.48 },
+		choppiness: { value: 0.9 }, foamBias: { value: 0.5 }, foamDecay: { value: 0.6 },
+		spectra: 0, updateSpectrumUniforms() { this.spectra ++; this.needsSpectrum = true; },
+	};
+	const app = {
+		fft, shore: { amplitude: { value: 0.34 }, period: { value: 9 } }, clouds: { coverage: { value: 0.45 } },
+		settings: { timeOfDay: 9, timeSpeed: 0.02 }, ui: null,
+	};
+	const w = new Weather( app );
+	ok( fft.spectra === 1, 'the weather applies the sea state once at startup' );
+	const lightOnly = fft.spectra;
+	w.write( { spectrum: false } );
+	ok( fft.spectra === lightOnly, 'a light write leaves the wave spectrum (and the foam) alone' );
+	// a day at 60 fps: 1200 real seconds
+	let bad = 0, moved = 0, prevTarget = w.target;
+	for ( let i = 0; i < 60 * 1200; i ++ ) {
+
+		w.update( 1 / 60 );
+		if ( ! ( w.level >= 0 && w.level <= CONDITIONS.length - 1 ) || ! Number.isFinite( w.level ) ) bad ++;
+		if ( ! Number.isFinite( fft.local.windSpeed ) || ! Number.isFinite( fft.foamBias.value ) || ! Number.isFinite( app.shore.amplitude.value ) ) bad ++;
+		if ( ! Number.isFinite( app.clouds.coverage.value ) || app.clouds.coverage.value < 0 || app.clouds.coverage.value > 1 ) bad ++;
+		if ( w.target !== prevTarget ) { moved ++; prevTarget = w.target; }
+
+	}
+	ok( bad === 0, 'a full day of weather stays on the ladder with no NaN anywhere' );
+	ok( moved >= 5, `the weather actually turns over (${ moved } changes in a day)` );
+	ok( fft.spectra > 1 && fft.spectra < 120, `the spectrum is rebuilt rarely, not per frame (${ fft.spectra } times in a day)` );
+	ok( CONDITIONS.includes( w.name ), 'the HUD gets a real condition name' );
+	// pausing the clock holds the weather
+	const held = w.level;
+	app.settings.timeSpeed = 0;
+	for ( let i = 0; i < 60 * 120; i ++ ) w.update( 1 / 60 );
+	ok( w.level === held, 'a paused clock holds the weather' );
+	// the level never leaves the ladder, whichever preset the interpolation is asked for
+	for ( let l = 0; l <= 3; l += 0.1 ) {
+
+		const v = conditionAt( l, 90 );
+		if ( ! ( v.wind >= SEA.Calm.wind - 1e-6 && v.wind <= SEA.Storm.wind + 1e-6 ) ) bad ++;
+
+	}
+	ok( bad === 0, 'interpolated conditions stay between the calmest and the worst preset' );
+}
+// ---- the trap line and the market
+import { soakHours, haulYield, SOAK_MIN, MAX_KEEP } from '../src/game/Traps.js';
+import { TRAP_PRICE, TRAP_LIMIT } from '../src/game/Gear.js';
+{
+	// traps soak on the world clock (day * 24 + hour), across midnight and across days
+	ok( soakHours( { day: 1, clock: 20 }, { day: 1, hour: 21.5 } ) === 1.5, 'soak: an hour and a half' );
+	ok( soakHours( { day: 1, clock: 20 }, { day: 2, hour: 6 } ) === 10, 'soak: across midnight' );
+	ok( soakHours( { day: 2, clock: 6 }, { day: 1, hour: 20 } ) === 0, 'soak never goes negative' );
+
+	const bay = { shallows: 0.2, reef: 0.3, pier: 0, bay: 1, deep: 0 };
+	const sand = { shallows: 1, reef: 0, pier: 0, bay: 0, deep: 0 };
+	ok( haulYield( { soak: 0.5, depth: 10, habitat: bay, hour: 12 } ).length === 0, 'too soon: the pot is empty' );
+	// a long soak on good ground fills up, and the animals are all real, in-range catches
+	let n = 0, lobsters = 0, offRange = 0, overCap = 0;
+	for ( let i = 0; i < 600; i ++ ) {
+
+		const y = haulYield( { soak: 14, depth: 12, habitat: bay, hour: 12 } );
+		n += y.length;
+		if ( y.length > MAX_KEEP ) overCap ++;
+		for ( const a of y ) {
+
+			if ( a.species === 'lobster' ) lobsters ++;
+			const f = FISH[ a.species ];
+			if ( ! f || ! ( a.kg >= f.kg[ 0 ] - 1e-9 && a.kg <= f.kg[ 1 ] + 1e-9 ) ) offRange ++;
+
+		}
+
+	}
+	ok( offRange === 0, 'every animal hauled is a real species at a weight it can be' );
+	ok( overCap === 0 && n / 600 > 2, `a long soak fills the pot (${ ( n / 600 ).toFixed( 2 ) } animals)` );
+	ok( lobsters / n > 0.5, `lobsters prefer the deeper ground (${ Math.round( 100 * lobsters / n ) }%)` );
+	// a pot on the sand shallows is a poor bet for lobster but still fishes
+	let shallow = 0;
+	for ( let i = 0; i < 600; i ++ ) shallow += haulYield( { soak: 6, depth: 1.2, habitat: sand, hour: 12 } ).length;
+	ok( shallow / 600 < n / 600, `shallow sand hauls less than the bay (${ ( shallow / 600 ).toFixed( 2 ) })` );
+	// the lobster is a trap catch only: it must never bite a rod, in any water, at any hour
+	let bitten = false;
+	for ( const [ name, spot ] of Object.entries( spots ) ) for ( const hour of [ 3, 7, 13, 19, 22 ] )
+		for ( let i = 0; i < 600; i ++ ) if ( pickSpecies( habitatAt( spot ), hour, rng ) === 'lobster' ) bitten = true;
+	ok( ! bitten, 'a lobster never takes a hook' );
+	// and the weighted pick never falls through to a species with no weight at all
+	const onlyGrunt = { pier: 1, shallows: 0, reef: 0, bay: 0, deep: 0 };
+	const high = () => 0.999999;
+	ok( pickSpecies( onlyGrunt, 12, high ) !== 'lobster', 'the fall-through picks a species that fishes there' );
+}
+{
+	// the market: standard on day 1, moving after that, and what Joe pays follows it
+	const m = new Map();
+	const st = new GameState( { getItem: ( k ) => m.get( k ) ?? null, setItem: ( k, v ) => m.set( k, v ) } );
+	st.money = 0;
+	const f = st.addFish( 'grunt', 1.0 );
+	ok( st.mulFor( 'grunt' ) === 1 && st.priceOf( f ) === f.value, 'day 1 pays the standard rate' );
+	ok( st.holdValue === f.value, 'the cooler is worth the standard rate on day 1' );
+	const sold = st.sell( [ f.id ] );
+	ok( sold.total === f.value && st.money === f.value, 'selling on day 1 pays the standard rate' );
+
+	st.advanceDay();
+	st.advanceDay();
+	st.rollMarket();
+	st.day = 3;
+	const f2 = st.addFish( 'grunt', 1.0 );
+	const m2 = st.mulFor( 'grunt' );
+	ok( m2 >= 0.75 && m2 <= 1.35 && Math.abs( m2 * 20 - Math.round( m2 * 20 ) ) < 1e-6, `day 3 moves the price in 5% steps (${ m2 })` );
+	ok( st.priceOf( f2 ) === Math.round( f2.value * m2 ), 'a fish is worth today\'s rate' );
+	ok( st.rollMarket().mul.grunt === m2, 'the roll is the same every time for a given day' );
+	const before = st.money;
+	const s2 = st.sell( [ f2.id ] );
+	ok( s2.total === st.priceOf( { ...f2 } ) || s2.total === Math.round( f2.value * m2 ), 'selling pays today\'s rate' );
+	ok( st.money === before + s2.total, 'the money matches the sale' );
+	// over a stretch of days the market actually moves around
+	const seen = new Set();
+	for ( let d = 2; d < 30; d ++ ) seen.add( st.rollMarket( d ).mul.grunt );
+	ok( seen.size > 5, `prices vary across days (${ seen.size } different rates in a month)` );
+	ok( [ ... seen ].every( ( v ) => v >= 0.75 && v <= 1.35 ), 'and stay inside the band' );
+}
+{
+	// the gear of pots: buy, set, haul, and all of it in the save
+	const m = new Map();
+	const store = { getItem: ( k ) => m.get( k ) ?? null, setItem: ( k, v ) => m.set( k, v ) };
+	const st = new GameState( store );
+	st.money = 1000;
+	ok( st.mayTrap === false, 'no trap licence, no trapping' );
+	ok( st.buyTraps( 1 ) && st.traps === 1 && st.money === 1000 - TRAP_PRICE, 'buying a pot' );
+	st.money = 0;
+	ok( st.buyTraps( 1 ) === false && st.traps === 1, 'cannot buy what you cannot afford' );
+	st.upgrades.trapLicence = 1;
+	ok( st.mayTrap === true, 'the licence unlocks the trap line' );
+	const set = st.setTrap( - 20, 140, 9.5 );
+	ok( set && st.sets.length === 1 && st.traps === 0, 'setting a pot spends it' );
+	ok( st.nearestSet( - 22, 141, 12 ) === set && st.nearestSet( 0, 0, 12 ) === null, 'the nearest set within reach' );
+	ok( st.setTrap( 0, 0, 10 ) === null, 'no pots aboard, nothing to set' );
+	ok( st.haulTrap( set.id ) === set && st.sets.length === 0 && st.traps === 1, 'hauling brings the pot back aboard' );
+	ok( st.haulTrap( set.id ) === null, 'a pot cannot be hauled twice' );
+	// a full gear of pots is the limit
+	st.traps = TRAP_LIMIT;
+	for ( let i = 0; i < TRAP_LIMIT; i ++ ) st.setTrap( i * 10, 200, 12 );
+	ok( st.sets.length === TRAP_LIMIT, `${ TRAP_LIMIT } pots in the water` );
+
+	// round trip: the line, the market and the day all come back
+	st.setClock( 7.25 );
+	st.save();
+	const st2 = new GameState( store );
+	ok( st2.load() && st2.sets.length === TRAP_LIMIT && st2.sets[ 0 ].x === 0 && st2.sets[ 0 ].clock === 12, 'the trap line survives a save' );
+	ok( st2.traps === 0 && st2.mulFor( 'grunt' ) === st.mulFor( 'grunt' ), 'the stock and the market survive too' );
+	// saves from before the trap line
+	const before2 = { v: 1, money: 3, inventory: [], log: {}, upgrades: {}, fuel: null, nextId: 1 };
+	const st3 = new GameState( { getItem: () => JSON.stringify( before2 ), setItem: () => {} } );
+	ok( st3.load() && st3.traps === 0 && st3.sets.length === 0 && st3.mulFor( 'grunt' ) === 1, 'older saves start with no pots out' );
+}
 console.log( `value check ${ value }` );
 console.log( fails ? `${ fails } FAILED` : 'all passed' );
 process.exit( fails ? 1 : 0 );

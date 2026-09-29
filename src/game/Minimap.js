@@ -1,6 +1,7 @@
 import { WORLD } from '../world/WorldLayout.js';
 import { STAND } from './FishStand.js';
 import { CHANDLERY } from './Chandlery.js';
+import { TRAP_LIMIT } from './Gear.js';
 
 // Minimap, lower right: the island baked once from the terrain data into a 2D canvas (depth-tinted
 // sea, reef and seagrass, sand, grass and forest by height, rock, paths, village pads, the pier,
@@ -37,6 +38,7 @@ const CSS = /* css */`
 .gm-mk.is-joe > i { background: var(--tw-sun); }
 .gm-mk.is-marta > i { background: var(--tw-aqua); }
 .gm-mk.is-boat > i { background: #f2efe6; }
+.gm-mk.is-trap > i { background: #e8a33d; }
 .gm-mk > b { position: absolute; left: 0; top: 0; width: 0; height: 0; border-left: calc(5 * var(--tw-u)) solid transparent; border-right: calc(5 * var(--tw-u)) solid transparent;
 	border-bottom: calc(7 * var(--tw-u)) solid rgba(255,255,255,0.9); margin: calc(-19 * var(--tw-u)) 0 0 calc(-5 * var(--tw-u)); transform-origin: calc(5 * var(--tw-u)) calc(19 * var(--tw-u)); display: none; }
 .gm-mk.is-edge > b { display: block; }
@@ -68,6 +70,8 @@ const ICON = {
 	fish: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 12c3-4 7-6 11-6 3 0 5 2 7 4l-2 2 2 2c-2 2-4 4-7 4-4 0-8-2-11-6Zm12-1.2a1.2 1.2 0 1 0 0 2.4 1.2 1.2 0 0 0 0-2.4Z"/></svg>',
 	anchor: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="5" r="2"/><path d="M12 7v13M7 11h10M4 14c1 4 4 6 8 6s7-2 8-6"/></svg>',
 	boat: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v9H6l6-9Zm1 2 5 7h-5V5ZM3 14h18l-3 5H6l-3-5Z"/></svg>',
+	// a pot: a buoy over a trap box
+	trap: '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M11 3h2v3h-2z"/><path d="M8 7h8l2 4v8H6v-8l2-4Zm1.6 1.6L8.4 11h7.2l-1.2-2.4H9.6ZM7.6 13v4.2h8.8V13H7.6Z"/></svg>',
 };
 
 const h = ( tag, cls, html ) => {
@@ -137,6 +141,14 @@ export class Minimap {
 
 			} },
 		];
+		// the trap line: a marker pool, one per pot the licence allows in the water (hidden when
+		// that slot has no set), so hauling back to a pot you left is a matter of looking at the map
+		for ( let i = 0; i < TRAP_LIMIT; i ++ ) this.markers.push( { id: 'trap' + i, ...mk( 'trap', ICON.trap ), pos: () => {
+
+			const s = game.state.sets[ i ];
+			return s ? { x: s.x, z: s.z } : null;
+
+		} } );
 		this.north = h( 'div', 'gm-map-n', 'N' );
 		this.marks.append( this.north );
 		this.fish = [ h( 'div', 'gm-map-fish', '<i></i><i></i>' ), h( 'div', 'gm-map-fish', '<i></i><i></i>' ) ];

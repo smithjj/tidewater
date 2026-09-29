@@ -2,14 +2,9 @@ import * as THREE from '../engine/index.js';
 import { UI } from './UI.js';
 import { G } from '../core/Globals.js';
 import { GroundBounce } from '../materials/GroundBounce.js';
+import { SEA, writeConditions } from '../ocean/Conditions.js';
 
 // Binds the Tidewater UI (panel + HUD) to the running app.
-const SEA = {
-	Calm: { wind: 3.5, fetch: 40, chop: 0.75, swell: 0.28, surf: 0.18, period: 11, whitecaps: 0.2 },
-	Breezy: { wind: 7, fetch: 120, chop: 0.9, swell: 0.48, surf: 0.34, period: 9, whitecaps: 0.5 },
-	Choppy: { wind: 12, fetch: 300, chop: 1.05, swell: 0.68, surf: 0.56, period: 8.5, whitecaps: 0.75 },
-	Storm: { wind: 20, fetch: 900, chop: 1.2, swell: 1.0, surf: 0.9, period: 12, whitecaps: 1 },
-};
 
 export class AppUI {
 
@@ -36,7 +31,9 @@ export class AppUI {
 			caustics: app.caustics ? app.caustics.strength.value : 1,
 			time: app.settings.timeOfDay,
 			advance: app.settings.timeSpeed !== 0,
-			timeSpeed: app.settings.timeSpeed || 0.05,
+			timeSpeed: app.settings.timeSpeed || 0.02,
+			dynamic: app.weather ? app.weather.enabled : true,
+			weatherPace: app.weather ? app.weather.pace : 1,
 			clouds: app.clouds ? app.clouds.coverage.value : 0.45,
 			cirrus: app.clouds && app.clouds.cirrus ? app.clouds.cirrus.value : 0.5,
 			exposure: 0,
@@ -53,26 +50,19 @@ export class AppUI {
 			shadows: true,
 		};
 
-		const spectrum = () => {
+		// Everything that reaches the sea goes through the one write path (ocean/Conditions.js), so
+		// the sliders below and the weather that walks the same values cannot drift apart.
+		const refs = { fft, shore, clouds: app.clouds };
+		const seaValues = () => ( { wind: s.wind, windDir: s.windDir, fetch: s.fetch, chop: s.chop, swell: s.swell,
+			whitecaps: s.whitecaps, surf: s.surf, period: s.period, cover: s.clouds } );
+		// spectrum false: light uniforms only (a spectrum rebuild clears the foam buffer, so it
+		// belongs to the conditions actually changing, not to a slider being nudged)
+		const apply = ( { spectrum = true } = {} ) => writeConditions( refs, seaValues(), { spectrum } );
 
-			fft.local.windSpeed = s.wind;
-			fft.local.windDirection = s.windDir;
-			fft.local.fetch = s.fetch;
-			fft.swell.scale = s.swell;
-			fft.updateSpectrumUniforms();
-			const a = THREE.MathUtils.degToRad( s.windDir );
-			G.windDir.value.set( Math.cos( a ), Math.sin( a ) );
-			G.windSpeed.value = s.wind;
+		// touching a sea control yourself takes the weather out of the loop
+		const manual = () => {
 
-		};
-
-		const whitecaps = () => {
-
-			// more whitecaps: foam starts at less compression (and more of it in fresh wind), lasts longer.
-			// Only crests near breaking (strong compression) foam: a laxer threshold paints every crest line
-			// with a white streak, which real open water at these wind speeds doesn't have.
-			fft.foamBias.value = 0.5 + 0.16 * s.whitecaps + 0.01 * THREE.MathUtils.clamp( s.wind - 7, - 5, 12 );
-			fft.foamDecay.value = 0.6 - 0.35 * s.whitecaps;
+			if ( app.weather && app.weather.setManual() ) ui.toast( 'Weather: yours to steer' );
 
 		};
 
@@ -90,40 +80,86 @@ export class AppUI {
 		const sea = ocean.addFolder( 'Sea state', { icon: 'wind' } );
 		sea.addPresets( {
 			label: 'Conditions', active: 'Breezy',
+			onChange: manual,
 			presets: Object.keys( SEA ).map( ( k ) => ( {
 				label: k, icon: k.toLowerCase(),
 				apply: () => {
 
 					const p = SEA[ k ];
 					Object.assign( s, p );
-					spectrum();
-					whitecaps();
-					fft.choppiness.value = s.chop;
-					shore.amplitude.value = s.surf;
-					shore.period.value = s.period;
+					s.clouds = p.cover;
+					// a preset is a whole condition: the spectrum and the sky step with it
+					apply();
 
 				},
 			} ) ),
 		} );
 		sea.addSlider( { label: 'Wind speed', object: s, key: 'wind', min: 0.5, max: 30, step: 0.1, unit: 'm/s', tooltip: 'Wind 10 m above the sea. Drives the local wind waves, whitecaps and spray.', onChange: () => {
 
-			spectrum();
-			whitecaps();
+			manual();
+			apply();
 
 		} } );
-		sea.addSlider( { label: 'Wind direction', object: s, key: 'windDir', min: 0, max: 360, step: 1, unit: '°', onChange: spectrum } );
-		sea.addSlider( { label: 'Fetch', object: s, key: 'fetch', min: 5, max: 2000, log: true, unit: 'km', tooltip: 'Distance the wind has blown over open water: longer fetch, longer and higher waves.', onChange: spectrum } );
-		sea.addSlider( { label: 'Choppiness', object: s, key: 'chop', min: 0, max: 1.6, step: 0.01, tooltip: 'Horizontal displacement: sharp crests, wide troughs.', onChange: ( v ) => { fft.choppiness.value = v; } } );
-		sea.addSlider( { label: 'Ocean swell', object: s, key: 'swell', min: 0, max: 2, step: 0.01, onChange: spectrum } );
-		sea.addSlider( { label: 'Whitecaps', object: s, key: 'whitecaps', min: 0, max: 1, step: 0.01, onChange: whitecaps } );
+		sea.addSlider( { label: 'Wind direction', object: s, key: 'windDir', min: 0, max: 360, step: 1, unit: '°', onChange: () => {
+
+			manual();
+			apply();
+
+		} } );
+		sea.addSlider( { label: 'Fetch', object: s, key: 'fetch', min: 5, max: 2000, log: true, unit: 'km', tooltip: 'Distance the wind has blown over open water: longer fetch, longer and higher waves.', onChange: () => {
+
+			manual();
+			apply();
+
+		} } );
+		sea.addSlider( { label: 'Choppiness', object: s, key: 'chop', min: 0, max: 1.6, step: 0.01, tooltip: 'Horizontal displacement: sharp crests, wide troughs.', onChange: () => {
+
+			manual();
+			apply( { spectrum: false } );
+
+		} } );
+		sea.addSlider( { label: 'Ocean swell', object: s, key: 'swell', min: 0, max: 2, step: 0.01, onChange: () => {
+
+			manual();
+			apply();
+
+		} } );
+		sea.addSlider( { label: 'Whitecaps', object: s, key: 'whitecaps', min: 0, max: 1, step: 0.01, onChange: () => {
+
+			manual();
+			apply( { spectrum: false } );
+
+		} } );
+		// the weather: it rises and falls on in-game time, independent of the sliders above
+		const weather = sea.addFolder( 'Weather', { icon: 'clock' } );
+		weather.addToggle( { label: 'Dynamic weather', object: s, key: 'dynamic', tooltip: 'The sea state walks the condition ladder on its own, on in-game time. Touch any control above and it hands the sea back to you.', onChange: ( v ) => {
+
+			if ( app.weather ) app.weather.setEnabled( v );
+
+		} } );
+		weather.addSlider( { label: 'Weather pace', object: s, key: 'weatherPace', min: 0.25, max: 4, step: 0.05, unit: '×', tooltip: 'How quickly conditions change.', onChange: ( v ) => {
+
+			if ( app.weather ) app.weather.pace = v;
+
+		} } );
 		const water = ocean.addFolder( 'Water', { icon: 'droplet' } );
 		water.addSlider( { label: 'Clarity', object: s, key: 'clarity', min: 0.3, max: 2, step: 0.01, tooltip: 'Lower = more suspended sediment and plankton (greener, murkier).', onChange: clarity } );
 
 		// ---------------------------------------------------------------- Shore
 		const shoreTab = ui.addTab( 'shore', 'Shore', 'shore' );
 		const surf = shoreTab.addFolder( 'Surf', { icon: 'wave' } );
-		surf.addSlider( { label: 'Wave height', object: s, key: 'surf', min: 0, max: 1.4, step: 0.01, unit: 'm', format: ( v ) => `${ ( v * 2 ).toFixed( 2 ) } m`, onChange: ( v ) => { shore.amplitude.value = v; } } );
-		surf.addSlider( { label: 'Wave period', object: s, key: 'period', min: 5, max: 16, step: 0.1, unit: 's', onChange: ( v ) => { shore.period.value = v; } } );
+		surf.addSlider( { label: 'Wave height', object: s, key: 'surf', min: 0, max: 1.4, step: 0.01, unit: 'm', format: ( v ) => `${ ( v * 2 ).toFixed( 2 ) } m`, onChange: () => {
+
+			manual();
+			apply( { spectrum: false } );
+
+		} } );
+		surf.addSlider( { label: 'Wave period', object: s, key: 'period', min: 5, max: 16, step: 0.1, unit: 's', onChange: () => {
+
+			manual();
+			apply( { spectrum: false } );
+
+		} } );
 		surf.addSlider( { label: 'Breaking depth ratio', object: s, key: 'gamma', min: 0.5, max: 1.1, step: 0.01, tooltip: 'Waves break when height exceeds this fraction of the depth.', onChange: ( v ) => { shore.gamma.value = v; } } );
 		surf.addSlider( { label: 'Curl', object: s, key: 'curl', min: 0, max: 1.5, step: 0.01, onChange: ( v ) => { shore.curl.value = v; } } );
 		if ( app.breakers ) {

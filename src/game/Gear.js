@@ -45,9 +45,16 @@ export const UPGRADES = {
 		{ cost: 0, label: 'Nav lights only', deckLights: false },
 		{ cost: 140, label: 'Deck floodlights for night fishing', deckLights: true },
 	] },
+	// the trap line: the licence is the gate, the traps themselves are a consumable stock
+	trapLicence: { name: 'Trap licence', levels: [
+		{ cost: 0, label: 'None', trapLicence: false },
+		{ cost: 450, label: 'Commercial trap licence', trapLicence: true },
+	] },
 };
 
 export const FUEL_PRICE = 1.5; // $ per litre of diesel at the chandlery
+export const TRAP_PRICE = 90; // $ per lobster trap (wooden, wire, ready to fish)
+export const TRAP_LIMIT = 6; // most traps one licence will let you fish at a time
 // litres per second at the helm: idle plus a lot more at full rpm (40 L lasts ~25 min flat out)
 export function fuelBurn( rpm ) {
 

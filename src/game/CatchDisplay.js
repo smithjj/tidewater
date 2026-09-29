@@ -34,8 +34,10 @@ export class CatchDisplay {
 		_f.makeTranslation( PARK.x, PARK.y, PARK.z );
 		for ( const id of FISH_IDS ) {
 
-			const model = FISH[ id ].model;
-			fp.add( 'whole', model, _f, 'gill', 0.3, { anchor: FishProps.gillAnchor( model ), cloudy: 0.1, wet: 1 } );
+			// a fish body from SPECIES, or a species with its own model (the lobster from a trap)
+			const f = FISH[ id ], kind = f.kind || 'whole';
+			const anchor = kind === 'whole' ? FishProps.gillAnchor( f.model ) : [ 0, 0, 0 ];
+			fp.add( kind, kind === 'whole' ? f.model : null, _f, 'gill', 0.3, { anchor, cloudy: 0.1, wet: 1 } );
 			this.slot[ id ] = i ++;
 
 		}
@@ -59,14 +61,14 @@ export class CatchDisplay {
 		if ( this.shown !== species ) this.hide();
 		this.shown = species;
 		this.t += dt;
-		const model = FISH[ species ].model;
+		const f = FISH[ species ], kind = f.kind || 'whole';
 		const L = fishLength( species, kg );
 		// struggling: the body curls side to side, the jaw works, the whole fish swings on the line
 		const flap = Math.sin( this.t * 11 ) * 0.9 * Math.exp( - this.t * 0.5 );
 		const swing = Math.sin( this.t * 2.6 ) * 0.25 * Math.exp( - this.t * 0.4 );
 		_q.setFromAxisAngle( _a.set( 0, 1, 0 ), faceYaw + swing );
 		_f.makeRotationFromQuaternion( _q ).setPosition( mouth );
-		this.place( i, _f, GILL, L, FishProps.gillAnchor( model ), flap, 0, 0.4 + 0.4 * Math.max( 0, Math.sin( this.t * 7 ) ) );
+		this.place( i, _f, GILL, L, kind === 'whole' ? FishProps.gillAnchor( f.model ) : [ 0, 0, 0 ], flap, 0, 0.4 + 0.4 * Math.max( 0, Math.sin( this.t * 7 ) ) );
 
 	}
 

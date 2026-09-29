@@ -8,13 +8,23 @@ import { FishingRod } from './FishingRod.js';
 import { FishStand } from './FishStand.js';
 import { Chandlery } from './Chandlery.js';
 import { CatchDisplay } from './CatchDisplay.js';
-import { UPGRADES, fuelBurn } from './Gear.js';
+import { UPGRADES, fuelBurn, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
+import { Traps, soakHours, haulYield, SOAK_MIN } from './Traps.js';
 import { GameHUD } from './GameHUD.js';
 import { Minimap } from './Minimap.js';
 import { Guide } from './Guide.js';
 
 // how long the catch card stays up unless dismissed (ms)
 const CATCH_CARD_MS = 9000;
+
+// a clock hour as a person would say it: 6 → "6 am", 18.5 → "6:30 pm"
+const hourLabel = ( h ) => {
+
+	const hr = Math.floor( h ) % 24, m = Math.round( ( h - Math.floor( h ) ) * 60 );
+	const h12 = hr % 12 === 0 ? 12 : hr % 12;
+	return m ? `${ h12 }:${ String( m ).padStart( 2, '0' ) } ${ hr < 12 ? 'am' : 'pm' }` : `${ h12 } ${ hr < 12 ? 'am' : 'pm' }`;
+
+};
 
 // The fishing game on top of the world:
 //   R          take out / put away the rod (on foot, on the pier, on the boat's deck)
@@ -36,9 +46,14 @@ export class Game {
 		this.display = new CatchDisplay( { scene: app.scene, stall: this.stand.iceFish() } );
 		this.landing = null; // { species, kg } while the caught fish swings in view
 		this.chandlery = new Chandlery( { scene: app.scene, terrain: app.terrainData, colliders: app.colliders, material: this.stand.material } );
+		// the trap line: pots on the seabed with a buoy on each (see game/Traps.js)
+		this.traps = new Traps( { scene: app.scene, terrain: app.terrainData, query: app.query, state: this.state, toast: ( t, ms ) => this.toast( t, ms ) } );
+		// a returning trapper already holds the licence: fetch the modelled pot up front
+		if ( this.state.mayTrap ) this.traps.loadHero();
 		this.vendors = [ this.stand.vendor, this.chandlery.vendor ];
-		// boat upgrades: engine (thrust / top speed) and deck floodlights for night fishing
-		const b = app.boatCtl;
+		// boat upgrades: engine (thrust / top speed) and deck floodlights for night fishing.
+		// The rebuilt engine is the lobster boat's: always target it, not whichever boat is active.
+		const b = app.lobsterCtl ?? app.boatCtl;
 		this._engineBase = { maxThrust: b.maxThrust, pitchSpeed: b.pitchSpeed };
 		this.floods = [];
 		if ( app.localLights ) this.addFloodlights( app.localLights, app.boat );
@@ -46,6 +61,7 @@ export class Game {
 		this._sonarT = 0;
 		this._sonar = null;
 		this.hud = null;
+		this._haulCard = 0; // seconds the haul's catch card stays before it dismisses itself
 		this.fight = null; // CatchMinigame while a fish is on
 		this.bite = null; // { phase: 'wait' | 'nibble' | 'take', t, nibbles, species, kg }
 		this._lmb = false;
@@ -62,7 +78,7 @@ export class Game {
 
 		const g = this.state.stats;
 		this.rod.setGear( { castM: g.castM, reelSpeed: g.reelSpeed } );
-		const b = this.app.boatCtl;
+		const b = this.app.lobsterCtl ?? this.app.boatCtl;
 		if ( b && this._engineBase ) {
 
 			b.maxThrust = this._engineBase.maxThrust * g.speedMul * g.speedMul;
@@ -106,6 +122,22 @@ export class Game {
 
 		const r = this.state.buy( key );
 		if ( r ) this.toast( `${ UPGRADES[ key ].name }: ${ r.label }` );
+		// the modelled pot is a 23 MB fetch: only start it once there is a trap line to show
+		if ( key === 'trapLicence' && r && this.traps ) this.traps.loadHero();
+		return r;
+
+	}
+
+	buyTraps( n = 1 ) {
+
+		const r = this.state.buyTraps( n );
+		if ( r ) {
+
+			this.toast( n === 1 ? `Trap aboard · $${ TRAP_PRICE }` : `${ n } traps aboard · $${ TRAP_PRICE * n }` );
+			if ( this.traps ) this.traps.loadHero();
+
+		}
+
 		return r;
 
 	}
@@ -128,6 +160,19 @@ export class Game {
 
 		if ( this.hud ) this.hud.toast( text, ms );
 		else console.log( '[game]', text );
+
+	}
+
+	// midnight: the day ticks over, and the world clock / weather go into the save
+	newDay() {
+
+		const s = this.state;
+		s.advanceDay();
+		s.setClock( this.hour );
+		if ( this.app.weather ) s.setWeather( this.app.weather.state() );
+		s.save();
+		s.emit();
+		this.toast( `Day ${ s.day }`, 3400 );
 
 	}
 
@@ -259,12 +304,42 @@ export class Game {
 
 		this.updateBoat( dt );
 
+		// the world clock and the weather ride along in the save (every 20 s, and at midnight)
+		this._clockT = ( this._clockT ?? 20 ) - dt;
+		if ( this._clockT <= 0 ) {
+
+			this._clockT = 20;
+			const s = this.state;
+			s.setClock( this.hour );
+			if ( app.weather ) s.setWeather( app.weather.state() );
+			s.save();
+
+		}
+
+		// a catch card from a haul is not part of the landing flow, so it dismisses itself: it times
+		// out on its own (matching the card's own timer), or E / click / Esc takes it away early
+		if ( this._haulCard > 0 ) {
+
+			this._haulCard -= dt;
+			if ( this._haulCard <= 0 || inp.hit( 'KeyE' ) || inp.hit( 'Escape' ) || lDown ) {
+
+				if ( this.hud ) this.hud.hideCatch();
+				this._haulCard = 0;
+				this._cardDismissed = true; // this frame's E / click belonged to the card
+
+			}
+
+		}
+
 		// the traders
 		for ( const v of this.vendors ) v.update( dt, p.mode === 'walk' ? p.position : null );
 		this.updateVendors( inp, p );
+		// the trap line (buoys ride the water; setting and hauling are E on the working boat)
+		this.traps.update( dt );
+		this.updateTraps( inp, p );
 
 		// prompts when the player has nothing to say
-		if ( ! p.prompt && can ) p.prompt = this.prompt();
+		if ( ! p.prompt ) p.prompt = this.trapPrompt( p ) || ( can ? this.prompt() : null );
 
 		const aboard = p.mode === 'boat' || p.mode === 'deck';
 		// the catch card's live fish portrait (or one queued thumbnail)
@@ -272,6 +347,10 @@ export class Game {
 		if ( this.hud ) this.hud.update( {
 			fuel: aboard ? { litres: this.state.fuelL, tank: this.state.stats.fuelL } : null,
 			sonar: aboard && this.state.stats.finder ? this._sonar : null,
+			// the world clock: which day, the hour, and what the sea is doing
+			clock: { day: this.state.day, hour: this.hour, sea: app.weather ? app.weather.name : null },
+			// the trap line, once there is one
+			traps: this.state.mayTrap || this.state.sets.length ? { aboard: this.state.traps, set: this.state.sets.length } : null,
 			fight: this.fight,
 			casting: rod.state === 'windup',
 			power: rod.power,
@@ -355,8 +434,18 @@ export class Game {
 	updateVendors( inp, p ) {
 
 		const hud = this.hud;
-		let near = null;
-		if ( p.mode === 'walk' ) for ( const v of this.vendors ) if ( v.inRange( p.position ) ) near = v;
+		const hour = this.hour;
+		let near = null, shut = null;
+		if ( p.mode === 'walk' ) for ( const v of this.vendors ) {
+
+			if ( ! v.inRange( p.position ) ) { v._shutTold = false; continue; }
+			if ( v.openAt( hour ) ) near = v;
+			else if ( ! v._shutTold ) { v._shutTold = true; shut = v; }
+
+		}
+
+		// the stalls keep island hours: closed at night, say so once as you walk up
+		if ( shut ) this.toast( `${ shut.name.split( ' ·' )[ 0 ] } is shut — back at ${ hourLabel( shut.hours[ 0 ] ) }`, 3200 );
 		for ( const v of this.vendors ) v.talking = !! ( hud && hud.standOpen && hud.vendor === v );
 		if ( hud && hud.standOpen && ( ! near || near !== hud.vendor ) ) hud.closeStand();
 		if ( ! near || this.fight || this._cardDismissed || ( hud && hud.catchOpen ) ) return;
@@ -380,6 +469,150 @@ export class Game {
 		if ( r.count ) this.toast( `Sold ${ r.count } fish for $${ r.total }` );
 		if ( this.app.audio && this.app.audio.coin ) this.app.audio.coin();
 		return r;
+
+	}
+
+	// ---- the trap line
+	// Setting and hauling happen from the working boat (it is the one with the hauler): stand
+	// anywhere aboard, E. Traps soak on the world clock, so the day running is what fills them.
+
+	get aboardWorkingBoat() {
+
+		const p = this.app.player;
+		return p.boat === this.app.lobsterCtl && ( p.mode === 'boat' || p.mode === 'deck' );
+
+	}
+
+	// the prompt (and the action it implies) for the trap line, or null
+	trapPrompt( p ) {
+
+		if ( ! this.aboardWorkingBoat ) return null;
+		if ( this._haulCard > 0 || ( this.hud && this.hud.catchOpen ) ) return null;
+		const s = this.state, b = this.app.lobsterCtl;
+		const near = s.nearestSet( b.position.x, b.position.z, 12 );
+		if ( near ) {
+
+			const soak = soakHours( near, { hour: this.hour, day: s.day } );
+			const when = soak < SOAK_MIN ? 'just set' : `soaked ${ soak < 10 ? soak.toFixed( 1 ) : Math.round( soak ) } h`;
+			return { key: 'E', text: `Haul trap · ${ when }`, act: 'haul' };
+
+		}
+
+		if ( ! s.mayTrap || s.traps <= 0 || s.sets.length >= TRAP_LIMIT ) return null;
+		return { key: 'E', text: `Set a trap · ${ s.traps } aboard`, act: 'set' };
+
+	}
+
+	updateTraps( inp, p ) {
+
+		if ( this._cardDismissed || this._haulCard > 0 || ( this.hud && this.hud.catchOpen ) ) return;
+		if ( ! inp.hit( 'KeyE' ) ) return;
+		const pr = this.trapPrompt( p );
+		if ( ! pr ) return;
+		if ( pr.act === 'haul' ) this.haulTrap();
+		else this.setTrap();
+
+	}
+
+	setTrap() {
+
+		const app = this.app, s = this.state, b = app.lobsterCtl;
+		if ( ! this.aboardWorkingBoat ) return;
+		if ( b.speed > 2 ) {
+
+			this.toast( 'Slow down to set a pot', 2200 );
+			return;
+
+		}
+
+		const x = b.position.x, z = b.position.z;
+		const depth = Math.max( 0, - app.terrainData.heightAt( x, z ) );
+		if ( depth < 2 ) {
+
+			this.toast( 'Too shallow here — the pot would show at low water', 3000 );
+			return;
+
+		}
+
+		if ( depth > 45 ) {
+
+			this.toast( 'Too deep — the warp would not reach the bottom', 3000 );
+			return;
+
+		}
+
+		// a gear of pots goes in a line, not in a heap
+		for ( const o of s.sets ) {
+
+			if ( Math.hypot( o.x - x, o.z - z ) < 8 ) {
+
+				this.toast( 'There is already a pot here — move along a bit', 2600 );
+				return;
+
+			}
+
+		}
+
+		const set = s.setTrap( x, z, this.hour );
+		if ( ! set ) {
+
+			this.toast( 'No pots aboard — Marta sells traps', 3000 );
+			return;
+
+		}
+
+		this.toast( `Pot set in ${ depth.toFixed( 0 ) } m · give it a few hours`, 3200 );
+		if ( app.audio && app.audio.splash ) app.audio.splash( 0.5 );
+
+	}
+
+	haulTrap() {
+
+		const app = this.app, s = this.state, b = app.lobsterCtl;
+		if ( ! this.aboardWorkingBoat ) return;
+		const set = s.nearestSet( b.position.x, b.position.z, 12 );
+		if ( ! set ) return;
+		const depth = Math.max( 0, - app.terrainData.heightAt( set.x, set.z ) );
+		const soak = soakHours( set, { hour: this.hour, day: s.day } );
+		const animals = haulYield( { soak, depth, habitat: this.habitatAtPoint( set.x, set.z, depth ), hour: this.hour } );
+		if ( ! s.haulTrap( set.id ) ) return;
+		this.traps.haulVisual( b );
+		if ( app.audio && app.audio.fishFlop ) app.audio.fishFlop();
+
+		if ( ! animals.length ) {
+
+			this.toast( soak < SOAK_MIN
+				? 'Nothing yet — give it a few hours'
+				: 'The pot came up empty · try deeper ground or the reef edge', 3600 );
+			return;
+
+		}
+
+		// smallest first, so the catch card ends up showing the best of the haul
+		animals.sort( ( a, c ) => a.kg - c.kg );
+		const tally = new Map();
+		let kept = 0;
+		for ( const a of animals ) {
+
+			const f = s.addFish( a.species, a.kg, this.hour );
+			if ( f ) kept ++;
+			const t = tally.get( a.species ) || { n: 0, kg: 0 };
+			t.n ++; t.kg += a.kg;
+			tally.set( a.species, t );
+
+		}
+
+		const list = [ ... tally ].map( ( [ id, t ] ) => `${ t.n } × ${ FISH[ id ].name } (${ t.kg.toFixed( 1 ) } kg)` ).join( ', ' );
+		this.toast( kept < animals.length
+			? `Pot hauled: ${ list } · ${ animals.length - kept } did not fit` : `Pot hauled: ${ list }`, 5000 );
+		if ( this.hud ) {
+
+			this.hud.showCatch( s.lastCatch, 7000 );
+			this._haulCard = 7;
+
+		}
+
+		if ( app.audio && app.audio.coin ) app.audio.coin();
 
 	}
 

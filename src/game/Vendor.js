@@ -12,12 +12,13 @@ import { createPropMaterial, PAT } from './GameMaterials.js';
 //   vendor.group (add to the scene), vendor.inRange( p ), vendor.update( dt, lookAt )
 export class Vendor {
 
-	constructor( { name, kind = 'buyer', position, yaw = 0, radius = 2.6, greeting = '', idle = '', material = null, look = {}, character = null } ) {
+	constructor( { name, kind = 'buyer', position, yaw = 0, radius = 2.6, hours = null, greeting = '', idle = '', material = null, look = {}, character = null } ) {
 
 		this.name = name;
 		this.kind = kind; // 'buyer' (fish stand) | 'shop' (upgrades)
 		this.greeting = greeting;
 		this.idle = idle;
+		this.hours = hours; // [ open, close ] on the 24 h clock, or null for always open
 		this.radius = radius;
 		this.position = position.clone();
 		this.yaw = yaw;
@@ -68,6 +69,15 @@ export class Vendor {
 	inRange( p ) {
 
 		return Math.hypot( p.x - this.position.x, p.z - this.position.z ) < this.radius && Math.abs( p.y - this.position.y ) < 2.5;
+
+	}
+
+	// island hours: open from `hours[ 0 ]` up to (not including) `hours[ 1 ]`, wrapping midnight
+	openAt( hour ) {
+
+		if ( ! this.hours ) return true;
+		const [ open, close ] = this.hours;
+		return close >= open ? hour >= open && hour < close : hour >= open || hour < close;
 
 	}
 

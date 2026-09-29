@@ -45,6 +45,7 @@ export class Chandlery {
 			position: new Vector3( vx, terrain.heightAt( vx, vz ), vz ),
 			yaw: CHANDLERY.yaw,
 			radius: 3.0,
+			hours: [ 7, 18 ], // shop hours
 			greeting: 'Line, reels, a bigger hold, diesel. What do you need?',
 			material: this.material,
 			// realistic character (Rocketbox, MIT): the stand-in shows until it has loaded

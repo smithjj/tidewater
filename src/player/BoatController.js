@@ -49,7 +49,7 @@ const _dq = new THREE.Quaternion();
 // mooring lines as before.
 export class BoatController {
 
-	constructor( { model, query, terrain, colliders } ) {
+	constructor( { model, query, terrain, colliders, dock = WORLD.boatDock } ) {
 
 		this.model = model;
 		this.query = query;
@@ -81,27 +81,29 @@ export class BoatController {
 		this.slot = query.allocate( 'boatHull', this.samples.length );
 
 		// lateral stations along the keel: (z, lateral area m^2) for hull lift and cross-flow drag
-		this.stations = [ [ - 3.4, 0.73 ], [ - 2.3, 0.78 ], [ - 1.2, 0.8 ], [ - 0.1, 0.77 ], [ 1.0, 0.62 ], [ 2.1, 0.33 ], [ 3.2, 0.14 ] ];
-		this.lateralY = 0.06; // height of the centre of lateral resistance (boat frame)
+		// (overridable per model: a different hull has its own keel line and coefficients)
+		this.stations = model.stations || [ [ - 3.4, 0.73 ], [ - 2.3, 0.78 ], [ - 1.2, 0.8 ], [ - 0.1, 0.77 ], [ 1.0, 0.62 ], [ 2.1, 0.33 ], [ 3.2, 0.14 ] ];
+		this.lateralY = model.lateralY ?? 0.06; // height of the centre of lateral resistance (boat frame)
 		this.bank = 0; // roll moment per (u * drift velocity): hull bottom lift banking into turns
-		this.hullLift = 0.5; // lift coefficient of the hull + keel per radian of drift
-		this.rudderLift = 2.8; // rudder lift slope (x area 0.12 m^2), includes the hull's flap effect
+		this.hullLift = model.hullLift ?? 0.5; // lift coefficient of the hull + keel per radian of drift
+		this.rudderLift = model.rudderLift ?? 2.8; // rudder lift slope (x area 0.12 m^2), includes the hull's flap effect
 
 		// state (position = model origin at the design waterline)
-		this.position = new THREE.Vector3().copy( WORLD.boatDock.position );
-		this.quaternion = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), WORLD.boatDock.heading );
+		this.position = new THREE.Vector3().copy( dock.position );
+		this.quaternion = new THREE.Quaternion().setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), dock.heading );
 		this.velocity = new THREE.Vector3();
 		this.angular = new THREE.Vector3();
 
 		this.throttle = 0; // lever -1..1 (moves with some inertia)
 		this.steer = 0; // wheel -1..1
 		this.rpm = 0; // engine 0..1 (spools after the lever)
-		this.maxThrust = 26000; // N, bollard pull at full rpm
-		this.pitchSpeed = 16; // m/s, propeller pitch speed at full rpm (thrust -> 0 there)
-		this.reverseFactor = 0.45; // astern thrust relative to ahead
+		this.maxThrust = model.maxThrust ?? 26000; // N, bollard pull at full rpm
+		this.pitchSpeed = model.pitchSpeed ?? 16; // m/s, propeller pitch speed at full rpm (thrust -> 0 there)
+		this.reverseFactor = model.reverseFactor ?? 0.45; // astern thrust relative to ahead
 		this.driven = false;
 		this.moored = true;
-		this.mooring = { anchor: WORLD.boatDock.position.clone(), heading: WORLD.boatDock.heading };
+		this.homeDock = dock; // where exitBoat re-moors (Player) and reset() returns to
+		this.mooring = { anchor: dock.position.clone(), heading: dock.heading };
 
 		const n = this.samples.length;
 		this.waterH = new Float32Array( n ); // latest read-back
@@ -124,6 +126,17 @@ export class BoatController {
 
 		this.bowWorld = new THREE.Vector3();
 		this.sternWorld = new THREE.Vector3();
+
+		// grounding contact points and the pier-pile hull outline (per-model, sized to the hull)
+		this.contactPoints = model.contactPoints || [
+			new THREE.Vector3( 0, - 0.7, 3.2 ), new THREE.Vector3( 0, - 0.75, 0 ), new THREE.Vector3( 0, - 0.72, - 3.4 ),
+			new THREE.Vector3( 1.1, - 0.4, 1.5 ), new THREE.Vector3( - 1.1, - 0.4, 1.5 ), new THREE.Vector3( 1.2, - 0.35, - 2.5 ), new THREE.Vector3( - 1.2, - 0.35, - 2.5 ),
+			new THREE.Vector3( 0, 0.2, 4.2 ),
+		];
+		this.outline = model.outline || [
+			new THREE.Vector3( 0, 0.3, 4.1 ), new THREE.Vector3( 1.2, 0.3, 2.0 ), new THREE.Vector3( - 1.2, 0.3, 2.0 ),
+			new THREE.Vector3( 1.4, 0.3, - 1.0 ), new THREE.Vector3( - 1.4, 0.3, - 1.0 ), new THREE.Vector3( 1.2, 0.3, - 3.8 ), new THREE.Vector3( - 1.2, 0.3, - 3.8 ),
+		];
 
 		this.apply();
 
@@ -438,16 +451,16 @@ export class BoatController {
 	// back to the berth, at rest (safety net if the integration ever blows up)
 	reset() {
 
-		this.position.copy( WORLD.boatDock.position );
-		this.quaternion.setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), WORLD.boatDock.heading );
+		this.position.copy( this.homeDock.position );
+		this.quaternion.setFromAxisAngle( new THREE.Vector3( 0, 1, 0 ), this.homeDock.heading );
 		this.velocity.set( 0, 0, 0 );
 		this.angular.set( 0, 0, 0 );
 		this.throttle = 0;
 		this.steer = 0;
 		this.rpm = 0;
 		this.moored = true;
-		this.mooring.anchor.copy( WORLD.boatDock.position );
-		this.mooring.heading = WORLD.boatDock.heading;
+		this.mooring.anchor.copy( this.homeDock.position );
+		this.mooring.heading = this.homeDock.heading;
 
 	}
 
@@ -476,13 +489,8 @@ export class BoatController {
 
 	contacts( F, T, comW ) {
 
-		const pts = this.contactPoints || ( this.contactPoints = [
-			new THREE.Vector3( 0, - 0.7, 3.2 ), new THREE.Vector3( 0, - 0.75, 0 ), new THREE.Vector3( 0, - 0.72, - 3.4 ),
-			new THREE.Vector3( 1.1, - 0.4, 1.5 ), new THREE.Vector3( - 1.1, - 0.4, 1.5 ), new THREE.Vector3( 1.2, - 0.35, - 2.5 ), new THREE.Vector3( - 1.2, - 0.35, - 2.5 ),
-			new THREE.Vector3( 0, 0.2, 4.2 ),
-		] );
 		const pw = _c1, vp = _c2, f = _c3, r = _c4;
-		for ( const lp of pts ) {
+		for ( const lp of this.contactPoints ) {
 
 			this.toWorld( lp, pw );
 			const ground = this.terrain.heightAt( pw.x, pw.z );
@@ -502,10 +510,7 @@ export class BoatController {
 		// pier piles: keep the hull outline out of vertical cylinders / solid boxes near the waterline
 		if ( this.colliders ) {
 
-			const outline = this.outline || ( this.outline = [
-				new THREE.Vector3( 0, 0.3, 4.1 ), new THREE.Vector3( 1.2, 0.3, 2.0 ), new THREE.Vector3( - 1.2, 0.3, 2.0 ),
-				new THREE.Vector3( 1.4, 0.3, - 1.0 ), new THREE.Vector3( - 1.4, 0.3, - 1.0 ), new THREE.Vector3( 1.2, 0.3, - 3.8 ), new THREE.Vector3( - 1.2, 0.3, - 3.8 ),
-			] );
+			const outline = this.outline;
 			const tmp = _c5;
 			for ( const lp of outline ) {
 
@@ -533,8 +538,8 @@ export class BoatController {
 		g.position.copy( this.position );
 		g.quaternion.copy( this.quaternion );
 		g.updateMatrixWorld( true );
-		this.toWorld( _v.set( 0, 0, 3.9 ), this.bowWorld );
-		this.toWorld( _v.set( 0, 0, - 3.8 ), this.sternWorld );
+		this.toWorld( _v.set( 0, 0, this.model.bowZ ?? 3.9 ), this.bowWorld );
+		this.toWorld( _v.set( 0, 0, this.model.sternZ ?? - 3.8 ), this.sternWorld );
 
 	}
 

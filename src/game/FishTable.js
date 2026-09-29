@@ -31,6 +31,10 @@ export const FISH = {
 	tuna: { name: 'Blackfin tuna', sci: 'Thunnus atlanticus', lw: [ 0.0145, 3.0 ], model: 'tuna', habitat: { deep: 1 }, kg: [ 3, 14 ], price: 16, fight: 0.85, stamina: 16, time: 'dawnDusk', rarity: 0.5 },
 	mahi: { name: 'Mahi-mahi', sci: 'Coryphaena hippurus', lw: [ 0.0079, 3.0 ], model: 'mahi', habitat: { deep: 0.8 }, kg: [ 4, 18 ], price: 14, fight: 0.8, stamina: 15, time: 'day', rarity: 0.4 },
 	tarpon: { name: 'Tarpon', sci: 'Megalops atlanticus', lw: [ 0.0077, 3.02 ], model: 'tarpon', habitat: { pier: 0.35, bay: 0.5, shallows: 0.15 }, kg: [ 10, 45 ], price: 4, fight: 1, stamina: 24, time: 'night', rarity: 0.2 },
+
+	// Trap catch: never taken on a line, so its habitat is empty and pickSpecies can never roll it.
+	// `kind` names the model in world/fish/FishProps (the 'whole' fish build is the default).
+	lobster: { name: 'Caribbean spiny lobster', sci: 'Panulirus argus', lw: [ 0.02, 2.9 ], kind: 'lobster', model: 'lobster', habitat: {}, kg: [ 0.4, 2.4 ], price: 30, fight: 0.5, stamina: 6, time: 'any', rarity: 0 },
 };
 
 export const FISH_IDS = Object.keys( FISH );

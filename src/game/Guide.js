@@ -70,6 +70,7 @@ const CARDS = [
 		eyebrow: 'Welcome to Tidewater',
 		title: 'Fish the island, sell your catch',
 		body: `<p>Catch fish from the <b>beach</b>, the <b>pier</b> or your <b>boat</b>. Different fish bite in the shallows, around the pier, over the reef and out in deep water, and they change with the time of day.</p>
+			<p>The day runs on its own (<kbd>T</kbd> pauses it): fish feed at dawn and dusk, tarpon bite at night, and the sea gets up and lies down on its own. Joe and Marta keep island hours.</p>
 			<p>Sell your catch to <b>Joe</b> at the fish stand by the pier, then spend the money on upgrades from <b>Marta</b> at the chandlery by the boathouse: stronger line, a faster reel, a bigger hold, a fish finder and lights for fishing at night.</p>`,
 	},
 	{
@@ -96,7 +97,7 @@ const CARDS = [
 			<div class="is-joe"><i></i><span><b>Joe</b> · fish stand by the pier</span><em data-where="joe"></em></div>
 			<div class="is-marta"><i></i><span><b>Marta</b> · chandlery by the boathouse</span><em data-where="marta"></em></div>
 		</div>
-		<p style="margin:0;color:var(--tw-ink-3);font-size:var(--tw-fs-sm)">Both are marked on the map in the lower right.</p>`,
+		<p style="margin:0;color:var(--tw-ink-3);font-size:var(--tw-fs-sm)">Both are marked on the map in the lower right. Marta also sells a <b>trap licence</b> and lobster pots: set them from the working boat and haul them for lobster.</p>`,
 	},
 ];
 
@@ -109,6 +110,8 @@ const TIPS = {
 	boat: 'Your boat. <kbd>E</kbd> to board, <kbd>E</kbd> again at the wheel to drive (<kbd>W</kbd><kbd>S</kbd> throttle, <kbd>A</kbd><kbd>D</kbd> steer). Diesel is sold by Marta.',
 	joe: '<b>Joe</b> buys your fish. <kbd>E</kbd> to see what he will pay.',
 	marta: '<b>Marta</b> sells upgrades and diesel. <kbd>E</kbd> to see her stock.',
+	night: 'After dark the <b>tarpon</b> and snapper feed, and the lamps come on. <b>Deck floodlights</b> from Marta let you fish from the boat at night.',
+	trap: '<b>Traps</b>: <kbd>E</kbd> sets a pot from the working boat and <kbd>E</kbd> hauls one back. They soak on the clock — a few hours fills them, and the map marks where you left them.',
 };
 
 const h = ( tag, cls, html ) => {
@@ -343,6 +346,10 @@ export class Guide {
 
 		const s = g.state;
 		if ( s.holdKg >= s.stats.holdKg * 0.92 ) this.tip( 'full' );
+		// after dark the island changes character: different fish, lamps lit
+		if ( app.settings.timeOfDay > 19.5 || app.settings.timeOfDay < 4.5 ) this.tip( 'night' );
+		// the trap line: the first time there is a pot to set or haul
+		if ( g.trapPrompt( p ) ) this.tip( 'trap' );
 		if ( p.mode === 'walk' ) {
 
 			const bt = app.boatCtl;

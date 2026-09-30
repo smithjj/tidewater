@@ -354,6 +354,83 @@ import { TRAP_PRICE, TRAP_LIMIT } from '../src/game/Gear.js';
 	const st3 = new GameState( { getItem: () => JSON.stringify( before2 ), setItem: () => {} } );
 	ok( st3.load() && st3.traps === 0 && st3.sets.length === 0 && st3.mulFor( 'grunt' ) === 1, 'older saves start with no pots out' );
 }
+// ---- the console helpers (window.__tw): a stubbed window and app, the real state
+import { installDebugGame } from '../src/game/Debug.js';
+{
+	globalThis.window = {};
+	const m = new Map();
+	const state = new GameState( { getItem: ( k ) => m.get( k ) ?? null, setItem: ( k, v ) => m.set( k, v ) } );
+	state.money = 10;
+	let heroAsked = false, setTrapArgs = null, hauled = null;
+	const fft = { local: { windSpeed: 7, windDirection: 25, fetch: 120 }, swell: { scale: 0.48 },
+		choppiness: { value: 0.9 }, foamBias: { value: 0.5 }, foamDecay: { value: 0.6 }, updateSpectrumUniforms() {} };
+	const app = {
+		settings: { timeOfDay: 12, timeSpeed: 0 },
+		fft, shore: { amplitude: { value: 0.34 }, period: { value: 9 } }, clouds: { coverage: { value: 0.45 } },
+		weather: null,
+		game: {
+			state, hud: null,
+			traps: { heroWanted: false, loadHero() { heroAsked = true; } },
+			// the real haulTrap takes the pot out of the water; both it and the real game find the
+			// nearest pot themselves when they are not handed one
+			setTrap( x, z ) { setTrapArgs = [ x, z ]; return state.setTrap( - 30, 160, app.settings.timeOfDay ); },
+			haulTrap( set ) {
+
+				const pot = set || state.sets[ 0 ] || null;
+				if ( ! pot ) return [];
+				state.haulTrap( pot.id );
+				hauled = pot;
+				return [ { species: 'lobster', kg: 1.2 } ];
+
+			},
+		},
+	};
+	const tw = installDebugGame( app );
+	ok( globalThis.window.__tw === tw && tw.state === state, 'the console helpers install on window' );
+	ok( tw.money() === 10 && tw.money( 5000 ) === 5000 && state.money === 5000, 'money sets and reads' );
+	ok( JSON.parse( m.get( 'tidewater.save.v1' ) ).money === 5000, 'setting money saves it' );
+	ok( tw.add( - 4000 ) === 1000 && tw.money( - 50 ) === 0, 'add and a negative floor at zero' );
+	ok( tw.day( 5 ) === 5 && state.day === 5, 'the day can be jumped' );
+	ok( tw.day() === 5 && tw.hour( 6.5 ) === 6.5 && app.settings.timeOfDay === 6.5, 'hour sets and reads' );
+	ok( tw.hour( 30 ) === 6, 'the hour wraps into a day' );
+	ok( tw.weather() === null && JSON.stringify( tw.weather( 'nope' ) ) === JSON.stringify( CONDITIONS ), 'an unknown condition lists the ladder' );
+	// with a weather system present it takes the level
+	let wrote = 0;
+	app.weather = { name: 'Breezy', level: 1, target: 1, _step: 1, enabled: false, write() { wrote ++; } };
+	ok( tw.weather( 'Storm' ) === 'Storm' && app.weather.level === 3 && app.weather.target === 3 && app.weather.enabled === true, 'weather jumps the ladder' );
+	ok( wrote === 1 && tw.weather() === 'Breezy', 'jumping the weather writes the conditions once' );
+	// with no weather system at all it writes the sea state straight through
+	const before = fft.local.windSpeed;
+	app.weather = null;
+	tw.weather( 'Calm' );
+	ok( fft.local.windSpeed === 3.5 && before === 7, 'without a weather system it writes the preset directly' );
+	// traps: stock, set, haul, soak, clear
+	ok( tw.traps( 3 ) === 3 && tw.traps().aboard === 3, 'traps sets the stock' );
+	ok( tw.traps( 99 ) === TRAP_LIMIT && tw.traps( - 5 ) === 0, 'the stock is clamped to the licence maximum' );
+	tw.traps( 3 );
+	const set = tw.setTrap();
+	ok( !! set && setTrapArgs !== null && heroAsked === true, 'setTrap goes through the game (and pulls the modelled pot in)' );
+	ok( tw.traps().set === 1 && tw.traps().aboard === 2, 'setting one moves it into the water' );
+	// soak ages a pot: its soak grows by exactly that many hours, whatever the clock says
+	const was = soakHours( state.sets[ 0 ], { day: state.day, hour: app.settings.timeOfDay } );
+	ok( tw.soak( 9 ) === 1 && Math.abs( soakHours( state.sets[ 0 ], { day: state.day, hour: app.settings.timeOfDay } ) - ( was + 9 ) ) < 1e-9, 'soak ages the gear by game hours' );
+	ok( ( tw.haul() || [] )[ 0 ].species === 'lobster' && hauled !== null, 'haul goes through the game' );
+	ok( state.sets.length === 0 && tw.traps().aboard === 3, 'hauling brings the pot back aboard' );
+	ok( tw.haul( 9999 ) === null, 'a haul by a bad id brings up nothing rather than guessing' );
+	// a second pot, by id, and only once
+	tw.traps( 3 );
+	const second = tw.setTrap();
+	ok( ( tw.haul( second.id ) || [] ).length === 1, 'hauling a pot by id' );
+	ok( tw.haul( second.id ) === null, 'the same pot cannot be hauled twice' );
+	tw.traps( 3 );
+	tw.setTrap();
+	ok( tw.clearTraps() === 1 && state.sets.length === 0 && state.traps === 3, 'clearTraps empties the water' );
+	// fish lands a catch in the cooler (no HUD here, so no card)
+	const caught = tw.fish( 'grunt' );
+	ok( caught && FISH[ caught.species ].kg[ 0 ] <= caught.kg && caught.kg <= FISH[ caught.species ].kg[ 1 ], 'fish lands a catch of a sensible size' );
+	ok( Array.isArray( tw.fish( 'nope' ) ), 'an unknown species lists them instead of guessing' );
+	ok( Array.isArray( tw.help() ) && tw.help().length > 8, 'help lists the commands' );
+}
 console.log( `value check ${ value }` );
 console.log( fails ? `${ fails } FAILED` : 'all passed' );
 process.exit( fails ? 1 : 0 );

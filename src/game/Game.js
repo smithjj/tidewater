@@ -514,30 +514,32 @@ export class Game {
 
 	}
 
-	setTrap() {
+	// put a pot over the side at (x, z) — the boat's position when they are not given. The caller
+	// decides whether the player is in a position to do this (see updateTraps), so the console can
+	// drive it too.
+	setTrap( x = null, z = null ) {
 
 		const app = this.app, s = this.state, b = app.lobsterCtl;
-		if ( ! this.aboardWorkingBoat ) return;
 		if ( b.speed > 2 ) {
 
 			this.toast( 'Slow down to set a pot', 2200 );
-			return;
+			return null;
 
 		}
 
-		const x = b.position.x, z = b.position.z;
+		if ( x === null ) { x = b.position.x; z = b.position.z; }
 		const depth = Math.max( 0, - app.terrainData.heightAt( x, z ) );
 		if ( depth < 2 ) {
 
 			this.toast( 'Too shallow here — the pot would show at low water', 3000 );
-			return;
+			return null;
 
 		}
 
 		if ( depth > 45 ) {
 
 			this.toast( 'Too deep — the warp would not reach the bottom', 3000 );
-			return;
+			return null;
 
 		}
 
@@ -547,7 +549,7 @@ export class Game {
 			if ( Math.hypot( o.x - x, o.z - z ) < 8 ) {
 
 				this.toast( 'There is already a pot here — move along a bit', 2600 );
-				return;
+				return null;
 
 			}
 
@@ -557,25 +559,39 @@ export class Game {
 		if ( ! set ) {
 
 			this.toast( 'No pots aboard — Marta sells traps', 3000 );
-			return;
+			return null;
 
 		}
 
 		this.toast( `Pot set in ${ depth.toFixed( 0 ) } m · give it a few hours`, 3200 );
 		if ( app.audio && app.audio.splash ) app.audio.splash( 0.5 );
+		return set;
 
 	}
 
-	haulTrap() {
+	// haul a pot: the given one, or the nearest to the boat (or to you, when you are not aboard).
+	// Returns what came up, or null when there is nothing in reach.
+	haulTrap( set = null ) {
 
 		const app = this.app, s = this.state, b = app.lobsterCtl;
-		if ( ! this.aboardWorkingBoat ) return;
-		const set = s.nearestSet( b.position.x, b.position.z, 12 );
-		if ( ! set ) return;
+		if ( ! set ) {
+
+			const ref = this.aboardWorkingBoat ? b.position : app.player.position;
+			set = s.nearestSet( ref.x, ref.z, 12 );
+
+		}
+
+		if ( ! set ) {
+
+			this.toast( 'No pot in reach', 2200 );
+			return null;
+
+		}
+
 		const depth = Math.max( 0, - app.terrainData.heightAt( set.x, set.z ) );
 		const soak = soakHours( set, { hour: this.hour, day: s.day } );
 		const animals = haulYield( { soak, depth, habitat: this.habitatAtPoint( set.x, set.z, depth ), hour: this.hour } );
-		if ( ! s.haulTrap( set.id ) ) return;
+		if ( ! s.haulTrap( set.id ) ) return null;
 		this.traps.haulVisual( b );
 		if ( app.audio && app.audio.fishFlop ) app.audio.fishFlop();
 
@@ -584,7 +600,7 @@ export class Game {
 			this.toast( soak < SOAK_MIN
 				? 'Nothing yet — give it a few hours'
 				: 'The pot came up empty · try deeper ground or the reef edge', 3600 );
-			return;
+			return [];
 
 		}
 
@@ -613,6 +629,7 @@ export class Game {
 		}
 
 		if ( app.audio && app.audio.coin ) app.audio.coin();
+		return animals;
 
 	}
 

@@ -1,9 +1,11 @@
 # Tidewater
 
 An island fishing game for the browser. Cast from the pier, the beach or your own boat, fight the fish,
-sell your catch to Joe at the fish stand, and spend it on better gear at Marta's chandlery. Around it is a
-real-time tropical island and ocean: swim the reef, drive the boat out to deep water, and watch a humpback
-breach. It runs directly on WebGPU and WGSL with its own small rendering engine, no framework.
+sell your catch to Joe at the fish stand, and spend it on better gear at Marta's chandlery — or on a trap
+licence and a gear of lobster pots. Around it is a real-time tropical island and ocean: swim the reef, drive
+out to deep water, and watch a humpback breach. The island runs on its own clock: days pass, the weather
+comes and goes, and the fish feed at dawn and dusk. It runs directly on WebGPU and WGSL with its own small
+rendering engine, no framework.
 
 **Play it:** https://dgreenheck.github.io/tidewater/
 
@@ -24,13 +26,29 @@ breach. It runs directly on WebGPU and WGSL with its own small rendering engine,
 **Fishing**
 - A spinning rod and reel that cast, reel and bend under load, with the bail, rotor and crank animated.
 - Bites that depend on the water (shallows, pier, reef, bay, deep water), depth and time of day, across
-  18 Caribbean species.
+  19 Caribbean species: 18 that take a hook, and the spiny lobster that only comes up in a pot.
 - A line-tension fight: keep the tension in the green band, ease off when the fish runs.
 - A full-screen catch card with the fish's length and weight, a fish log with records, and a cooler.
 - Joe's fish stand buys your catch; Marta's chandlery sells line, reels, rods, a bigger hold, fuel, a rebuilt
   engine, a fish finder and deck floodlights for night fishing.
+- A trap line: buy the licence and the pots from Marta, set them from the working boat, and haul them for
+  lobster (and whatever else walked in) once they have soaked. They fish on the world clock, and the map
+  marks where you left them.
+- A daily market: Joe pays a different rate per species every day, so holding a catch overnight is a
+  decision. His board lists the day's movers.
 - Walk the deck and the wheelhouse while the boat drifts; the boat burns fuel.
+- Two boats, both drivable, with decks you can stand on and fish from: the lobster boat (which carries the
+  hauler and the pots) and the Pelagic 30 off the pier head.
 - A first-play guide, contextual tips and a minimap. Progress is saved in the browser.
+
+**The day**
+- A world clock that runs by default (a day in about twenty minutes, `T` to pause) with a day counter, shown
+  in the HUD. The time, the day and the weather are saved, so a session resumes where it left off.
+- Island hours: Joe opens early and shuts around dusk, Marta keeps shop hours.
+- Weather that arrives on its own: the sea state walks between calm and storm on in-game time, biased to
+  calm mornings and rare blows, with the waves, foam, shore surf, wind and cloud cover all following it.
+  Purely atmospheric — nothing in the weather can hurt you, your boat or your gear.
+- Bite tables, the dawn chorus, night tarpon, the lamps and the deck floodlights all key off the clock.
 
 **Ocean**
 - Four-cascade FFT ocean (Tessendorf spectra) with foam, whitecaps, wind streaks and swell.
@@ -50,6 +68,8 @@ breach. It runs directly on WebGPU and WGSL with its own small rendering engine,
 **World**
 - An island with a beach, hills, headlands and rocks.
 - A fishing village, a pier, and the vendors' stalls built from Poly Haven scans.
+- Two workboats at the pier, both drivable: a lobster boat lofted from its own hull lines, and a Pelagic 30
+  centre console loaded from an authored model.
 - Realistic vendor characters (Microsoft Rocketbox) with skinned animation.
 - A coral reef with fish.
 - Palms, bananas, monstera, elephant ear, heliconia, bird of paradise, broadleaf trees, shrubs and dune
@@ -80,7 +100,7 @@ breach. It runs directly on WebGPU and WGSL with its own small rendering engine,
 | Shift | Sprint / boat boost |
 | Space | Jump / swim up |
 | C | Crouch / dive |
-| E | Interact: board the boat, take or leave the helm, step ashore, trade with the fish buyer or the chandlery |
+| E | Interact: board the boat, take or leave the helm, step ashore, trade with the fish buyer or the chandlery, and set or haul a lobster pot from the working boat |
 | V | Boat camera at the helm (1st / 3rd person) |
 | R | Take out / put away the fishing rod |
 | Left mouse | Hold to wind up, release to cast · strike when a fish takes the bait · hold to reel |
@@ -88,7 +108,7 @@ breach. It runs directly on WebGPU and WGSL with its own small rendering engine,
 | I or Tab | Cooler / fish hold and the fish log |
 | F | Free camera |
 | L | Flashlight |
-| T | Pause time |
+| T | Run or pause the day |
 | M | Mute |
 | H | Settings panel |
 | P | Photo mode |
@@ -104,8 +124,26 @@ on the beach by the pier, and spend it at Marta's chandlery by the boathouse: st
 a longer rod, a bigger fish hold, a larger fuel tank, a rebuilt engine, a fish finder and deck floodlights for
 night fishing. The boat burns diesel at the helm; fill up at the chandlery. Progress is saved in the browser.
 
-The settings panel (H) exposes the sea state, time of day, sun azimuth, clouds, haze, post-processing and
-more.
+### Lobstering
+
+Marta also sells a **trap licence** and wooden lobster pots. Aboard the working boat, **E** puts a pot over
+the side and **E** hauls the nearest one back up, timing it by the clock: a pot dropped in the morning is
+worth pulling after lunch, and one left overnight is full. What comes up is mostly spiny lobster on the
+deeper ground, with the odd fish that wandered in, and the map marks every pot you have in the water.
+
+Joe's prices move with the day: each species pays somewhere between three quarters of the standard rate and
+a third above it, and every fish you are carrying shows today's rate with a mark against the usual one, so
+it pays to hold a catch for a better morning. He lists the day's movers on his board.
+
+### The day
+
+Time runs by default: a full day takes about twenty minutes, and **T** pauses it. Fish feed at dawn and
+dusk, tarpon after dark, the lamps and windows come on at night, and the sea state gets up and lies down on
+its own — calm mornings, a sea breeze through the afternoon, and the occasional blow. The clock, the day
+and the weather are saved with everything else.
+
+The settings panel (H) exposes the sea state, dynamic weather and its pace, time of day, sun azimuth,
+clouds, haze, post-processing and more.
 
 ## URL options
 
@@ -131,15 +169,18 @@ npm run build    # static build in dist/
 
 Every push to `main` deploys to GitHub Pages through `.github/workflows/deploy.yml`.
 
+In the dev server the console has helpers for testing — `window.__tw` sets the wallet, moves the clock,
+jumps the weather, lands a catch and drives the trap line. See [cheats.md](cheats.md).
+
 ## Project layout
 
 | Folder | Contents |
 |---|---|
-| `src/game/` | The fishing game: rod, bites, the fight, catch card, cooler and log, vendors and stalls, guide, minimap, HUD |
+| `src/game/` | The fishing game: rod, bites, the fight, catch card, cooler and log, the trap line, vendors and stalls, guide, minimap, HUD, and the console helpers (`Debug.js`) |
 | `src/engine/` | The rendering engine: math, scene graph and geometry, GPU resources, WGSL shader composition, materials, lighting and shadows |
-| `src/ocean/` | FFT ocean, water surface and material, shore waves, breakers, swash, wake, caustics, underwater lighting |
+| `src/ocean/` | FFT ocean, water surface and material, shore waves, breakers, swash, wake, caustics, underwater lighting, sea conditions |
 | `src/sky/` | Atmosphere, clouds, sky and environment |
-| `src/world/` | Terrain, village, pier, reef, fish, vegetation, rocks, debris, wildlife, whale, boat |
+| `src/world/` | Terrain, village, pier, reef, fish, vegetation, rocks, debris, wildlife, whale, the boats, the weather and the static model loader |
 | `src/post/` | Post chain: AO, underwater composite, haze, TAAU, motion blur, bloom, lens flare, droplets |
 | `src/materials/` | Shared lighting: shadow filtering, bounce light, contact shadows, local lights, LOD fades |
 | `src/player/` | Walking, swimming, the boat and the free camera |

@@ -59,6 +59,7 @@ import { AirHaze } from './post/AirHaze.js';
 import { FlyCamera } from './player/FlyCamera.js';
 import { Player } from './player/Player.js';
 import { Game } from './game/Game.js';
+import { installDebugGame } from './game/Debug.js';
 import { STAND } from './game/FishStand.js';
 import { CHANDLERY } from './game/Chandlery.js';
 import { BoatController } from './player/BoatController.js';
@@ -407,6 +408,8 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 		this.updateSun();
 		installDebugViews( this );
+		// console helpers for poking the game in a dev session (window.__tw, see game/Debug.js)
+		installDebugGame( this );
 		window.__app = this;
 		this.gpu = GPU; // console / test access
 

@@ -178,6 +178,12 @@ export class ShoreWaves {
 		this.terrain = terrainGPU;
 		this.uniforms = new UniformBlock( 'ShoreParams', {
 			period: [ 'f32', 9.0 ],
+			// Wave phase in periods, accumulated as dt / period rather than computed as time / period.
+			// Dividing an absolute clock by the period looks equivalent and is not: the period changes
+			// with the weather, and (t / period) then jumps by t * d(1/period) — a phase discontinuity
+			// that grows the longer you play, jittering the surf and the swash. Integrating the rate
+			// keeps the phase continuous however the period moves.
+			phase: [ 'f32', 0 ],
 			amplitude: [ 'f32', 0.34 ], // offshore amplitude (H/2)
 			variation: [ 'f32', 0.55 ],
 			gamma: [ 'f32', 0.78 ],
@@ -196,6 +202,7 @@ export class ShoreWaves {
 		} );
 		const F = this.uniforms.fields;
 		this.period = F.period;
+		this.phase = F.phase;
 		this.amplitude = F.amplitude;
 		this.variation = F.variation;
 		this.gamma = F.gamma;
@@ -222,6 +229,14 @@ export class ShoreWaves {
 			},
 			code: this._code(),
 		} );
+
+	}
+
+	// The wave clock: integrate the phase rate, so a change to the period bends the phase instead of
+	// stepping it (see the `phase` uniform). Called once a frame from App.
+	update( dt ) {
+
+		this.phase.value += dt / Math.max( 0.2, this.period.value );
 
 	}
 
@@ -514,7 +529,9 @@ fn shorePhaseAt( xz: vec2f ) -> ShorePhase {
 	let exposure = length( dirE );
 	let dir = dirE / max( exposure, 1e-4 );
 	let along = dot( xz, vec2f( - dir.y, dir.x ) );
-	let s = ( frame.time - T ) / shoreP.period + shoreWobble( along );
+	// shoreP.phase is the accumulated phase (see the uniform): the travel time T delays each point by
+	// T / period, exactly as before, but the clock itself is never divided by the period
+	let s = shoreP.phase - T / shoreP.period + shoreWobble( along );
 	return ShorePhase( sh, T, dir, exposure, along, s );
 }
 
@@ -577,7 +594,9 @@ fn shoreSwashRunup( sh: vec4f, along: f32, groundH: f32 ) -> ShoreRunup {
 	let exposure = length( vec2f( sh.y, sh.z ) );
 	let Ts = sh.w;
 	let inland = max( groundH - frame.seaLevel, 0.0 ) / SHORE_BEACH_SLOPE;
-	let ss = ( frame.time - Ts ) / Tp + shoreWobble( along );
+	// the same accumulated phase as shorePhaseAt: the swash runs on the wave clock, so it has to be
+	// the same clock (frame.time / period would step the run-up whenever the period changed)
+	let ss = shoreP.phase - Ts / Tp + shoreWobble( along );
 	let ms = floor( ss );
 	let tau = ss - ms; // 0..1 time since that wave's bore reached the shoreline
 	let Am = shoreWaveAmp( ms, along );

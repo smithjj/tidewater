@@ -1,12 +1,15 @@
 // Sea-state conditions: the presets the settings panel offers and the weather walks, plus the
 // one function that knows how a condition reaches the simulation.
 //
-// Two cadences matter. The light uniforms (wind, choppiness, foam, shore waves) are plain values
-// and can be written as often as you like. The wave spectrum is not: rebuilding it re-runs the
-// FFT initial-spectrum dispatch, and that also *clears the accumulated foam buffer*
-// (see OceanFFT.copyH0Kernel), so a rebuild has to stay rare — one per condition step, the same
-// cost as a single click on a settings preset. Cloud cover is the same story: changing it drops
-// the volumetric clouds' temporal history, so it rides along with the spectrum rebuild only.
+// Two cadences matter. The light uniforms (wind, choppiness, foam, shore waves) are plain values and
+// can be written as often as you like. The wave spectrum costs three small compute dispatches, which
+// is nothing — but rebuilding it used to clear the accumulated foam buffer as a side effect, so it had
+// to stay rare. That is now separable (`resetFoam`): the weather drifts the spectrum continuously and
+// keeps the foam, while a jump — a preset click, a load — rebuilds it and clears the foam, because the
+// old foam belongs to a sea that no longer exists.
+//
+// Cloud cover is the remaining rare one: changing it drops the volumetric clouds' temporal history, so
+// it rides on the whole-step writes only (`cover`).
 import { MathUtils } from '../engine/index.js';
 import { G } from '../core/Globals.js';
 
@@ -21,8 +24,10 @@ export const SEA = {
 };
 
 // v: { wind, windDir, fetch, chop, swell, whitecaps, surf, period, cover? }
-// opts.spectrum: rebuild the wave spectrum and set the cloud cover (rare; see the header)
-export function writeConditions( { fft, shore, clouds }, v, { spectrum = true } = {} ) {
+// opts.spectrum: rebuild the wave spectrum (cheap; follows the weather smoothly)
+// opts.resetFoam: clear the foam too — only for a jump in the sea, not for a drift (see the header)
+// opts.cover: set the cloud cover (drops the clouds' temporal history: whole steps only)
+export function writeConditions( { fft, shore, clouds }, v, { spectrum = true, resetFoam = true, cover = spectrum } = {} ) {
 
 	if ( spectrum ) {
 
@@ -30,10 +35,11 @@ export function writeConditions( { fft, shore, clouds }, v, { spectrum = true } 
 		fft.local.windDirection = v.windDir;
 		fft.local.fetch = v.fetch;
 		fft.swell.scale = v.swell;
-		fft.updateSpectrumUniforms();
-		if ( clouds && clouds.coverage && v.cover !== undefined ) clouds.coverage.value = v.cover;
+		fft.updateSpectrumUniforms( { resetFoam } );
 
 	}
+
+	if ( cover && clouds && clouds.coverage && v.cover !== undefined ) clouds.coverage.value = v.cover;
 
 	const a = MathUtils.degToRad( v.windDir );
 	G.windDir.value.set( Math.cos( a ), Math.sin( a ) );

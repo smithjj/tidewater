@@ -133,6 +133,8 @@ export async function makeOceanScene( { W = 2560, H = 1267, terrain = true, caus
 
 	const state = {
 		W, H, ctx, scene, fft, cdlod, surface, waterMaterial, camera, sr, mr, caustics: cau, frame, before: [],
+		// the tonemapped target, so tests can diff frames without going through a PNG (see ocean-jerk.mjs)
+		ldr,
 		async save( path ) {
 
 			const img = await readTexture( ldr.texture );

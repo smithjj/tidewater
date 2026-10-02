@@ -1,16 +1,17 @@
-// The weather: a slow walk up and down the sea-state ladder on in-game time, so the sea turns
-// over a couple of times a day and a blow is something you can see coming. Purely atmospheric —
-// nothing here can damage the player, the boat or the gear.
+// The weather: a slow walk up and down the sea-state ladder on in-game time, so the sea turns over a
+// couple of times a day and a blow is something you can see coming. Purely atmospheric — nothing here
+// can damage the player, the boat or the gear. A day is 24 in-game hours (20 real minutes), so the
+// constants below are in in-game hours and the real-time figures in the comments are at the default
+// pace: one rung takes about two minutes of real time, and a condition then holds for three to ten.
 //
-// Cadence (see ocean/Conditions.js for why): the light uniforms follow a fractional level
-// smoothly, while the wave spectrum and the cloud cover are only rebuilt when the level crosses
-// a whole step. A spectrum rebuild clears the foam buffer and a coverage change drops the clouds'
-// temporal history, so both stay rare — one write per step, no more than a settings preset click.
-import { CONDITIONS, SEA, conditionAt, writeConditions } from '../ocean/Conditions.js';
+// Cadence (see ocean/Conditions.js): the wave field follows the *fractional* level, so it drifts
+// with the weather instead of stepping up a rung at a time, and it keeps the foam while it does
+// (only a jump clears that). Cloud cover is the one thing still written on a whole step, because
+// changing it drops the volumetric clouds' temporal history.
+import { CONDITIONS, conditionAt, writeConditions } from '../ocean/Conditions.js';
 
-const LIGHT_WRITE = 0.25; // real seconds between light-uniform writes
-const STEP_HOURS = 0.35; // in-game hours to cross one step of the ladder
-const HOLD = [ 0.45, 1.7 ]; // in-game hours a condition holds before the next pick
+const STEP_HOURS = 2.2; // in-game hours to cross one step of the ladder (~110 s of real time)
+const HOLD = [ 3.5, 12 ]; // in-game hours a condition holds before the next pick (~3 to 10 real minutes)
 
 export class Weather {
 
@@ -60,32 +61,31 @@ export class Weather {
 
 		}
 
-		// a whole step: the wave field and the sky step with it
+		// a whole step: only the cloud cover rides on it (the sea itself drifts with the level)
 		const step = Math.round( this.level );
-		if ( step !== this._step ) {
+		const crossed = step !== this._step;
+		if ( crossed ) this._step = step;
 
-			this._step = step;
-			this.write( { spectrum: true } );
-			return;
-
-		}
-
-		this._t += dt;
-		if ( this._t >= LIGHT_WRITE ) {
-
-			this._t = 0;
-			this.write( { spectrum: false } );
+		{
+			// The whole sea state is written every frame, not on a slow cadence. The level is already
+			// smooth in time, but a 0.25 s cadence still *steps* every value it carries: the whitecap
+			// edges (foamBias/foamDecay), the crest folding (choppiness), the wind the surface detail and
+			// the streaks follow, and the surf height. Four jumps a second of a per cent or so each reads
+			// as the water flickering, even though the wave heights themselves are smooth. Writing every
+			// frame costs a handful of uniform values and one spectrum install, which the field eases
+			// towards anyway (see OceanFFT.smoothH0Kernel).
+			this.write( { spectrum: true, resetFoam: false, cover: crossed } );
 
 		}
 
 	}
 
-	write( { spectrum } ) {
+	// `spectrum`: rebuild the wave field from the current level (see the header). `resetFoam` is for a
+	// jump — a load — where the accumulated foam belongs to the old sea.
+	write( { spectrum, resetFoam = true, cover = spectrum } ) {
 
 		const v = conditionAt( this.level, this.windDir );
-		// the spectrum inputs (and the cover that goes with them) come from the whole step
-		if ( spectrum ) Object.assign( v, SEA[ CONDITIONS[ this._step ] ], { windDir: this.windDir } );
-		writeConditions( this.refs, v, { spectrum } );
+		writeConditions( this.refs, v, { spectrum, resetFoam, cover } );
 
 	}
 
@@ -93,7 +93,15 @@ export class Weather {
 	_pick() {
 
 		const hour = this.app.settings.timeOfDay;
-		const w = [ 0, 1, 2, 3 ].map( ( l ) => this._weight( l, hour ) * ( l === this._step ? 0.55 : 1 ) );
+		// the next condition: nearby levels are likely and a bigger swing is rare (a turn in the weather
+		// should be something that happens to you now and then, not every time)
+		const away = ( l ) => {
+
+			const d = Math.abs( l - this._step );
+			return d === 0 ? 0.5 : d === 1 ? 1 : d === 2 ? 0.22 : 0.06;
+
+		};
+		const w = [ 0, 1, 2, 3 ].map( ( l ) => this._weight( l, hour ) * away( l ) );
 		let r = this._rnd() * ( w[ 0 ] + w[ 1 ] + w[ 2 ] + w[ 3 ] );
 		let next = 1;
 		for ( let l = 0; l < CONDITIONS.length; l ++ ) {

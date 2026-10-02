@@ -109,6 +109,9 @@ export class OceanFFT {
 			time: [ 'f32', 0 ],
 			depth: [ 'f32', this.depth ],
 			seed: [ 'u32', 1337 ],
+			// how far the live spectrum is moved towards the target this frame (see smoothH0Kernel;
+			// 'smooth' is a reserved word in WGSL, so the field is named for what it does)
+			h0Smooth: [ 'f32', 1 ],
 		}, { label: 'ocean' } );
 		const F = this.params.fields;
 		// three-style { value } handles (same names as the TSL version)
@@ -120,11 +123,17 @@ export class OceanFFT {
 		this.time = F.time;
 		this.uDepth = F.depth;
 		this.uSeed = F.seed;
+		this.uSmooth = F.h0Smooth;
 		this.timeScale = 1;
+		// s: the wave field eases towards a newly computed spectrum instead of snapping to it
+		this.smoothTau = 0.6;
 
 		const total = N * N * C;
 
 		this.h0 = new StorageBuffer( { label: 'fftH0', count: total, type: 'vec4f' } );
+		// the spectrum the live field (h0) is heading for: a spectrum change then *bends* the amplitudes
+		// over a fraction of a second rather than stepping them (see smoothH0Kernel)
+		this.h0Target = new StorageBuffer( { label: 'fftH0Target', count: total, type: 'vec4f' } );
 		this.waveData = new StorageBuffer( { label: 'fftWave', count: total, type: 'vec4f' } );
 		this.tmp = new StorageBuffer( { label: 'fftTmp', count: total * 2, type: 'vec4f' } );
 		this.foam = new StorageBuffer( { label: 'fftFoam', count: total, type: 'f32' } );
@@ -194,7 +203,12 @@ fn oceanSampleDisplacementWeighted( xz: vec2f, level: f32, w: vec4f ) -> vec3f {
 
 	}
 
-	updateSpectrumUniforms() {
+	// Rebuild the wave spectrum on the next update. The dispatch itself is nothing (three small passes);
+	// the reason to think about it is `resetFoam`: the H0 copy also wipes the accumulated foam, which is
+	// what you want when the sea *jumps* (a preset click, a load, the first frame) and what you do not
+	// want when it drifts, or the weather's slow walk would keep scrubbing the foam off the water.
+	// `resetFoam: false` rebuilds the spectrum and leaves the foam where it is.
+	updateSpectrumUniforms( { resetFoam = true } = {} ) {
 
 		const C = this.cascades;
 		const P = this.params.fields;
@@ -229,6 +243,7 @@ fn oceanSampleDisplacementWeighted( xz: vec2f, level: f32, w: vec4f ) -> vec3f {
 		this.params.set( 'sysA', P.sysA.value );
 		this.params.set( 'sysB', P.sysB.value );
 		this.needsSpectrum = true;
+		this.resetFoam = resetFoam;
 
 	}
 
@@ -297,7 +312,7 @@ fn shortWavesFade( k: f32, sysB: vec4f ) -> f32 { return exp( - sysB.w * sysB.w 
 		this.initSpectrumKernel = new ComputeKernel( {
 			label: 'Ocean Init Spectrum',
 			modules: [ commonModule ],
-			bindings: { ...oceanU, h0: rw( this.h0 ), waveData: rw( this.waveData ) },
+			bindings: { ...oceanU, h0: rw( this.h0Target ), waveData: rw( this.waveData ) },
 			workgroupSize: [ 16, 16, 1 ],
 			code: FFT_COMMON + SPECTRUM + /* wgsl */`
 @compute @workgroup_size( WG_X, WG_Y, WG_Z )
@@ -348,7 +363,7 @@ fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 
 		this.conjugateKernel = new ComputeKernel( {
 			label: 'Ocean Conjugate',
-			bindings: { h0: rw( this.h0 ), tmp: rw( this.tmp ) },
+			bindings: { h0: rw( this.h0Target ), tmp: rw( this.tmp ) },
 			workgroupSize: [ 16, 16, 1 ],
 			code: /* wgsl */`
 @compute @workgroup_size( WG_X, WG_Y, WG_Z )
@@ -367,7 +382,7 @@ fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 
 		this.copyH0Kernel = new ComputeKernel( {
 			label: 'Ocean Copy H0',
-			bindings: { h0: rw( this.h0 ), tmp: rw( this.tmp ), foam: rw( this.foam ) },
+			bindings: { h0: rw( this.h0Target ), tmp: rw( this.tmp ), foam: rw( this.foam ) },
 			workgroupSize: [ 16, 16, 1 ],
 			code: /* wgsl */`
 @compute @workgroup_size( WG_X, WG_Y, WG_Z )
@@ -375,6 +390,41 @@ fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 	let idx = gid.z * ${ N * N }u + gid.y * ${ N }u + gid.x;
 	h0[ idx ] = tmp[ idx ];
 	foam[ idx ] = 0.0;
+}`,
+		} );
+
+		// The same copy without clearing the foam: the weather drifts the spectrum a fraction of a per
+		// cent at a time, and wiping the foam on every one of those writes would keep the sea scrubbed
+		// clean. Only a jump (a preset, a load) clears it.
+		this.copyH0KeepFoamKernel = new ComputeKernel( {
+			label: 'Ocean Copy H0 (keep foam)',
+			bindings: { h0: rw( this.h0Target ), tmp: rw( this.tmp ) },
+			workgroupSize: [ 16, 16, 1 ],
+			code: /* wgsl */`
+@compute @workgroup_size( WG_X, WG_Y, WG_Z )
+fn main( @builtin( global_invocation_id ) gid: vec3u ) {
+	let idx = gid.z * ${ N * N }u + gid.y * ${ N }u + gid.x;
+	h0[ idx ] = tmp[ idx ];
+}`,
+		} );
+
+		// One step of the live field towards the target spectrum. A spectrum recomputed from slightly
+		// different weather is only a per cent or so different, but as a *step* it moves the whole
+		// surface coherently in a single frame: about a centimetre of water at a point, four times a
+		// second, which the boat reads as a jolt. Easing towards it costs one small pass and removes the
+		// step at any cadence. `ocean.smooth` is 1 - exp(-dt / tau).
+		this.smoothH0Kernel = new ComputeKernel( {
+			label: 'Ocean Smooth H0',
+			modules: [ commonModule ],
+			bindings: { ...oceanU, h0: rw( this.h0 ), h0Target: rw( this.h0Target ) },
+			workgroupSize: [ 16, 16, 1 ],
+			code: /* wgsl */`
+@compute @workgroup_size( WG_X, WG_Y, WG_Z )
+fn main( @builtin( global_invocation_id ) gid: vec3u ) {
+	let x = gid.x; let y = gid.y; let c = gid.z;
+	let idx = c * ${ N * N }u + y * ${ N }u + x;
+	let a = ocean.h0Smooth;
+	h0[ idx ] = mix( h0[ idx ], h0Target[ idx ], a );
 }`,
 		} );
 
@@ -617,7 +667,23 @@ ${ reduce( 's7', null, 1, 8, t ) }
 			const d = [ N / 16, N / 16, C ];
 			this.initSpectrumKernel.dispatch( d );
 			this.conjugateKernel.dispatch( d );
-			this.copyH0Kernel.dispatch( d );
+			// clearing the foam is a jump-only affair: see updateSpectrumUniforms
+			( this.resetFoam ? this.copyH0Kernel : this.copyH0KeepFoamKernel ).dispatch( d );
+			// the live field now eases towards this target (a fraction per frame), unless this is the
+			// first spectrum of the session, where it is simply installed
+			this.uSmooth.value = this._h0Ready ? 1 - Math.exp( - dt / Math.max( 1e-3, this.smoothTau ) ) : 1;
+			this._h0Smoothing = true;
+			this._h0SmoothT = 0;
+
+		}
+
+		if ( this._h0Smoothing ) {
+
+			this.smoothH0Kernel.dispatch( [ N / 16, N / 16, C ] );
+			this._h0Ready = true;
+			// keep easing for a few time constants after the last install, then stop spending the pass
+			this._h0SmoothT += dt;
+			if ( this._h0SmoothT > 6 * this.smoothTau ) this._h0Smoothing = false;
 
 		}
 

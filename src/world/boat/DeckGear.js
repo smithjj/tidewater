@@ -26,7 +26,6 @@ export function buoyGeometry( colors = [ 0xff6a13, 0xf4f1ea, 0x1d4f9c ], stick =
 
 export function buildDeckGear( kit, L, parts ) {
 
-	buildTraps( kit, L );
 	buildHauler( kit, L );
 	buildCoils( kit, L );
 	buildBuoys( kit, L );
@@ -40,101 +39,17 @@ export function buildDeckGear( kit, L, parts ) {
 
 // ------------------------------------------------------------------ lobster traps
 
-// A face quad (meters UV) for the trap bucket; aux carries the face size for the frame border.
-function trapFace( a, b, c, d, w, h, pattern = 0 ) {
-
-	const g = new BufferGeometry();
-	g.setAttribute( 'position', new Float32BufferAttribute( [ a.x, a.y, a.z, b.x, b.y, b.z, c.x, c.y, c.z, d.x, d.y, d.z ], 3 ) );
-	g.setAttribute( 'uv', new Float32BufferAttribute( [ 0, 0, w, 0, w, h, 0, h ], 2 ) );
-	g.setIndex( [ 0, 1, 2, 0, 2, 3 ] );
-	g.computeVertexNormals();
-	return { g, opts: { rough: w, metal: h, pattern } };
-
-}
-
+// A pot's footprint, and where the gear sits on the working boat's deck: [x, y (bottom level), z, yaw,
+// colour for the procedural stand-in]. game/Traps.js places the modelled pots from this layout, and the
+// rope coil below sits on top of the stack.
 export const TRAP = { L: 0.95, W: 0.55, H: 0.37 };
 
-// Traps on deck: [x, y (bottom), z, yaw, colour]
 export const TRAPS = [
 	[ 0.66, 0, - 3.25, 0.02, 0xd8b21c ],
 	[ 0.66, 1, - 3.23, - 0.03, 0x2f7a3c ],
 	[ 0.64, 0, - 2.2, - 0.04, 0xd8b21c ],
 	[ - 0.68, 0, - 3.25, 0.03, 0x1f2326 ],
 ];
-
-function buildTraps( kit, L ) {
-
-	const { L: TL, W, H } = TRAP;
-	for ( const [ x, level, z, yaw, col ] of TRAPS ) {
-
-		const y0 = L.deckY + 0.03 + level * ( H + 0.035 );
-		const m = mat4( x, y0, z, 0, yaw, 0 );
-		const add = ( f, color = col ) => {
-
-			f.g.applyMatrix4( m );
-			kit.add( 'trap', f.g, { ...f.opts, color } );
-
-		};
-
-		const hw = W / 2, hl = TL / 2;
-		// box faces
-		add( trapFace( V( - hw, 0, hl ), V( hw, 0, hl ), V( hw, H, hl ), V( - hw, H, hl ), W, H ) );
-		add( trapFace( V( hw, 0, - hl ), V( - hw, 0, - hl ), V( - hw, H, - hl ), V( hw, H, - hl ), W, H ) );
-		add( trapFace( V( hw, 0, hl ), V( hw, 0, - hl ), V( hw, H, - hl ), V( hw, H, hl ), TL, H ) );
-		add( trapFace( V( - hw, 0, - hl ), V( - hw, 0, hl ), V( - hw, H, hl ), V( - hw, H, - hl ), TL, H ) );
-		add( trapFace( V( - hw, H, hl ), V( hw, H, hl ), V( hw, H, - hl ), V( - hw, H, - hl ), W, TL ) );
-		add( trapFace( V( - hw, 0, - hl ), V( hw, 0, - hl ), V( hw, 0, hl ), V( - hw, 0, hl ), W, TL ) );
-		// parlor divider
-		add( trapFace( V( - hw, 0, 0.08 ), V( hw, 0, 0.08 ), V( hw, H, 0.08 ), V( - hw, H, 0.08 ), W, H ) );
-
-		// net heads funneling in from both sides of the kitchen
-		const net = 0x264f6e;
-		for ( const s of [ 1, - 1 ] ) {
-
-			const zc = - 0.2, yc = H * 0.5;
-			const o = [ V( s * hw, yc - 0.12, zc - 0.15 ), V( s * hw, yc - 0.12, zc + 0.15 ), V( s * hw, yc + 0.12, zc + 0.15 ), V( s * hw, yc + 0.12, zc - 0.15 ) ];
-			const i = [ V( s * 0.07, yc - 0.045, zc - 0.06 ), V( s * 0.07, yc - 0.045, zc + 0.06 ), V( s * 0.07, yc + 0.045, zc + 0.06 ), V( s * 0.07, yc + 0.045, zc - 0.06 ) ];
-			for ( let k = 0; k < 4; k ++ ) {
-
-				const k1 = ( k + 1 ) % 4;
-				add( trapFace( o[ k ], o[ k1 ], i[ k1 ], i[ k ], o[ k ].distanceTo( o[ k1 ] ), o[ k ].distanceTo( i[ k ] ), 1 ), net );
-
-			}
-
-		}
-
-		// runners (weathered oak) and ballast bricks
-		for ( const rx of [ - 0.2, 0, 0.2 ] ) {
-
-			// top 4 mm above the wire floor, bottom 2 mm above the deck (both were coplanar: z-fighting)
-			const r = box( 0.05, 0.032, TL + 0.02 );
-			r.translate( rx, - 0.012, 0 );
-			r.applyMatrix4( m );
-			kit.add( 'wood', r, { color: 0x9a9a92, rough: 0.8 } );
-
-		}
-
-		for ( const bz of [ - 0.3, 0.3 ] ) {
-
-			const b = box( 0.2, 0.06, 0.09 );
-			b.translate( 0.05, 0.035, bz );
-			b.applyMatrix4( m );
-			kit.add( 'fittings', b, { color: 0x8e3a26, rough: 0.9 } );
-
-		}
-
-		// bait bag hanging in the kitchen
-		const bag = sphere( 0.06, 8, 6 );
-		bag.scale( 1, 1.3, 1 );
-		bag.translate( 0, H - 0.1, - 0.2 );
-		bag.applyMatrix4( m );
-		kit.add( 'fittings', bag, { color: 0xb3261e, rough: 0.8 } );
-
-	}
-
-}
-
-// ------------------------------------------------------------------ hauler and davit (starboard)
 
 export const HAULER = { x: - 1.0, z: - 0.62, y: 1.34 };
 

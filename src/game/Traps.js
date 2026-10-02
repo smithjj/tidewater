@@ -3,18 +3,42 @@
 // the tests can drive them without a GPU).
 //
 //  - A set is one pot in the water: `state.sets` is the source of truth, this class draws it.
-//  - What is on the seabed is the cheap procedural pot. The trap that comes up on the hauler is the
-//    modelled one (assets/lobster_trap.glb), loaded on demand and used for the haul moment only.
+//  - The pots are the modelled trap (assets/lobster_trap_decimated.glb): a set pot on the seabed, the
+//    stack on the working boat's deck, and the one that comes up on the hauler are the same geometry.
+//  - The same file also holds the trap's buoy with its line and marker: the floating marker is taken
+//    from it, split off by material family (the rope down to the pot stays procedural, because it is
+//    scaled to the depth here).
 //  - Each pot has its own buoy line, riding the same water readback the boats use.
-import { Group, Mesh, Vector3, Object3D } from '../engine/index.js';
+import { Group, Mesh, Vector3, Color } from '../engine/index.js';
 import { box, rod, cylinder, sphere, prepare, mergePrepared, mat4 } from '../world/boat/GeoKit.js';
+import { TRAP, TRAPS } from '../world/boat/DeckGear.js';
 import { loadStaticModel } from '../world/StaticGLB.js';
 import { createPropMaterial } from './GameMaterials.js';
 import { rollWeight, pickSpecies } from './Bites.js';
 import { TRAP_LIMIT } from './Gear.js';
 
-const MODEL_URL = ( ( import.meta.env && import.meta.env.BASE_URL ) || '/' ) + 'models/props/lobster_trap.glb';
-const HERO_LENGTH = 0.98; // m, the modelled pot scaled to a working size (it exports at 1.4 m)
+const BASE = ( import.meta.env && import.meta.env.BASE_URL ) || '/';
+const MODEL_URL = BASE + 'models/props/lobster_trap_decimated.glb'; // the pot (and, unused, its own buoy)
+const BUOY_URL = BASE + 'models/props/lobster_trap_buoy.glb'; // the marker float: its own export
+const POT_LENGTH = 0.98; // m, the modelled pot scaled to a working size (it exports at ~1.5 m)
+const BUOY_WIDTH = 0.34; // m across the float
+// m of the marker that sits below the surface. The float is ~0.65 m tall, so a third of it in the water
+// is what gives it a waterline: at a few centimetres it skims and reads as hovering above the sea.
+const BUOY_SINK = 0.22;
+
+// The decimated file is the trap *and* its buoy (231 k triangles for the pair): the pot is taken from it
+// by material family, and the marker comes from the buoy's own export. The loader hands each material
+// name to the skip predicate, which is how the halves are told apart.
+const TRAP_MATS = /^(WOOD|TWINE|CORD|IRON) \|/;
+const SKIP_MATS = ( n ) => /^SETTING \|/.test( n ); // the scene's backdrop (a pegged plank)
+
+// Two materials in these exports carry no colour factor at all while every other material has one, and
+// both fall back to the same grey — so they are painted here, the way each is named. (A re-export with
+// the factors on would let the models carry them and this block could go.)
+const FLOAT = /^FLOAT \|/; // worn red and yellow marine enamel: a red body with a yellow top
+const FLOAT_STYLE = { body: 0xb0392a, band: 0xe3b93c, bandFrom: 0.55 };
+const PALE_WOOD = /^WOOD \| Salt-silvered/; // salt-silvered oak: pale weathered grey-brown, not white
+const PALE_WOOD_STYLE = { body: 0xa89a86 };
 
 // a pot needs a few hours to fish; a full soak fills it up
 export const SOAK_MIN = 1.5; // game hours before anything worthwhile is aboard
@@ -52,9 +76,11 @@ export function haulYield( { soak, depth, habitat, hour, rng = Math.random } ) {
 
 export class Traps {
 
-	constructor( { scene, terrain, query, state, toast = null } ) {
+	constructor( { scene, terrain, query, state, toast = null, boat = null } ) {
 
 		this.scene = scene;
+		this.boat = boat; // the working boat: its deck carries the stack
+		this.stack = [];
 		this.terrain = terrain;
 		this.query = query;
 		this.state = state;
@@ -65,6 +91,8 @@ export class Traps {
 		scene.add( this.group );
 
 		this.material = createPropMaterial( 'trap' );
+		// the procedural pot and float are what is there until the model lands (and the fallback if it
+		// cannot be fetched at all); the modelled ones replace them in place
 		this.pot = buildPot();
 		this.float = buildBuoy();
 		this.rope = buildRope();
@@ -83,10 +111,10 @@ export class Traps {
 		this.holder.name = 'Traps:haul';
 		this.holder.visible = false;
 		this.group.add( this.holder );
-		this.hero = null;
-		this.heroWanted = false;
 		this._anim = null;
 		this._off = state.onChange( () => this.sync() );
+		this.loadModels();
+		this._buildStack(); // the procedural pots stand in until the model lands
 		this.sync();
 
 	}
@@ -154,7 +182,7 @@ export class Traps {
 
 			}
 
-			v.float.position.set( s.x, y + 0.02, s.z );
+			v.float.position.set( s.x, y - BUOY_SINK, s.z );
 			v.float.rotation.z = Math.sin( ( s.id + v.yaw ) * 3.1 ) * 0.12;
 			const len = Math.max( 0.15, y - bed );
 			v.rope.position.set( s.x, ( bed + y ) * 0.5, s.z );
@@ -168,35 +196,62 @@ export class Traps {
 
 	// ---- the haul: the modelled pot comes up on the hauler and lands on the aft deck
 
-	// load the modelled pot (23 MB): called when the trap line is first bought, not at startup
-	loadHero() {
+	// The modelled trap and its buoy, in one file (6.7 MB). Loaded at once: the pots on the working
+	// boat's deck are part of the furniture, so there is no "first time you need it" any more.
+	loadModels() {
 
-		if ( this.hero || this.heroWanted ) return this.hero;
-		this.heroWanted = true;
-		loadStaticModel( MODEL_URL, { skip: ( n ) => /^SETTING \|/.test( n ), name: 'heroTrap' } ).then( ( m ) => {
+		if ( this._loading ) return;
+		this._loading = true;
+		Promise.all( [
+			loadStaticModel( MODEL_URL, { skip: SKIP_MATS, name: 'trap' } ),
+			loadStaticModel( BUOY_URL, { skip: SKIP_MATS, name: 'buoy' } ),
+		] ).then( ( [ t, b ] ) => {
 
-			// the export is 1.48 m long including the bridle: scale to a working pot, and turn it so
-			// the long axis runs fore-aft (the model's length is along x, the boat's along z). The
-			// model's feet are its own y = 0, so it sits on deck with no offset.
-			const size = new Vector3();
-			m.bounds.getSize( size );
-			m.root.scale.setScalar( HERO_LENGTH / Math.max( size.x, 1e-3 ) );
-			m.root.rotation.y = Math.PI / 2;
-			const holder = new Object3D();
-			holder.add( m.root );
-			this.hero = holder;
-			if ( this._anim ) this._swapAnimMesh();
+			const pot = bake( t, TRAP_MATS, POT_LENGTH, true, { paint: { match: PALE_WOOD, ...PALE_WOOD_STYLE } } );
+			// the buoy exports with the marker stick below the float (its yellow tip points down), so it
+			// is stood the right way up: the float rides at the surface with the stick above it
+			const buoy = bake( b, /./, BUOY_WIDTH, false, { flip: true, paint: { match: FLOAT, ...FLOAT_STYLE } } );
+			if ( pot ) this.pot = pot;
+			if ( buoy ) this.float = buoy;
+			// everything already in the world (set pots, their markers) and the deck stack take it up
+			for ( const v of this.views.values() ) {
 
-		} ).catch( ( e ) => console.warn( 'Traps: the modelled pot failed to load', e ) );
-		return this.hero;
+				v.pot.geometry = this.pot;
+				v.float.geometry = this.float;
+
+			}
+
+			this._buildStack();
+
+		} ).catch( ( e ) => console.warn( 'Traps: the modelled pot failed to load, using the procedural one', e ) );
+
+	}
+
+	// The working boat's deck carries the gear: four pots in the boat's own frame (world/boat/DeckGear.js
+	// has the layout). Not baked into the hull, so the modelled trap can stand in for the procedural one.
+	_buildStack() {
+
+		if ( ! this.boat || ! this.boat.group ) return;
+		for ( const mesh of this.stack ) mesh.removeFromParent();
+		this.stack = [];
+		for ( const [ x, level, z, yaw ] of TRAPS ) {
+
+			const mesh = new Mesh( this.pot, this.material );
+			mesh.position.set( x, this.boat.lines.deckY + 0.03 + level * ( TRAP.H + 0.035 ), z );
+			mesh.rotation.y = yaw;
+			mesh.castShadow = true;
+			mesh.receiveShadow = true;
+			this.boat.group.add( mesh );
+			this.stack.push( mesh );
+
+		}
 
 	}
 
 	_swapAnimMesh() {
 
 		this.holder.clear();
-		if ( this.hero ) this.holder.add( this.hero );
-		else this.holder.add( new Mesh( this.pot, this.material ) );
+		this.holder.add( new Mesh( this.pot, this.material ) );
 
 	}
 
@@ -242,6 +297,74 @@ export class Traps {
 const _hero = new Vector3();
 
 // ---- the meshes
+
+// One half of the loaded model (the trap, or its buoy), welded into a single geometry: the colours of
+// the source materials become vertex colours the way the procedural gear does it (world/boat/DeckGear),
+// so a pot stays one draw call. The result is centred on x/z with its base at y = 0 and scaled to
+// `target` across its longest horizontal axis; the trap is turned so its length runs fore-aft.
+export function bake( model, wanted, target, alongZ, { flip = false, paint = null } = {} ) { // exported for the loader check in test/
+
+	const mats = ( model.info && model.info.materials ) || [];
+	const prefix = model.root.name + '-';
+	const parts = [];
+	for ( const mesh of model.root.children ) {
+
+		const name = mesh.name.startsWith( prefix ) ? mesh.name.slice( prefix.length ) : mesh.name;
+		if ( ! wanted.test( name ) ) continue;
+		const gltf = mats.find( ( m ) => m.name === name );
+		const pbr = ( gltf && gltf.pbrMetallicRoughness ) || {};
+		const c = pbr.baseColorFactor || [ 0.8, 0.8, 0.8 ];
+		const part = prepare( mesh.geometry, {
+			color: new Color().setRGB( c[ 0 ], c[ 1 ], c[ 2 ] ).getHex(),
+			rough: pbr.roughnessFactor ?? 0.85,
+			metal: pbr.metallicFactor ?? 0,
+		} );
+		if ( flip ) part.rotateX( Math.PI ); // 180° about x: a marker that exports stood on its head
+		if ( paint && paint.match.test( name ) ) paintPart( part, paint );
+		parts.push( part );
+
+	}
+
+	if ( ! parts.length ) return null;
+	const geo = mergePrepared( parts );
+	const size = geo.boundingBox.getSize( new Vector3() );
+	const s = target / Math.max( size.x, size.z, 1e-3 );
+	geo.scale( s, s, s );
+	if ( alongZ && size.x > size.z ) geo.rotateY( Math.PI / 2 );
+	geo.computeBoundingBox();
+	const b = geo.boundingBox;
+	geo.translate( - ( b.min.x + b.max.x ) / 2, - b.min.y, - ( b.min.z + b.max.z ) / 2 );
+	return geo;
+
+}
+
+// Paint a part whose export lost its colour: a solid body with a band across its upper part.
+function paintPart( geo, style ) {
+
+	const pos = geo.attributes.position.array, col = geo.attributes.color.array;
+	let ymin = Infinity, ymax = - Infinity;
+	for ( let i = 1; i < pos.length; i += 3 ) { if ( pos[ i ] < ymin ) ymin = pos[ i ]; if ( pos[ i ] > ymax ) ymax = pos[ i ]; }
+	const body = new Color( style.body );
+	if ( style.band === undefined ) {
+
+		for ( let i = 0; i < col.length; i += 3 ) { col[ i ] = body.r; col[ i + 1 ] = body.g; col[ i + 2 ] = body.b; }
+
+	} else {
+
+		const span = Math.max( 1e-6, ymax - ymin ), from = ymin + span * style.bandFrom;
+		const band = new Color( style.band );
+		for ( let i = 0; i < col.length; i += 3 ) {
+
+			const c = pos[ i + 1 ] >= from ? band : body;
+			col[ i ] = c.r; col[ i + 1 ] = c.g; col[ i + 2 ] = c.b;
+
+		}
+
+	}
+
+	geo.attributes.color.needsUpdate = true;
+
+}
 
 // A wooden slat pot: 0.95 m long (z), 0.55 wide, runners and slats, net ends, a lath top.
 function buildPot() {

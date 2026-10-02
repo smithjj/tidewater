@@ -1,5 +1,9 @@
 // Load a static glTF/GLB prop and merge its primitives into one mesh per material.
 //
+// Every scene in the file is walked, not just the default one: a prop file can hold more than one object
+// (the decimated trap carries its buoy as the file's first scene), and a caller that splits the result by
+// material wants all of it. A node reached twice is only added once.
+//
 // An authored or scanned prop arrives as hundreds of primitives (the lobster trap is 516 of them)
 // sharing a handful of materials; the draw calls are what costs, so everything a material touches is
 // welded into a single geometry. Same approach as the boats (world/boats/Pelagic30.js), kept here as
@@ -18,6 +22,7 @@ export async function loadStaticModel( url, { skip = null, name = 'static', anch
 
 	const gltf = await loadGLB( url );
 	const buckets = new Map(); // material index -> { pos, nor, uv, idx }
+	const seen = new Set();
 
 	const walk = ( i, parent ) => {
 
@@ -32,7 +37,15 @@ export async function loadStaticModel( url, { skip = null, name = 'static', anch
 		for ( const c of n.children ) walk( c, world );
 
 	};
-	for ( const r of gltf.roots ) walk( r, null );
+	const scenes = ( gltf.json && gltf.json.scenes ) || null;
+	const roots = scenes && scenes.length ? scenes.flatMap( ( sc ) => sc.nodes || [] ) : gltf.roots;
+	for ( const r of roots ) {
+
+		if ( seen.has( r ) ) continue;
+		seen.add( r );
+		walk( r, null );
+
+	}
 
 	const root = new Group();
 	root.name = name;

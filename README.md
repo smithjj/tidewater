@@ -112,7 +112,42 @@ rendering engine, no framework.
 | M | Mute |
 | H | Settings panel |
 | P | Photo mode |
-| F1 or ? | All controls |
+| F1 | All controls |
+| Esc | Close a panel, release the mouse |
+
+**Every one of these can be rebound**, and a controller can drive the whole game — see below.
+
+### Controller
+
+Plug in a gamepad and it works out of the box: the interface switches to controller glyphs the moment you
+touch a button, the prompts and the controls sheet follow, and the menu walks with the d-pad. The default
+layout:
+
+| Input | Action |
+|---|---|
+| Left stick | Move (analogue: push it halfway to walk slowly) · throttle and rudder at the helm |
+| Right stick | Look |
+| RT | Cast, strike, reel |
+| RB | Reel in an empty line |
+| LT | Sprint, boat boost |
+| LB | Take out / put away the rod |
+| A | Interact: board, helm, step ashore, trade, set and haul traps |
+| B | Back, close, dismiss the catch card |
+| X | Jump, swim up |
+| Y | Crouch, dive |
+| L3 / R3 | Boat camera · cooler and fish log |
+| D-pad | Run or pause the day · flashlight · mute · photo mode |
+| View / Menu | All controls · settings panel |
+| Left stick + d-pad | Walk the panels and lists: up and down between rows, left and right to change a slider, A to pick, B to go back, LB / RB to change tab |
+
+Rebinding lives in **Settings → Controls** (`H`, then the Controls tab): one row per action showing what is
+bound on each device, with the deadzone, look sensitivity, invert-Y and rumble. Click a row and press the
+key, mouse button or controller button you want; a × removes one input, the ↺ button puts a row back to its
+default, and binding something another action already had takes it from that action (the row says so).
+Plain Esc cancels a capture, Shift+Esc binds Escape itself, Del clears the row.
+
+Bindings are saved on their own (`tidewater.controls.v1` in the browser), with everything from before the
+Controls tab treated as "use the defaults", and the debug console can read the table (`window.__tw.app.bindings`).
 
 ### Fishing
 
@@ -143,7 +178,8 @@ its own — calm mornings, a sea breeze through the afternoon, and the occasiona
 and the weather are saved with everything else.
 
 The settings panel (H) exposes the sea state, dynamic weather and its pace, time of day, sun azimuth,
-clouds, haze, post-processing and more.
+clouds, haze, post-processing and more — and a **Controls** tab with the controller options and a
+rebindable row for every action.
 
 ## URL options
 
@@ -187,7 +223,7 @@ jumps the weather, lands a catch and drives the trap line. See [cheats.md](cheat
 | `src/audio/` | The sample-based soundscape |
 | `src/ui/` | Settings panel, loading screen and HUD |
 | `tools/` | Scripts that fetch and convert the characters, stall props and fishing sounds |
-| `test/` | Headless engine smoke test and game-logic tests (`npm test`), and HUD / loader dev pages |
+| `test/` | Headless engine smoke test and game-logic and input tests (`npm test`), and the HUD / loader / Controls-tab dev pages |
 
 ## Credits and license
 

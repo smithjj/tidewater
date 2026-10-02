@@ -148,6 +148,8 @@ Already in the game, and useful next to the above:
 | `__tw.help()` | print the command list in the console |
 | `__tw.state`, `__tw.game`, `__tw.app`, `__tw.trapLine` | the objects themselves, for anything not covered here |
 | `window.__app` | the whole app: `__app.terrainData`, `__app.player`, `__app.lobsterCtl`, `__app.pelagicCtl`… |
+| `__tw.app.bindings` | the input bindings: `bindings.list( 'interact', 'pad' )`, `bindings.add( 'interact', 'pad', 'B' )`, `bindings.resetAll()`, `bindings.opts.deadzone = 0.2` |
+| `__tw.app.input` | the input itself: `.device` ('kb' or 'pad'), `.pad.connected`, `.label( 'interact' )`, `.rumble( { strong: 1, weak: 0, ms: 200 } )` |
 | `window.__views`, `window.__view( 'pier' )` | the named review cameras (`__pose()` prints the current one) |
 | `window.__ui` | the interface itself, if you want to drive a panel |
 

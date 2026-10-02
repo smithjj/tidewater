@@ -2,3 +2,7 @@ node_modules
 dist
 .DS_Store
 *.log
+
+# python bytecode (tools/ and blender/ scripts)
+__pycache__/
+*.pyc

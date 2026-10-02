@@ -125,7 +125,6 @@ export function installDebugGame( app ) {
 		setTrap( x = null, z = null ) {
 
 			const set = g().setTrap( x, z );
-			if ( set && ! app.game.traps.heroWanted ) app.game.traps.loadHero();
 			return set;
 
 		},

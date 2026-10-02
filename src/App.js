@@ -5,6 +5,7 @@ import { FrameUniforms } from './engine/render/Frame.js';
 
 import { Engine } from './core/Engine.js';
 import { Input } from './core/Input.js';
+import { Bindings } from './core/Bindings.js';
 import { CDLOD } from './core/CDLOD.js';
 import { G } from './core/Globals.js';
 import { Profiler } from './core/Profiler.js';
@@ -83,6 +84,8 @@ export class App {
 			renderScale: 1, // internal resolution (the temporal upscaler reconstructs the output), Performance tab
 		};
 		this.qs = new URLSearchParams( location.search );
+		// the binding table is shared with the settings panel (the Controls tab edits it in place)
+		this.bindings = new Bindings();
 
 	}
 
@@ -116,7 +119,7 @@ export class App {
 		this.scene = scene;
 		this.camera = camera;
 
-		this.input = new Input( engine.domElement );
+		this.input = new Input( engine.domElement, { bindings: this.bindings } );
 		this.fly = new FlyCamera( camera, engine.domElement, this.input );
 		this.fly.setPose( new Vector3( 20, 6, - 20 ), Math.PI * 0.9, - 0.12 );
 
@@ -664,17 +667,41 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		// the weather walks the sea state on in-game time (a no-op while the clock is paused)
 		if ( this.weather ) this.weather.update( dt );
 
+		// the pad polls here, then the menu layer decides whether a panel owns the input: both run
+		// before anything reads this frame's input
+		this.input.poll( dt );
+		if ( this.padUI ) this.padUI.update();
+
 		// ---- player / boat (boat physics first so the cameras follow this frame's pose)
-		if ( this.input.hit( 'KeyF' ) ) this.setFreeCam( ! this.freeCam );
-		if ( this.input.hit( 'KeyT' ) ) this.toggleTime();
-		if ( this.input.hit( 'KeyL' ) ) {
+		if ( this.input.actHit( 'freeCam' ) ) this.setFreeCam( ! this.freeCam );
+		if ( this.input.actHit( 'pauseTime' ) ) this.toggleTime();
+		if ( ! this._flashSeeded ) {
+
+			// the torch remembers what it was left as (controls options, like the pad settings).
+			// Seeded here rather than at construction: nothing to order against at boot.
+			this._flashSeeded = true;
+			const opts = this.input.bindings && this.input.bindings.opts;
+			if ( opts && opts.flashlightOn === false ) this.localLights.toggleFlashlight( false );
+
+		}
+
+		if ( this.input.actHit( 'flashlight' ) ) {
 
 			const on = this.localLights.toggleFlashlight();
+			// remembered with the other controls options
+			const opts = this.input.bindings && this.input.bindings.opts;
+			if ( opts ) {
+
+				opts.flashlightOn = on;
+				this.input.bindings.save();
+
+			}
+
 			if ( this.ui ) this.ui.ui.toast( on ? 'Flashlight on' : 'Flashlight off' );
 
 		}
 
-		if ( this.input.hit( 'KeyM' ) && this.audio ) {
+		if ( this.input.actHit( 'mute' ) && this.audio ) {
 
 			this.audio.setMuted( ! this.audio.muted );
 			if ( this.ui ) this.ui.ui.toast( this.audio.muted ? 'Sound off' : 'Sound on' );
@@ -694,6 +721,8 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 		// ---- water simulation
 		this.fft.update( dt );
+		// the shore wave clock: a phase rate, so a weather change to the period cannot step the surf
+		this.shore.update( dt );
 		this.seaDetail.update( dt );
 		this.query.setCamera( this.camera.position.x, this.camera.position.z );
 		this.lobsterCtl.queueQueries();

@@ -1,6 +1,7 @@
 import { FISH, fishLengthCm } from './FishTable.js';
 import { UPGRADES, nextLevel, FUEL_PRICE, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
 import { FishPortrait } from './FishPortrait.js';
+import { resolveLabels } from '../core/Bindings.js';
 
 // DOM for the fishing game, in the look of the rest of the HUD (ui/ui.css tokens, .tw-glass):
 //   top right     purse and cooler / hold load
@@ -323,6 +324,11 @@ export class GameHUD {
 			this.sonarD.textContent = `${ sonar.depth.toFixed( 1 ) } m`;
 			const n = Math.round( sonar.fish * 4 );
 			this.sonarDots.textContent = '●'.repeat( n ) + '○'.repeat( 4 - n );
+			// the dots are real fish in range; the title says which schools they are
+			const schools = sonar.schools || [];
+			this.sonarEl.title = schools.length
+				? `${ schools.length } school${ schools.length > 1 ? 's' : '' } in range · nearest ${ schools[ 0 ].name } at ${ schools[ 0 ].depth.toFixed( 1 ) } m, ${ schools[ 0 ].dist.toFixed( 0 ) } m away`
+				: 'No schools in range';
 
 		}
 
@@ -401,7 +407,7 @@ export class GameHUD {
 					<div class="gm-stat is-value"><span>Value</span><b>$${ this.game.state.priceOf( info ) }</b><i>${ info.kept ? 'in the cooler' : 'let go' }</i></div>
 				</div>
 				${ note }
-				<div class="gm-catch-foot"><kbd>Click</kbd> or <kbd>E</kbd> to continue<span class="gm-catch-timer"><span></span></span></div>
+				<div class="gm-catch-foot"><kbd data-bind="rodUse">Click</kbd> or <kbd data-bind="interact">E</kbd> to continue<span class="gm-catch-timer"><span></span></span></div>
 			</div>`;
 		// restart the entrance even when a card is already up
 		c.classList.remove( 'is-on' );
@@ -409,6 +415,7 @@ export class GameHUD {
 		c.classList.add( 'is-on' );
 		this.catchScrim.classList.add( 'is-on' );
 		this.catchOpen = true;
+		this._resolve( c );
 		// the fish itself: the real model in a studio, drawn live into the stage canvas
 		try {
 
@@ -448,6 +455,14 @@ export class GameHUD {
 
 	}
 
+	// the panels name inputs by action (Close, Leave, the cast button): fill in the device's glyphs
+	_resolve( root ) {
+
+		const input = this.game && this.game.app && this.game.app.input;
+		resolveLabels( root, { label: ( a ) => ( input ? input.label( a ) : null ), device: input ? input.device : 'kb' } );
+
+	}
+
 	renderInventory() {
 
 		const s = this.game.state;
@@ -458,9 +473,10 @@ export class GameHUD {
 			<p class="gm-sub">${ s.inventory.length } fish · ${ s.holdKg.toFixed( 1 ) } of ${ s.stats.holdKg } kg · worth $${ s.holdValue }</p>
 			<div class="gm-list">${ rows || '<div class="gm-empty">Nothing yet. Cast from the pier, the beach or the boat.</div>' }</div>
 			${ logged ? `<div class="gm-log"><b>Fish log</b><br>${ logged }</div>` : '' }
-			<div class="gm-foot"><span class="gm-sub">Sell at the fish stand by the pier</span><button class="gm-btn is-ghost" data-close>Close (I)</button></div>`;
+			<div class="gm-foot"><span class="gm-sub">Sell at the fish stand by the pier</span><button class="gm-btn is-ghost" data-close>Close (<span data-bind="cooler">I</span>)</button></div>`;
 		this.inv.querySelector( '[data-close]' ).onclick = () => this.toggleInventory( false );
 		for ( const b of this.inv.querySelectorAll( '[data-release]' ) ) b.onclick = () => s.release( Number( b.dataset.release ) );
+		this._resolve( this.inv );
 
 	}
 
@@ -494,10 +510,11 @@ export class GameHUD {
 			<p class="gm-sub">${ s.inventory.length ? v.greeting || 'Let\'s see what you caught.' : v.idle || 'Come back when you\'ve got fish.' }</p>
 			${ marketBoard( s ) }
 			<div class="gm-list">${ rows || '<div class="gm-empty">Your cooler is empty.</div>' }</div>
-			<div class="gm-foot"><button class="gm-btn is-ghost" data-close>Leave (E)</button><button class="gm-btn" data-all ${ s.inventory.length ? '' : 'disabled' }>Sell all · $${ s.holdValue }</button></div>`;
+			<div class="gm-foot"><button class="gm-btn is-ghost" data-close>Leave (<span data-bind="interact">E</span>)</button><button class="gm-btn" data-all ${ s.inventory.length ? '' : 'disabled' }>Sell all · $${ s.holdValue }</button></div>`;
 		this.stand.querySelector( '[data-close]' ).onclick = () => this.closeStand();
 		this.stand.querySelector( '[data-all]' ).onclick = () => this.game.sellAll();
 		for ( const b of this.stand.querySelectorAll( '[data-sell]' ) ) b.onclick = () => this.game.sell( [ Number( b.dataset.sell ) ] );
+		this._resolve( this.stand );
 
 	}
 
@@ -527,13 +544,14 @@ GameHUD.prototype.renderShop = function () {
 		<h2>${ v.name }</h2>
 		<p class="gm-sub">${ v.greeting } · You have $${ s.money.toLocaleString() }</p>
 		<div class="gm-list">${ fuelRow }${ licenceRow }${ trapRow }${ rows }</div>
-		<div class="gm-foot"><span class="gm-sub">Upgrades take effect at once</span><button class="gm-btn is-ghost" data-close>Leave (E)</button></div>`;
+		<div class="gm-foot"><span class="gm-sub">Upgrades take effect at once</span><button class="gm-btn is-ghost" data-close>Leave (<span data-bind="interact">E</span>)</button></div>`;
 	this.stand.querySelector( '[data-close]' ).onclick = () => this.closeStand();
 	for ( const b of this.stand.querySelectorAll( '[data-buy]' ) ) b.onclick = () => this.game.buy( b.dataset.buy );
 	const f = this.stand.querySelector( '[data-fuel]' );
 	if ( f ) f.onclick = () => this.game.refuel();
 	const tr = this.stand.querySelector( '[data-traps]' );
 	if ( tr ) tr.onclick = () => this.game.buyTraps( 1 );
+	this._resolve( this.stand );
 
 };
 

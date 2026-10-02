@@ -2,13 +2,14 @@ import { WORLD } from '../world/WorldLayout.js';
 import { STAND } from './FishStand.js';
 import { CHANDLERY } from './Chandlery.js';
 import { TRAP_LIMIT } from './Gear.js';
+import { fishNear } from './Sonar.js';
 
 // Minimap, lower right: the island baked once from the terrain data into a 2D canvas (depth-tinted
 // sea, reef and seagrass, sand, grass and forest by height, rock, paths, village pads, the pier,
 // hill shading and a coastline), shown in a round window that turns with the view (forward is up,
 // a small N on the rim). Markers: the player (centre arrow), Joe's fish stand, Marta's chandlery
 // and the boat; markers beyond the rim sit on it with an arrow. With the fish finder upgrade, a
-// couple of soft rings mark the richest water in view.
+// couple of soft rings mark the nearest schools of fish in view.
 //
 // Per frame it only writes a few CSS transforms. The bake runs in row chunks over the first frames.
 //   const map = new Minimap( hudEl, game );  map.update( dt );  map.highlight( [ 'joe', 'marta' ] )
@@ -386,13 +387,15 @@ export class Minimap {
 		// the N on the rim
 		place( this.north, 0, - 1e6, 9 );
 
-		// fish finder: the richest water nearby, refreshed now and then
+		// fish finder: the schools the reef is actually simulating, refreshed now and then. Only those
+		// inside the map's own radius, so a ring is never left clamped to the rim (they have no arrow).
 		const finder = this.game.state.stats.finder;
 		this._fishT -= dt;
 		if ( finder && this._fishT <= 0 ) {
 
 			this._fishT = 1.5;
-			this._fishPts = this._richest( x, z, this.radiusM * 0.85 );
+			const fish = app.reef && app.reef.fish;
+			this._fishPts = fishNear( fish && fish.groups, x, z, this.radiusM * 0.85, 2, 25 );
 
 		}
 
@@ -406,35 +409,5 @@ export class Minimap {
 
 	}
 
-	// the two richest points on a coarse polar grid around (x, z), at least 25 m apart
-	_richest( x, z, r ) {
-
-		const g = this.game, T = g.app.terrainData;
-		const pts = [];
-		for ( let ring = 1; ring <= 3; ring ++ ) for ( let a = 0; a < 12; a ++ ) {
-
-			const ang = ( a / 12 ) * Math.PI * 2 + ring * 0.4, d = r * ring / 3;
-			const px = x + Math.cos( ang ) * d, pz = z + Math.sin( ang ) * d;
-			const depth = - T.heightAt( px, pz );
-			if ( depth < 1 ) continue;
-			const hab = g.habitatAtPoint( px, pz, depth );
-			let rich = 0;
-			for ( const k in hab ) rich += hab[ k ];
-			if ( rich > 0.7 ) pts.push( { x: px, z: pz, rich } );
-
-		}
-
-		pts.sort( ( a, b ) => b.rich - a.rich );
-		const out = [];
-		for ( const q of pts ) if ( out.every( ( o ) => Math.hypot( o.x - q.x, o.z - q.z ) > 25 ) ) {
-
-			out.push( q );
-			if ( out.length === 2 ) break;
-
-		}
-
-		return out;
-
-	}
 
 }

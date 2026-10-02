@@ -200,37 +200,66 @@ import { Weather } from '../src/world/Weather.js';
 	ok( Vendor.prototype.openAt.call( { hours: null }, 3 ) === true, 'a vendor with no hours is always open' );
 }
 {
-	// the weather walks the ladder on in-game time, writes the light uniforms continuously and
-	// rebuilds the wave spectrum (which clears the foam buffer) only when it crosses a step
+	// The weather walks the ladder on in-game time. The wave field follows the *fractional* level so the
+	// sea drifts continuously (the foam is kept), and only a jump — a load — clears the foam. Cloud cover
+	// is the one thing still written on a whole step (a coverage change drops the clouds' history).
+	const cov = { _v: 0.45, writes: 0, get value() { return this._v; }, set value( x ) { this._v = x; this.writes ++; } };
 	const fft = {
 		local: { windSpeed: 7, windDirection: 25, fetch: 120 }, swell: { scale: 0.48 },
 		choppiness: { value: 0.9 }, foamBias: { value: 0.5 }, foamDecay: { value: 0.6 },
-		spectra: 0, updateSpectrumUniforms() { this.spectra ++; this.needsSpectrum = true; },
+		spectra: 0, foamResets: 0,
+		updateSpectrumUniforms( { resetFoam = true } = {} ) { this.spectra ++; if ( resetFoam ) this.foamResets ++; this.needsSpectrum = true; },
 	};
 	const app = {
-		fft, shore: { amplitude: { value: 0.34 }, period: { value: 9 } }, clouds: { coverage: { value: 0.45 } },
+		fft, shore: { amplitude: { value: 0.34 }, period: { value: 9 } }, clouds: { coverage: cov },
 		settings: { timeOfDay: 9, timeSpeed: 0.02 }, ui: null,
 	};
 	const w = new Weather( app );
-	ok( fft.spectra === 1, 'the weather applies the sea state once at startup' );
-	const lightOnly = fft.spectra;
-	w.write( { spectrum: false } );
-	ok( fft.spectra === lightOnly, 'a light write leaves the wave spectrum (and the foam) alone' );
+	ok( fft.spectra === 1 && fft.foamResets === 1, 'the weather applies the sea state once at startup, clearing the foam' );
 	// a day at 60 fps: 1200 real seconds
-	let bad = 0, moved = 0, prevTarget = w.target;
+	let bad = 0, moved = 0, picks = 0, prevTarget = w.target, prevFetch = fft.local.fetch, prevHold = w._hold, biggest = 0;
+	const coverWrites = () => cov.writes;
 	for ( let i = 0; i < 60 * 1200; i ++ ) {
 
 		w.update( 1 / 60 );
+		// a pick resets the hold upward (it counts down otherwise): the weather's *decision* rate, which
+		// is what "not constantly" is about (a pick may legitimately decide to stay on the same rung)
+		if ( w._hold > prevHold ) picks ++;
+		prevHold = w._hold;
 		if ( ! ( w.level >= 0 && w.level <= CONDITIONS.length - 1 ) || ! Number.isFinite( w.level ) ) bad ++;
 		if ( ! Number.isFinite( fft.local.windSpeed ) || ! Number.isFinite( fft.foamBias.value ) || ! Number.isFinite( app.shore.amplitude.value ) ) bad ++;
-		if ( ! Number.isFinite( app.clouds.coverage.value ) || app.clouds.coverage.value < 0 || app.clouds.coverage.value > 1 ) bad ++;
+		if ( ! Number.isFinite( cov.value ) || cov.value < 0 || cov.value > 1 ) bad ++;
 		if ( w.target !== prevTarget ) { moved ++; prevTarget = w.target; }
+		const d = Math.abs( fft.local.fetch - prevFetch );
+		if ( d > biggest ) biggest = d;
+		prevFetch = fft.local.fetch;
 
 	}
 	ok( bad === 0, 'a full day of weather stays on the ladder with no NaN anywhere' );
-	ok( moved >= 5, `the weather actually turns over (${ moved } changes in a day)` );
-	ok( fft.spectra > 1 && fft.spectra < 120, `the spectrum is rebuilt rarely, not per frame (${ fft.spectra } times in a day)` );
+	// a couple of decisions a day, not one every few seconds (the step used to be 0.35 in-game hours)
+	ok( picks >= 2 && picks <= 14, `the weather decides a few times a day, not constantly (${ picks } picks, ${ moved } of them a change of rung)` );
+	// the whole sea is written every frame (the values are smooth in time; a slower cadence steps them,
+	// see the header of world/Weather.js), and the *smoothing* is what keeps the water from stepping
+	ok( fft.spectra > 70000 && fft.spectra <= 72001, `the sea is written every frame, not on a slow cadence (${ fft.spectra } writes in a day of 72000 frames)` );
+	// the point of the whole cadence: the sea drifts, it does not step. Fetch spans 40..900 m; the
+	// biggest single write over a whole day must be a small fraction of that (it used to be a whole rung)
+	ok( biggest < 90, `the sea drifts rather than lurching (biggest single change in fetch: ${ biggest.toFixed( 1 ) } km)` );
+	// ...and drifting must not scrub the foam off the water
+	ok( fft.foamResets === 1, 'the drifting writes never clear the foam (only the startup jump did)' );
+	// the cloud cover is the one thing that still rides on a whole step: about one write per rung crossed
+	// (a couple per weather change), nowhere near the ~4800 the sea writes
+	ok( coverWrites() >= 1 && coverWrites() < 60, `the cloud cover is written on whole steps only (${ coverWrites() } writes against ${ fft.spectra } for the sea)` );
+	// the written spectrum is the interpolated level, not the nearest rung
+	w.level = 2.5;
+	w.write( { spectrum: true, resetFoam: false, cover: false } );
+	const want = conditionAt( 2.5, w.windDir );
+	ok( Math.abs( fft.local.windSpeed - want.wind ) < 1e-6 && Math.abs( fft.swell.scale - want.swell ) < 1e-6,
+		`a fractional level writes the interpolated sea, not the rung (wind ${ fft.local.windSpeed.toFixed( 2 ) } m/s vs the rung ${ SEA.Choppy.wind })` );
 	ok( CONDITIONS.includes( w.name ), 'the HUD gets a real condition name' );
+	// a load is a jump: it clears the foam
+	const resets = fft.foamResets;
+	w.restore( w.state() );
+	ok( fft.foamResets === resets + 1, 'loading a saved sea clears the foam (a jump, not a drift)' );
 	// pausing the clock holds the weather
 	const held = w.level;
 	app.settings.timeSpeed = 0;
@@ -354,6 +383,73 @@ import { TRAP_PRICE, TRAP_LIMIT } from '../src/game/Gear.js';
 	const st3 = new GameState( { getItem: () => JSON.stringify( before2 ), setItem: () => {} } );
 	ok( st3.load() && st3.traps === 0 && st3.sets.length === 0 && st3.mulFor( 'grunt' ) === 1, 'older saves start with no pots out' );
 }
+// ---- what E does on the boat: the prompt decides between setting and hauling
+import { Game } from '../src/game/Game.js';
+{
+	const m = new Map();
+	const st = new GameState( { getItem: ( k ) => m.get( k ) ?? null, setItem: ( k, v ) => m.set( k, v ) } );
+	st.money = 0;
+	st.upgrades.trapLicence = 1;
+	st.traps = 3;
+	const boat = { position: { x: - 20, z: 140 }, speed: 0 };
+	const toasts = [];
+	const game = Object.create( Game.prototype );
+	Object.assign( game, {
+		state: st,
+		_haulCard: 0,
+		hud: null,
+		app: {
+			lobsterCtl: boat,
+			player: { boat, mode: 'boat', position: boat.position },
+			settings: { timeOfDay: 9 }, // game.hour reads this
+			terrainData: { heightAt: () => - 12 }, // 12 m of water everywhere
+			audio: null,
+		},
+		traps: { haulVisual() {} },
+		habitatAtPoint: () => ( { bay: 1, shallows: 0, reef: 0, pier: 0, deep: 0 } ),
+		toast: ( t ) => toasts.push( t ),
+	} );
+	const p = game.app.player;
+	const E = { actHit: ( id ) => id === 'interact' }; // E / A on the action layer
+	const act = () => { const pr = game.trapPrompt( p ); return pr && pr.act; };
+	const press = () => game.updateTraps( E, p );
+
+	ok( act() === 'set', 'clear water: E offers to set' );
+	press();
+	ok( st.sets.length === 1 && st.traps === 2, 'E puts a pot over the side' );
+	// the pot is now at the boat's own position, so it is inside haul range: E must not take it back
+	ok( act() === 'set', 'standing on the pot just set, E still offers to set the next one' );
+	press();
+	ok( st.sets.length === 1 && st.traps === 2, 'pressing E again does not pick the pot back up' );
+	ok( toasts.some( ( t ) => /already a pot here/.test( t ) ), 'it says the pot is already there' );
+	// drifting along the line, still inside the 12 m haul range of the last pot
+	boat.position.x = - 10;
+	ok( act() === 'set', '10 m along, E keeps laying the line' );
+	press();
+	ok( st.sets.length === 2 && st.traps === 1, 'the next pot goes in beside the first' );
+	boat.position.x = - 8.4; // 1.6 m from the pot at -10 m: inside the set guard
+	press();
+	ok( st.sets.length === 2 && st.traps === 1, 'too close to set, E refuses rather than hauling' );
+
+	// come back later and the same pots read as hauls
+	game.app.settings.timeOfDay = 20; // set at 09:00, so 11 h on the bottom
+	boat.position.x = - 10;
+	ok( act() === 'haul', 'a soaked pot is a haul' );
+	const animals = game.haulTrap();
+	ok( Array.isArray( animals ) && animals.length > 0, 'hauling a soaked pot brings animals up' );
+	ok( st.sets.length === 1 && st.traps === 2, 'and takes it out of the water' );
+	ok( act() === 'haul', 'the pot left behind is a haul too, from 10 m away' );
+
+	// nothing left to set: E recovers the pot under the boat instead of doing nothing
+	st.traps = 1;
+	boat.position.x = - 40;
+	ok( act() === 'set', 'clear water again: E offers to set' );
+	press();
+	ok( st.sets.length === 2 && st.traps === 0, 'the last pot goes in' );
+	ok( act() === 'haul', 'with no pots left to set, E offers to take the one under the boat back' );
+	ok( game.haulTrap().length === 0 && st.sets.length === 1, 'hauling a pot set moments ago comes up empty' );
+	ok( toasts.some( ( t ) => /Nothing yet/.test( t ) ), 'and says so' );
+}
 // ---- the console helpers (window.__tw): a stubbed window and app, the real state
 import { installDebugGame } from '../src/game/Debug.js';
 {
@@ -361,7 +457,7 @@ import { installDebugGame } from '../src/game/Debug.js';
 	const m = new Map();
 	const state = new GameState( { getItem: ( k ) => m.get( k ) ?? null, setItem: ( k, v ) => m.set( k, v ) } );
 	state.money = 10;
-	let heroAsked = false, setTrapArgs = null, hauled = null;
+	let setTrapArgs = null, hauled = null;
 	const fft = { local: { windSpeed: 7, windDirection: 25, fetch: 120 }, swell: { scale: 0.48 },
 		choppiness: { value: 0.9 }, foamBias: { value: 0.5 }, foamDecay: { value: 0.6 }, updateSpectrumUniforms() {} };
 	const app = {
@@ -370,7 +466,7 @@ import { installDebugGame } from '../src/game/Debug.js';
 		weather: null,
 		game: {
 			state, hud: null,
-			traps: { heroWanted: false, loadHero() { heroAsked = true; } },
+			traps: { pot: null, stack: [], loadModels() {} },
 			// the real haulTrap takes the pot out of the water; both it and the real game find the
 			// nearest pot themselves when they are not handed one
 			setTrap( x, z ) { setTrapArgs = [ x, z ]; return state.setTrap( - 30, 160, app.settings.timeOfDay ); },
@@ -409,7 +505,7 @@ import { installDebugGame } from '../src/game/Debug.js';
 	ok( tw.traps( 99 ) === TRAP_LIMIT && tw.traps( - 5 ) === 0, 'the stock is clamped to the licence maximum' );
 	tw.traps( 3 );
 	const set = tw.setTrap();
-	ok( !! set && setTrapArgs !== null && heroAsked === true, 'setTrap goes through the game (and pulls the modelled pot in)' );
+	ok( !! set && setTrapArgs !== null, 'setTrap goes through the game' );
 	ok( tw.traps().set === 1 && tw.traps().aboard === 2, 'setting one moves it into the water' );
 	// soak ages a pot: its soak grows by exactly that many hours, whatever the clock says
 	const was = soakHours( state.sets[ 0 ], { day: state.day, hour: app.settings.timeOfDay } );

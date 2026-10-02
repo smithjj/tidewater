@@ -1,5 +1,6 @@
 import { Material, ShaderModule, G } from '../engine/webgpu.js';
 import { commonModule } from '../engine/render/wgsl/common.js';
+import { localLightsModule } from '../materials/LocalLights.js';
 import { whaleWaterModule } from './WhaleWater.js';
 import { REFRACTION_GUARD } from './RefractionPass.js';
 
@@ -78,6 +79,8 @@ export class WaterMaterial extends Material {
 				ssr: [ 'f32', 1 ], // screen-space reflections on/off
 				debugMode: [ 'i32', 0 ],
 				hullActive: [ 'f32', 0 ],
+				lampSpec: [ 'f32', 1.0 ], // local lights on the surface: the reflected glint
+				lampGlow: [ 'f32', 1.0 ], // and the light that enters the water and scatters back out
 			},
 		} );
 		this.isWaterMaterial = true;
@@ -102,6 +105,8 @@ export class WaterMaterial extends Material {
 			roughness: U.waterRoughness,
 			reflectionStrength: U.reflectionStrength,
 			ssr: U.ssr,
+			lampSpec: U.lampSpec,
+			lampGlow: U.lampGlow,
 		};
 		this.debugMode = U.debugMode;
 
@@ -160,7 +165,9 @@ export class WaterMaterial extends Material {
 		const HULL = !! ( this.hullMaskTexture && this.hullMaskActive );
 		const REFL = !! ( this.reflection && this.reflection.module );
 
-		this.modules = [ commonModule, waterFresnelModule, waterHelpersModule, whaleWaterModule, S.module, sky && sky.module, CL && this.clouds.module,
+		// localLightsModule is here for its packed lights and the shared spot profile: the water keeps
+		// lightingHooks off, so only the uniforms and localLightsSpotProfile are used (see the shading).
+		this.modules = [ commonModule, waterFresnelModule, waterHelpersModule, whaleWaterModule, localLightsModule, S.module, sky && sky.module, CL && this.clouds.module,
 			SIM && S.shoreSim.module, REFL && this.reflection.module, this.cameraWaterHeightNode && this.cameraWaterHeightNode.module ].filter( Boolean );
 		this.bindings.waterSceneColor = { texture: this.sceneColorTexture };
 		this.bindings.waterSceneDepth = { texture: this.sceneDepthTexture, sampleType: 'unfilterable-float' };
@@ -533,8 +540,44 @@ ${ SF ? '		let foamLit = surfFoamLight( surf.foamInfo, N, L, V, sunLight, pos );
 
 		// a thin bright rim just behind the edge: the rounded bead catches the sky
 		let rim = smoothstep( 0.0, 0.025, frontD ) * smoothstep( 0.1, 0.035, frontD ) * uprush;
-		let water = mix( transmitted, reflCol, F ) + sunSpec + skyRefl * ( 0.22 * rim );
-		let shaded = mix( water, foamCol + sunSpec * 0.05, sat( foam ) );
+		// ---- local lights on the sea surface (the torch, the deck floods, the lanterns)
+		// The water is outside the scene lighting model (lightingHooks off, IS_WATER), so nothing lights
+		// it from the packed lights; this reads them directly, with the same maths the lit materials use
+		// so the two agree. Two terms: the reflected glint (the broken path leading back to the source)
+		// and the light that enters the water and scatters back out, tinted by the water's own body.
+		// Free by day: count is 0 until the lamps come on at dusk.
+		var lampSpec = vec3f( 0.0 );
+		var lampGlow = vec3f( 0.0 );
+		for ( var li = 0; li < localLights.count; li ++ ) {
+
+			let lp = localLights.pos[ li ];
+			let ld = lp.xyz - pos;
+			let ld2 = dot( ld, ld );
+			if ( ld2 < lp.w ) {
+
+				let lc = localLights.col[ li ];
+				let ls = localLights.dir[ li ];
+				let Lw = ld * inverseSqrt( max( ld2, 1e-6 ) );
+				let lx = ld2 / lp.w;
+				let win = sat( 1.0 - lx * lx );
+				let spot = localLightsSpotProfile( dot( - Lw, ls.xyz ), lc.w, ls.w );
+				let lcol = lc.xyz * ( win * win * spot / ( ld2 + 0.15 ) );
+				let NdLw = max( dot( N, Lw ), 0.0 );
+				// the glint: the water's own GGX with this light's half vector
+				let Hw = normalize( Lw + V );
+				let Fw = fresnelDielectric( max( dot( V, Hw ), 0.0 ), ${ IOR } );
+				let specW = _waterDGGX( max( dot( N, Hw ), 0.0 ), alpha2 ) * _waterVSmithGGX( NdLw, NdV, alpha2 ) * Fw * NdLw;
+				lampSpec += lcol * min( specW, 400.0 );
+				// the lit patch: the backscattered fraction of the water body
+				lampGlow += lcol * NdLw * ( sigS / sigT ) * INV_PI;
+
+			}
+
+		}
+		let lamp = lampSpec * mat.lampSpec + lampGlow * mat.lampGlow;
+
+		let water = mix( transmitted, reflCol, F ) + sunSpec + lamp + skyRefl * ( 0.22 * rim );
+		let shaded = mix( water, foamCol + sunSpec * 0.05 + lamp * 0.5, sat( foam ) );
 		// fade into the sand right at the leading edge (anti-aliased by the film thickness)
 		let edgeAA = smoothstep( 0.0, max( fwidth( thickness ) * 1.5, 0.004 ), thickness );
 		// contact shadow: the sand just ahead of the advancing edge is darkened (the bead's

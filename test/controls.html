@@ -1,0 +1,103 @@
+<!doctype html>
+<html>
+<head>
+	<meta charset="utf-8">
+	<title>Controls tab</title>
+	<style>body { margin: 0; background: linear-gradient(180deg, #12303c, #0a1c24); height: 100vh; }</style>
+</head>
+<body>
+<script type="module">
+// Dev page: the Controls tab on its own, with the real toolkit and the real binding table — no WebGPU,
+// no game. Click a row (or focus it and press Enter) and then press a key, a mouse button or a
+// controller button to rebind it. Esc cancels, Shift+Esc binds Escape, Del clears the row, × removes one
+// input. Watch the prompt at the bottom of the screen for what the active device would be told to press.
+import '../src/ui/ui.css';
+import { UI } from '../src/ui/UI.js';
+import { Gamepad } from '../src/core/Gamepad.js';
+import { Bindings, ACTIONS, GROUPS } from '../src/core/Bindings.js';
+
+const ui = new UI();
+const bindings = new Bindings();
+
+// a stand-in for the game's input: the pad is real (plug one in to bind its buttons), the rest is enough
+// for the row capture to silence gameplay and for the glyphs to follow the active device
+const pad = new Gamepad();
+const input = {
+	pad,
+	device: 'kb',
+	capturing: false,
+	caption: { kb: 'keyboard', mouse: 'mouse', pad: 'controller' }[ 'kb' ],
+	label( id ) { return bindings.label( id, this.device, pad.layout ); },
+	rumble( o ) { return pad.rumble( o ); },
+};
+
+const tab = ui.addTab( 'controls', 'Controls', 'keyboard' );
+
+const padFolder = tab.addFolder( 'Controller', { icon: 'gamepad' } );
+const save = () => { bindings.save(); refresh(); };
+padFolder.addToggle( { label: 'Gamepad', object: bindings.opts, key: 'padEnabled', onChange: save } );
+padFolder.addSlider( { label: 'Stick deadzone', object: bindings.opts, key: 'deadzone', min: 0, max: 0.4, step: 0.01, format: ( v ) => v.toFixed( 2 ), onChange: ( v ) => { pad.deadzone = v; save(); } } );
+padFolder.addSlider( { label: 'Look sensitivity', object: bindings.opts, key: 'lookSensitivity', min: 0.3, max: 3, step: 0.05, unit: '×', onChange: save } );
+padFolder.addToggle( { label: 'Invert look', object: bindings.opts, key: 'invertY', onChange: save } );
+padFolder.addSlider( { label: 'Rumble', object: bindings.opts, key: 'rumble', min: 0, max: 1, step: 0.05, onChange: save } );
+padFolder.addButton( { label: 'Test rumble', icon: 'gamepad', variant: 'ghost', onClick: () => { const ok = pad.rumble( { strong: 0.8, weak: 0.4, ms: 350, strength: 1, cooldown: 0 } ); ui.toast( ok ? 'Rumble sent' : 'No controller with a vibration actuator' ); } } );
+padFolder.addInfo( { label: 'Detected', get: () => ( pad.connected ? `${ pad.id.slice( 0, 34 ) } · ${ pad.layout }` : 'No controller' ) } );
+
+const folders = {};
+for ( const group of GROUPS ) folders[ group ] = tab.addFolder( group, { open: group === 'Movement' } );
+for ( const a of ACTIONS ) {
+
+	if ( a.noRebind ) continue;
+	( folders[ a.group ] || tab ).addBinding( {
+		action: a.id, bindings, label: a.label,
+		layout: () => pad.layout, input: () => input,
+	} );
+
+}
+
+tab.addButton( { label: 'Reset all controls', icon: 'reset', variant: 'ghost', onClick: () => { bindings.resetAll(); refresh(); ui.toast( 'Controls back to their defaults' ); } } );
+tab.addInfo( { label: 'Stored', get: () => ( bindings.store ? 'tidewater.controls.v1' : 'not available' ) } );
+
+// the glyph the interface would show right now, and which device it is following
+function refresh() { ui.setPrompt( input.label( 'interact' ), `Interact · ${ input.caption } (${ input.device })` ); }
+ui.selectTab( 'controls' );
+ui.togglePanel( true );
+refresh();
+
+// the pad is polled here (as AppUI does in the game): it drives the device caption and the row capture
+const loop = () => {
+
+	if ( bindings.opts.padEnabled ) {
+
+		pad.deadzone = bindings.opts.deadzone;
+		if ( pad.poll() ) use( 'pad' );
+
+	}
+
+	if ( ui.bindingCapture ) ui.bindingCapture.pollPad( input );
+	requestAnimationFrame( loop );
+
+};
+requestAnimationFrame( loop );
+
+window.addEventListener( 'keydown', ( e ) => {
+
+	if ( e.__capture ) return;
+	use( 'kb' );
+
+} );
+window.addEventListener( 'mousedown', () => use( 'kb' ) );
+
+function use( device ) {
+
+	if ( input.device === device ) return;
+	input.device = device;
+	input.caption = device === 'pad' ? 'controller' : 'keyboard';
+	refresh();
+
+}
+
+window.__controls = { ui, bindings, input, pad };
+</script>
+</body>
+</html>

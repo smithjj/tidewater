@@ -18,6 +18,8 @@ const _e = new THREE.Euler( 0, 0, 0, 'YXZ' );
 const _yAxis = new THREE.Vector3( 0, 1, 0 );
 const _qa = new THREE.Quaternion(), _qb = new THREE.Quaternion(), _qc = new THREE.Quaternion();
 const _wish = new THREE.Vector3();
+// the action layer's movement, before it is turned into a direction: { x = strafe, y = forward }
+const _mv = { x: 0, y: 0 };
 // walking on the boat
 const DECK_RADIUS = 0.24;
 const DECK_STEP = 0.36; // highest ledge you step up onto
@@ -162,11 +164,11 @@ export class Player {
 		this.yaw -= look.x * 0.0022;
 		this.pitch = THREE.MathUtils.clamp( this.pitch - look.y * 0.0022, - 1.5, 1.5 );
 
-		// (not with a line out or a fish in hand: E belongs to the fishing then)
+		// (not with a line out or a fish in hand: interact belongs to the fishing then)
 		if ( this.nearBoat() && ! this.busy ) {
 
-			this.prompt = { key: 'E', text: this._boardable.model.lines ? 'Board boat' : 'Take the helm' };
-			if ( inp.hit( 'KeyE' ) ) {
+			this.prompt = { action: 'interact', text: this._boardable.model.lines ? 'Board boat' : 'Take the helm' };
+			if ( inp.actHit( 'interact' ) ) {
 
 				this.boardBoat();
 				return;
@@ -211,24 +213,25 @@ export class Player {
 		const inp = this.input;
 		_fwd.set( - Math.sin( this.yaw ), 0, - Math.cos( this.yaw ) );
 		_right.set( - _fwd.z, 0, _fwd.x );
-		const wish = new THREE.Vector3();
-		if ( inp.down( 'KeyW' ) ) wish.add( _fwd );
-		if ( inp.down( 'KeyS' ) ) wish.sub( _fwd );
-		if ( inp.down( 'KeyD' ) ) wish.add( _right );
-		if ( inp.down( 'KeyA' ) ) wish.sub( _right );
-		if ( wish.lengthSq() > 0 ) wish.normalize();
+		const mv = inp.move( _mv );
+		const wish = _wish.set( 0, 0, 0 );
+		if ( mv.y ) wish.addScaledVector( _fwd, mv.y );
+		if ( mv.x ) wish.addScaledVector( _right, mv.x );
+		// the magnitude a stick asks for is kept (a keyboard key asks for all of it)
+		const mag = Math.min( 1, Math.hypot( mv.x, mv.y ) );
+		if ( mag > 0 ) wish.normalize().multiplyScalar( mag );
 
 		const depth = this.waterH - this.position.y; // water depth at the feet
 		const wade = THREE.MathUtils.clamp( depth / 1.2, 0, 1 );
 		this.wade = wade;
-		const sprint = inp.down( 'ShiftLeft' ) || inp.down( 'ShiftRight' );
+		const sprint = inp.act( 'sprint' );
 		const speed = ( sprint ? 6.2 : 3.0 ) * THREE.MathUtils.lerp( 1, 0.42, wade );
 		const accel = this.grounded ? 14 : 2.5;
 		const k = 1 - Math.exp( - accel * dt );
 		this.velocity.x += ( wish.x * speed - this.velocity.x ) * k;
 		this.velocity.z += ( wish.z * speed - this.velocity.z ) * k;
 
-		if ( this.grounded && inp.hit( 'Space' ) && depth < 0.9 ) {
+		if ( this.grounded && inp.actHit( 'ascend' ) && depth < 0.9 ) {
 
 			this.velocity.y = 4.6;
 			this.grounded = false;
@@ -309,20 +312,21 @@ export class Player {
 		// look-relative movement (diving follows the view)
 		_fwd.set( 0, 0, - 1 ).applyEuler( _e.set( this.pitch, this.yaw, 0 ) );
 		_right.set( - Math.cos( this.yaw ), 0, Math.sin( this.yaw ) ).negate();
-		const wish = new THREE.Vector3();
-		if ( inp.down( 'KeyW' ) ) wish.add( _fwd );
-		if ( inp.down( 'KeyS' ) ) wish.sub( _fwd );
-		if ( inp.down( 'KeyD' ) ) wish.add( _right );
-		if ( inp.down( 'KeyA' ) ) wish.sub( _right );
-		if ( inp.down( 'Space' ) ) wish.y += 1;
-		if ( inp.down( 'KeyC' ) || inp.down( 'ControlLeft' ) ) wish.y -= 1;
-		if ( wish.lengthSq() > 0 ) wish.normalize();
+		const mv = inp.move( _mv );
+		const wish = _wish.set( 0, 0, 0 );
+		if ( mv.y ) wish.addScaledVector( _fwd, mv.y );
+		if ( mv.x ) wish.addScaledVector( _right, mv.x );
+		const ascend = inp.act( 'ascend' ), descend = inp.act( 'descend' );
+		if ( ascend ) wish.y += 1;
+		if ( descend ) wish.y -= 1;
+		const mag = Math.min( 1, Math.hypot( mv.x, mv.y ) );
+		if ( mag > 0 && wish.lengthSq() > 0 ) wish.normalize().multiplyScalar( Math.max( mag, ascend || descend ? 1 : 0 ) );
 
 		const atSurface = this.floating && p.y > surfaceY - 0.45;
 		// at the surface W along a level view keeps you on top; looking down dives
-		if ( atSurface && wish.y > - 0.25 && ! inp.down( 'KeyC' ) ) wish.y = Math.max( wish.y, 0 );
+		if ( atSurface && wish.y > - 0.25 && ! descend ) wish.y = Math.max( wish.y, 0 );
 
-		const sprint = inp.down( 'ShiftLeft' ) || inp.down( 'ShiftRight' );
+		const sprint = inp.act( 'sprint' );
 		const speed = sprint ? 2.5 : 1.5;
 		const k = 1 - Math.exp( - dt * 3.0 );
 		this.velocity.lerp( wish.multiplyScalar( speed ), k );
@@ -331,7 +335,7 @@ export class Player {
 		// they swim to (neutral buoyancy, nothing pulls them back up) until they swim up to the
 		// surface again.
 		const eyeTarget = surfaceY - SWIM_EYE + 0.1; // eyes ~10 cm above the water; waves still wash over
-		const diving = inp.down( 'KeyC' ) || ( inp.down( 'KeyW' ) && this.pitch < - 0.35 ) || wish.y < - 0.1;
+		const diving = descend || ( inp.act( 'forward' ) && this.pitch < - 0.35 ) || wish.y < - 0.1;
 		if ( diving ) this.floating = false;
 		else if ( p.y > eyeTarget - 0.15 ) this.floating = true;
 		if ( this.floating ) {
@@ -384,8 +388,8 @@ export class Player {
 				if ( b.tag !== 'ladder' ) continue;
 				if ( Math.hypot( b.center.x - p.x, b.center.z - p.z ) < 1.1 ) {
 
-					this.prompt = { key: 'Space', text: 'Climb ladder' };
-					if ( inp.down( 'Space' ) || inp.down( 'KeyW' ) ) {
+					this.prompt = { action: 'ascend', text: 'Climb ladder' };
+					if ( inp.act( 'ascend' ) || inp.act( 'forward' ) ) {
 
 						const top = this.colliders.groundHeightAt( b.center.x, b.center.z, 10 );
 						if ( top > p.y ) {
@@ -618,17 +622,17 @@ export class Player {
 		_fwd.set( sy, 0, cy );
 		_right.set( - cy, 0, sy );
 		_wish.set( 0, 0, 0 );
-		if ( inp.down( 'KeyW' ) ) _wish.add( _fwd );
-		if ( inp.down( 'KeyS' ) ) _wish.sub( _fwd );
-		if ( inp.down( 'KeyD' ) ) _wish.add( _right );
-		if ( inp.down( 'KeyA' ) ) _wish.sub( _right );
-		if ( _wish.lengthSq() > 0 ) _wish.normalize();
-		const speed = ( inp.down( 'ShiftLeft' ) ? 2.6 : 1.6 );
+		const dmv = inp.move( _mv );
+		if ( dmv.y ) _wish.addScaledVector( _fwd, dmv.y );
+		if ( dmv.x ) _wish.addScaledVector( _right, dmv.x );
+		const dmag = Math.min( 1, Math.hypot( dmv.x, dmv.y ) );
+		if ( dmag > 0 ) _wish.normalize().multiplyScalar( dmag );
+		const speed = ( inp.act( 'sprint' ) ? 2.6 : 1.6 );
 		const k = 1 - Math.exp( - 12 * dt );
 		const v = this.deckVel;
 		v.x += ( _wish.x * speed - v.x ) * k;
 		v.z += ( _wish.z * speed - v.z ) * k;
-		if ( this.deckGrounded && inp.hit( 'Space' ) ) {
+		if ( this.deckGrounded && inp.actHit( 'ascend' ) ) {
 
 			v.y = 3.2;
 			this.deckGrounded = false;
@@ -699,8 +703,8 @@ export class Player {
 
 		if ( nearHelm ) {
 
-			this.prompt = { key: 'E', text: 'Take the helm' };
-			if ( inp.hit( 'KeyE' ) ) {
+			this.prompt = { action: 'interact', text: 'Take the helm' };
+			if ( inp.actHit( 'interact' ) ) {
 
 				this.takeHelm();
 				return;
@@ -714,8 +718,8 @@ export class Player {
 			const atRail = b.model.exitPoints.some( ( e ) => Math.hypot( p.x - e.x, p.z - e.z ) < 1.3 );
 			if ( ep && Math.hypot( p.x - ep.x, p.z - ep.z ) < 1.3 ) {
 
-				this.prompt = { key: 'E', text: 'Step ashore' };
-				if ( inp.hit( 'KeyE' ) ) {
+				this.prompt = { action: 'interact', text: 'Step ashore' };
+				if ( inp.actHit( 'interact' ) ) {
 
 					this.exitBoat( this._ashore );
 					return;
@@ -724,8 +728,8 @@ export class Player {
 
 			} else if ( atRail ) {
 
-				this.prompt = { key: 'E', text: 'Jump overboard' };
-				if ( inp.hit( 'KeyE' ) ) {
+				this.prompt = { action: 'interact', text: 'Jump overboard' };
+				if ( inp.actHit( 'interact' ) ) {
 
 					this.exitBoat( null, Math.sign( p.x ) || 1 );
 					return;
@@ -752,22 +756,21 @@ export class Player {
 		const look = inp.consumeLook();
 		const wheel = inp.consumeWheel();
 
-		if ( inp.hit( 'KeyV' ) ) this.camMode = this.camMode === 'first' ? 'third' : 'first';
-		if ( inp.hit( 'KeyE' ) ) {
+		if ( inp.actHit( 'boatCamera' ) ) this.camMode = this.camMode === 'first' ? 'third' : 'first';
+		if ( inp.actHit( 'interact' ) ) {
 
 			this.leaveHelm();
 			return;
 
 		}
 
-		let throttle = 0;
-		if ( inp.down( 'KeyW' ) ) throttle = inp.down( 'ShiftLeft' ) ? 1 : 0.7;
-		if ( inp.down( 'KeyS' ) ) throttle = - 0.6;
-		let steer = 0;
-		if ( inp.down( 'KeyA' ) ) steer += 1;
-		if ( inp.down( 'KeyD' ) ) steer -= 1;
+		// Throttle and rudder are continuous, so the stick drives them straight through the same curve
+		// the keys always gave: W 0.7, Shift+W 1.0, S -0.6, full lock on the rudder.
+		const fwd = inp.axis( 'forward' );
+		const throttle = fwd >= 0 ? fwd * ( inp.act( 'sprint' ) ? 1 : 0.7 ) : fwd * 0.6;
+		const steer = - inp.axis( 'strafe' );
 		b.setInput( throttle, steer, dt );
-		this.prompt = { key: 'E', text: 'Leave helm   ·   V  camera' };
+		this.prompt = { action: 'interact', text: `Leave helm   ·   ${ inp.label( 'boatCamera' ) }  camera` };
 
 		// keep the player attached (for audio / queries)
 		b.toWorld( b.model.helmEye, this.position );

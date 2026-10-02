@@ -9,6 +9,7 @@ import { WORLD } from '../src/world/WorldLayout.js';
 import { Player } from '../src/player/Player.js';
 import { BoatController } from '../src/player/BoatController.js';
 import { FlyCamera } from '../src/player/FlyCamera.js';
+import { Input } from '../src/core/Input.js';
 
 let fails = 0;
 const check = ( ok, msg ) => {
@@ -88,20 +89,10 @@ const model = {
 	setPropellerRPM( v ) { calls.rpm = v; },
 };
 
-// ---- input stub (Input's API)
-class InputStub {
-
-	constructor() { this.keys = new Set(); this.pressed = new Set(); this.look = { x: 0, y: 0 }; this.wheel = 0; this.enabled = true; }
-	down( c ) { return this.keys.has( c ); }
-	hit( c ) { return this.pressed.has( c ); }
-	press( c ) { this.pressed.add( c ); }
-	consumeLook() { const l = { ...this.look }; this.look.x = this.look.y = 0; return l; }
-	consumeWheel() { const w = this.wheel; this.wheel = 0; return w; }
-	endFrame() { this.pressed.clear(); }
-
-}
-
-const input = new InputStub();
+// The real Input (it needs no DOM): the walker, the boat and the free camera read it through the
+// action layer, so these tests drive the same resolver the game does.
+const input = new Input();
+input.press = ( c ) => input.pressed.add( c ); // edge helper for the tests
 const camera = new E.PerspectiveCamera( 60, 2, 0.1, 5000 );
 const boat = new BoatController( { model, query, terrain, colliders } );
 const player = new Player( { camera, input, terrain, colliders, query, boat } );

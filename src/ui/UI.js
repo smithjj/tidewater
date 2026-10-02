@@ -1,4 +1,5 @@
 import { icon, brandMark } from './icons.js';
+import { DEVICES, ACTIONS, GROUPS, keyGlyph, mouseGlyph, padGlyph } from '../core/Bindings.js';
 
 // Tidewater UI: settings panel (tabs → folders → controls), HUD, help,
 // photo mode, start overlay and loader. Plain DOM, no dependencies.
@@ -13,6 +14,19 @@ const uid = ( p = 'tw' ) => `${ p }-${ ++ uidCounter }`;
 
 const ESC = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', '\'': '&#39;' };
 const esc = ( s ) => String( s ?? '' ).replace( /[&<>"']/g, ( c ) => ESC[ c ] );
+
+// The device-agnostic glyph for an action, for when no live resolver is attached (the demo pages).
+function fallbackGlyph( a ) {
+
+	const first = ( list ) => ( list && list.length ? ( list[ 0 ].v || list[ 0 ] ) : null );
+	const kb = first( a.kb );
+	if ( kb ) return keyGlyph( kb );
+	const ms = first( a.mouse );
+	if ( ms ) return mouseGlyph( ms );
+	const pd = first( a.pad );
+	return pd ? padGlyph( pd, 'xbox' ) : '—';
+
+}
 
 // Tiny element factory: h( 'button', 'cls', { type: 'button', text: 'Hi' } )
 function h( tag, cls, attrs ) {
@@ -1079,7 +1093,220 @@ class ButtonControl extends Control {
 
 }
 
-// ── Presets (chip row) ──────────────────────────────────────────────────────
+// ── Binding (one rebindable action) ─────────────────────────────────────────
+
+// A row for one action: the inputs bound to it, one keycap each, with a × to clear. Clicking the row
+// (or Enter on it) captures the next key, mouse button or controller button. Plain Esc cancels; Shift+Esc
+// binds Escape (bindings are single inputs, never chords, so that is unambiguous); Del clears the row.
+class BindingControl extends Control {
+
+	constructor( parent, o ) {
+
+		super( parent, o, 'binding' );
+		this.bindings = o.bindings;
+		this.action = o.action;
+		this.getLayout = o.layout || ( () => 'xbox' );
+		this.getInput = o.input || null; // so capture can silence the game's input
+		this._default = this.bindings.defaults( this.action );
+		this.capturing = false;
+		this.hint = o.hint || 'Press a key, a mouse button or a controller button';
+
+		const meta = this.bindings.meta( this.action ) || {};
+		const head = h( 'div', 'tw-row' );
+		head.append( this._makeLabel( o.label || meta.label || this.action, o.tooltip ) );
+		this.el.append( head );
+
+		this.keysEl = h( 'div', 'tw-bind-keys' );
+		this.hintEl = h( 'div', 'tw-bind-hint' );
+		this.el.append( this.keysEl, this.hintEl );
+
+		// the row itself is the focus target (the pad's menu layer walks rows by focusing them)
+		this.el.tabIndex = 0;
+		this.el.setAttribute( 'role', 'button' );
+		this.el.setAttribute( 'aria-label', `Change the binding for ${ this.label }` );
+		this.keysEl.setAttribute( 'aria-live', 'polite' );
+
+		this.el.addEventListener( 'click', ( e ) => {
+
+			if ( e.target.closest( '.tw-bind-x' ) || e.target.closest( '.tw-reset' ) ) return;
+			this.beginCapture();
+
+		} );
+		this.el.addEventListener( 'keydown', ( e ) => {
+
+			if ( e.key === 'Enter' || e.key === ' ' ) {
+
+				e.preventDefault();
+				this.beginCapture();
+
+			}
+
+		} );
+		this._render();
+
+	}
+
+	// ---- rendering
+
+	_render() {
+
+		const layout = this.getLayout();
+		this.keysEl.textContent = '';
+		for ( const device of DEVICES ) for ( const e of this.bindings.list( this.action, device ) ) {
+
+			const cap = h( 'span', `tw-bind is-${ device }` );
+			const key = h( 'kbd', 'tw-bind-key', { text: device === 'kb' ? keyGlyph( e.v ) : device === 'mouse' ? mouseGlyph( e.v ) : padGlyph( e.v, layout ) } );
+			const value = e.v; // captured: the handler's own event parameter must not shadow the entry
+			const x = h( 'button', 'tw-bind-x', { type: 'button', 'aria-label': `Unbind ${ value } from ${ this.label }`, html: icon( 'close' ) } );
+			x.addEventListener( 'click', ( ev ) => {
+
+				ev.stopPropagation();
+				this.bindings.remove( this.action, device, value );
+				this._changed();
+
+			} );
+			cap.append( key, x );
+			this.keysEl.append( cap );
+
+		}
+
+		if ( ! this.keysEl.children.length ) this.keysEl.append( h( 'span', 'tw-bind is-none', { text: '—' } ) );
+		if ( ! this.capturing ) this._hint( this.hint );
+		this._rev = this.bindings.rev;
+		this._syncModified();
+
+	}
+
+	_hint( text ) {
+
+		this.hintEl.textContent = text;
+		this.hintEl.classList.toggle( 'is-capture', this.capturing );
+
+	}
+
+	// the base class compares `value`; a binding row compares its lists against the defaults
+	isModified() {
+
+		for ( const device of DEVICES ) {
+
+			const mine = this.bindings.list( this.action, device ), def = this._default[ device ];
+			if ( mine.length !== def.length ) return true;
+			for ( let i = 0; i < mine.length; i ++ ) if ( mine[ i ].v !== def[ i ].v || mine[ i ].sign !== def[ i ].sign ) return true;
+
+		}
+
+		return false;
+
+	}
+
+	reset() {
+
+		this.bindings.reset( this.action );
+		this._render();
+		this._flash();
+		this._emit();
+		return this;
+
+	}
+
+	// ---- capture
+
+	beginCapture() {
+
+		if ( ! this.enabled ) return;
+		if ( this.capturing ) return;
+		if ( this.ui.bindingCapture ) this.ui.bindingCapture.endCapture();
+		this.capturing = true;
+		this.ui.bindingCapture = this;
+		this.el.classList.add( 'is-capturing' );
+		this._hint( 'Press a key, mouse button or controller button · Esc cancels · Shift+Esc binds Esc · Del clears' );
+		// capture phase, so the game's own listeners never see the key that is being bound
+		window.addEventListener( 'keydown', this._onKey, true );
+		window.addEventListener( 'mousedown', this._onMouse, true );
+		const inp = this.getInput && this.getInput();
+		if ( inp ) inp.capturing = true;
+
+	}
+
+	endCapture() {
+
+		if ( ! this.capturing ) return;
+		this.capturing = false;
+		if ( this.ui.bindingCapture === this ) this.ui.bindingCapture = null;
+		this.el.classList.remove( 'is-capturing' );
+		window.removeEventListener( 'keydown', this._onKey, true );
+		window.removeEventListener( 'mousedown', this._onMouse, true );
+		const inp = this.getInput && this.getInput();
+		if ( inp ) inp.capturing = false;
+		this._hint( this.hint );
+
+	}
+
+	_onKey = ( e ) => {
+
+		if ( ! this.capturing ) return;
+		e.preventDefault();
+		e.stopPropagation();
+		if ( e.key === 'Escape' && ! e.shiftKey ) { this.endCapture(); this._render(); return; }
+		if ( e.code === 'Delete' || e.code === 'Backspace' ) {
+
+			this.bindings.clear( this.action );
+			this.endCapture();
+			this._changed();
+			return;
+
+		}
+
+		this._assign( 'kb', e.code );
+
+	};
+
+	_onMouse = ( e ) => {
+
+		if ( ! this.capturing ) return;
+		e.preventDefault();
+		e.stopPropagation();
+		const name = e.button === 0 ? 'LMB' : e.button === 2 ? 'RMB' : e.button === 1 ? 'MMB' : null;
+		if ( name ) this._assign( 'mouse', name );
+
+	};
+
+	// the pad has no events: AppUI polls this each frame while a row is capturing
+	pollPad( inp ) {
+
+		if ( ! this.capturing || ! inp || ! inp.pad || ! inp.pad.connected ) return;
+		const pad = inp.pad;
+		for ( const name of pad.pressed ) return this._assign( 'pad', name );
+		for ( const name of [ 'LSX', 'LSY', 'RSX', 'RSY' ] ) if ( Math.abs( pad.axes[ name ] ) > 0.7 ) return this._assign( 'pad', name );
+		for ( const name of [ 'LT', 'RT' ] ) if ( pad.triggers[ name ] > 0.5 ) return this._assign( 'pad', name );
+
+	}
+
+	_assign( device, v ) {
+
+		const lost = this.bindings.add( this.action, device, v );
+		this.endCapture();
+		this._changed();
+		if ( lost.length ) this._hint( `Taken from ${ lost.map( ( id ) => ( this.bindings.meta( id ) || {} ).label || id ).join( ', ' ) }` );
+
+	}
+
+	_changed() {
+
+		this._render();
+		this._emit();
+
+	}
+
+	update() {
+
+		// the table was changed elsewhere (reset all, a conflict steal, a loaded file)
+		if ( ! this.capturing && this._rev !== this.bindings.rev ) this._render();
+		return this;
+
+	}
+
+}
 
 class PresetsControl extends Control {
 
@@ -1680,6 +1907,12 @@ class Container {
 
 	}
 
+	addBinding( o ) {
+
+		return this._add( new BindingControl( this, o ) );
+
+	}
+
 	addPresets( o ) {
 
 		return this._add( new PresetsControl( this, o ) );
@@ -1891,6 +2124,11 @@ export class UI {
 
 		// Hooks: assign a function (or an array of functions).
 		this.onPhotoMode = null; // ( on ) photo mode entered / left (P key or setPhotoMode)
+		// The glyph resolver for the device in hand: ( action ) => 'E' | 'A' | 'RT'. AppUI sets it from
+		// the binding table; everything the player reads (this sheet, the overlay, the photo hint) goes
+		// through it, so a rebind or a controller in hand is reflected everywhere.
+		this.labelFor = null;
+		this.devicePad = false;
 		this.onPanelInteract = null; // ( event ) pointerdown on the settings panel or rail
 		this.onPanelToggle = null; // ( open )
 		this.onHelpToggle = null; // ( open )
@@ -1974,7 +2212,7 @@ export class UI {
 
 		// the one element that survives photo mode
 		this.photoHint = h( 'div', 'tw-photo-hint' );
-		this.photoHint.innerHTML = '<kbd>P</kbd><span>Exit photo mode</span>';
+		this.photoHint.innerHTML = `<kbd>${ esc( this.label( 'photo', 'P' ) ) }</kbd><span>Exit photo mode</span>`;
 
 		this.root.append( hud, this.photoHint );
 
@@ -2102,8 +2340,8 @@ export class UI {
 
 		this.pages = h( 'div', 'tw-pages' );
 
-		const foot = h( 'footer', 'tw-panel-foot' );
-		foot.innerHTML = '<span><kbd>H</kbd>Hide</span><span><kbd>F1</kbd>Controls</span><span><kbd>P</kbd>Photo mode</span>';
+		const foot = this.footEl = h( 'footer', 'tw-panel-foot' );
+		this._updateFooter();
 		panel.append( head, this.tabBar, this.pages, foot );
 
 		// collapsed state: a slim rail of tab icons
@@ -2119,12 +2357,66 @@ export class UI {
 
 	}
 
+	_updateFooter() {
+
+		if ( this.footEl ) this.footEl.innerHTML = `<span><kbd>${ esc( this.label( 'settings', 'H' ) ) }</kbd>Hide</span>`
+			+ `<span><kbd>${ esc( this.label( 'controls', 'F1' ) ) }</kbd>Controls</span>`
+			+ `<span><kbd>${ esc( this.label( 'photo', 'P' ) ) }</kbd>Photo mode</span>`;
+
+	}
+
+	// the glyph for an action on the device in hand, or the given fallback when no resolver is attached
+	label( action, fallback = '' ) {
+
+		if ( this.labelFor ) {
+
+			try {
+
+				const v = this.labelFor( action );
+				if ( v ) return v;
+
+			} catch ( e ) { /* a resolver that throws must not take the interface down */ }
+
+		}
+
+		return fallback;
+
+	}
+
 	_buildHelp() {
 
 		const k = ( ...keys ) => keys.map( ( x ) => `<kbd>${ x }</kbd>` ).join( '' );
 		const row = ( keys, text ) => `<div class="tw-help-row"><span class="tw-keys">${ keys }</span><span class="tw-help-text">${ text }</span></div>`;
 		const wasd = '<span class="tw-wasd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>';
 		const mouse = `<kbd class="tw-kbd-ico" aria-label="Mouse">${ icon( 'mouse' ) }</kbd>`;
+		const pad = this.labelFor && this.labelFor( 'interact' ) && this.devicePad;
+
+		// Generated from the binding table (core/Bindings.js), so a rebind cannot leave this sheet
+		// telling the player to press a key that no longer does anything.
+		const sections = GROUPS.map( ( group ) => {
+
+			const rows = [];
+			for ( const a of ACTIONS ) {
+
+				if ( a.group !== group || ! a.help ) continue;
+				if ( a.id === 'forward' || a.id === 'strafe' ) continue; // the movement pair is one row
+				if ( a.id === 'look' ) {
+
+					rows.push( row( pad ? k( this.label( 'look', 'RS' ) ) : mouse, `Look around<small>${ pad ? 'Right stick' : 'Click to capture' }</small>` ) );
+					continue;
+
+				}
+
+				rows.push( row( k( this.label( a.id, fallbackGlyph( a ) ) ), a.help ) );
+
+			}
+
+			if ( group === 'Movement' ) rows.unshift( pad
+				? row( k( this.label( 'forward', 'LS' ) ), 'Move<small>Left stick</small>' )
+				: row( wasd, 'Move<small>W A S D</small>' ) );
+			return `<section><h3>${ group }</h3>${ rows.join( '' ) }</section>`;
+
+		} ).join( '' );
 
 		const el = this.helpEl = h( 'div', 'tw-help tw-interactive', { role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'tw-help-title', hidden: true } );
 		el.innerHTML = `
@@ -2132,40 +2424,11 @@ export class UI {
 				<header class="tw-help-head">
 					<div>
 						<h2 id="tw-help-title">Controls</h2>
-						<p>Click the view to capture the mouse. Esc releases it.</p>
+						<p>${ pad ? 'Controller, or keyboard and mouse.' : 'Click the view to capture the mouse. Esc releases it.' }</p>
 					</div>
-					<button type="button" class="tw-icon-btn tw-help-close" aria-label="Close" data-tip="Close (F1)">${ icon( 'close' ) }</button>
+					<button type="button" class="tw-icon-btn tw-help-close" aria-label="Close" data-tip="Close (${ this.label( 'controls', 'F1' ) })">${ icon( 'close' ) }</button>
 				</header>
-				<div class="tw-help-grid">
-					<section>
-						<h3>Move</h3>
-						${ row( wasd, 'Move' ) }
-						${ row( mouse, 'Look around<small>Click to capture</small>' ) }
-						${ row( k( 'Shift' ), 'Sprint, boat boost' ) }
-						${ row( k( 'Space' ), 'Jump, swim up' ) }
-						${ row( k( 'C' ), 'Crouch, dive' ) }
-					</section>
-					<section>
-						<h3>Interact</h3>
-						${ row( k( 'E' ), 'Interact<small>Board, helm, step ashore, trade</small>' ) }
-						${ row( k( 'V' ), 'Boat camera<small>1st / 3rd person</small>' ) }
-						${ row( k( 'R' ), 'Fishing rod<small>Take out / put away</small>' ) }
-						${ row( k( 'LMB' ), 'Cast, strike, reel<small>Hold to wind up / reel</small>' ) }
-						${ row( k( 'RMB' ), 'Reel in an empty line' ) }
-						${ row( k( 'I' ), 'Cooler and fish log' ) }
-						${ row( k( 'F' ), 'Free camera' ) }
-						${ row( k( 'T' ), 'Run or pause the day' ) }
-						${ row( k( 'L' ), 'Flashlight' ) }
-						${ row( k( 'M' ), 'Mute' ) }
-					</section>
-					<section>
-						<h3>Interface</h3>
-						${ row( k( 'H' ), 'Settings panel' ) }
-						${ row( k( 'P' ), 'Photo mode<small>Hides all interface</small>' ) }
-						${ row( k( 'F1' ) + k( '?' ), 'This sheet' ) }
-						${ row( k( 'Esc' ), 'Release the mouse' ) }
-					</section>
-				</div>
+				<div class="tw-help-grid">${ sections }</div>
 				<div class="tw-help-guide">
 					<span><b>How to play:</b> catch fish, sell them to Joe at the fish stand by the pier, and buy upgrades from Marta at the chandlery by the boathouse. Both are on the map (lower right).</span>
 					<button type="button" class="gm-btn is-ghost tw-help-replay">Replay the guide</button>
@@ -2182,20 +2445,54 @@ export class UI {
 
 	}
 
+	// Re-resolve the surfaces that name an input, for the device in hand (AppUI calls this when the
+	// device changes). The start overlay is left alone while it is showing: it is waiting for the very
+	// press that changed the device.
+	refreshGlyphs() {
+
+		this.refreshHelp();
+		this._updateFooter();
+		if ( ! this._start && this.startEl ) {
+
+			this.startEl.remove();
+			this._buildStart();
+
+		}
+
+	}
+
+	// rebuild the controls sheet for the device in hand
+	refreshHelp() {
+
+		if ( ! this.helpEl ) return;
+		const open = this._help;
+		const wasPhoto = this._photo;
+		this.helpEl.remove();
+		this._help = false;
+		this._photo = false;
+		this._buildHelp();
+		this._isolate( this.helpEl );
+		if ( open ) this.toggleHelp( true );
+		this._photo = wasPhoto;
+
+	}
+
 	_buildStart() {
 
 		const el = this.startEl = h( 'div', 'tw-start tw-interactive', { hidden: true } );
+		const pad = this.devicePad;
+		const wasd = '<span class="tw-wasd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>';
 		el.innerHTML = `
 			<div class="tw-start-inner">
 				${ brandMark( 'tw-start-mark' ) }
 				<div class="tw-start-title">TIDEWATER</div>
-				<button type="button" class="tw-start-cta"><span class="tw-start-pulse" aria-hidden="true"></span>${ icon( 'mouse' ) }<span>Click to explore</span></button>
+				<button type="button" class="tw-start-cta"><span class="tw-start-pulse" aria-hidden="true"></span>${ icon( pad ? 'gamepad' : 'mouse' ) }<span>${ pad ? 'Press a button to explore' : 'Click to explore' }</span></button>
 				<div class="tw-start-keys">
-					<span><span class="tw-wasd"><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span>Move</span>
-					<span><kbd class="tw-kbd-ico">${ icon( 'mouse' ) }</kbd>Look</span>
-					<span><kbd>E</kbd>Interact</span>
-					<span><kbd>H</kbd>Settings</span>
-					<span><kbd>F1</kbd>All controls</span>
+					<span>${ pad ? `<kbd>${ esc( this.label( 'forward', 'LS' ) ) }</kbd>` : wasd }Move</span>
+					<span><kbd class="tw-kbd-ico">${ icon( pad ? 'gamepad' : 'mouse' ) }</kbd>Look</span>
+					<span><kbd>${ esc( this.label( 'interact', 'E' ) ) }</kbd>Interact</span>
+					<span><kbd>${ esc( this.label( 'settings', 'H' ) ) }</kbd>Settings</span>
+					<span><kbd>${ esc( this.label( 'controls', 'F1' ) ) }</kbd>All controls</span>
 				</div>
 			</div>`;
 		this.root.append( el );
@@ -2338,44 +2635,43 @@ export class UI {
 
 	}
 
+	// The keys that are *actions* (settings, photo, the control sheet, back) are read by AppUI through
+	// the binding table and arrive here as calls to `command()`, so they can be rebound and a pad can
+	// reach them. What is left in this handler is key handling with no action behind it.
 	_onKey( e ) {
 
 		if ( isTypingTarget( e.target ) || e.ctrlKey || e.metaKey || e.altKey ) return;
+		// Escape closes a dropdown without being an action: the menu has it first
+		if ( e.code === 'Escape' && this._menu ) this._closeMenu( true );
 
-		if ( e.code === 'F1' || e.key === '?' ) {
+	}
 
-			e.preventDefault();
-			if ( ! e.repeat ) {
+	// run one of the interface commands (the action layer's entry point into the panel)
+	command( name ) {
 
-				if ( this._photo ) this.setPhotoMode( false );
-				this.toggleHelp();
-
-			}
-
-			return;
-
-		}
-
-		if ( e.code === 'Escape' ) {
-
-			if ( this._menu ) this._closeMenu( true );
-			else if ( this._help ) this.toggleHelp( false );
-			return;
-
-		}
-
-		if ( e.repeat || this._start ) return;
-
-		if ( e.code === 'KeyH' ) {
+		if ( this._start ) return false; // the start overlay has the input until it is dismissed
+		if ( name === 'settings' ) {
 
 			if ( this._photo ) this.setPhotoMode( false );
 			this.togglePanel();
 
-		} else if ( e.code === 'KeyP' ) {
+		} else if ( name === 'photo' ) {
 
 			this.setPhotoMode( ! this._photo );
 
-		}
+		} else if ( name === 'controls' ) {
+
+			if ( this._photo ) this.setPhotoMode( false );
+			this.toggleHelp();
+
+		} else if ( name === 'cancel' ) {
+
+			if ( this._menu ) this._closeMenu( true );
+			else if ( this._help ) this.toggleHelp( false );
+
+		} else return false;
+
+		return true;
 
 	}
 

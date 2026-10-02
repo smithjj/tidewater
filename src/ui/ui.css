@@ -2608,3 +2608,78 @@ body {
 	}
 
 }
+
+/* ── binding rows (Settings → Controls) ───────────────────────────────────── */
+
+.tw-ctl-binding {
+	display: block;
+	padding: calc(10 * var(--tw-u)) 0;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+	cursor: pointer;
+}
+
+.tw-ctl-binding:last-child { border-bottom: 0; }
+
+.tw-ctl-binding.is-capturing {
+	background: linear-gradient(90deg, rgba(var(--tw-aqua-rgb), 0.14), transparent 70%);
+	border-radius: calc(8 * var(--tw-u));
+}
+
+.tw-bind-keys {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: calc(6 * var(--tw-u));
+	margin-top: calc(7 * var(--tw-u));
+	min-height: calc(24 * var(--tw-u));
+}
+
+.tw-bind { position: relative; display: inline-flex; align-items: center; }
+
+.tw-bind-key { pointer-events: none; }
+
+.tw-bind.is-mouse .tw-bind-key { color: var(--tw-ink-2, var(--tw-ink)); }
+
+.tw-bind.is-pad .tw-bind-key {
+	border-color: rgba(var(--tw-aqua-rgb), 0.45);
+	background: linear-gradient(180deg, rgba(var(--tw-aqua-rgb), 0.24), rgba(var(--tw-aqua-rgb), 0.1));
+}
+
+.tw-bind.is-none {
+	font-size: var(--tw-fs-sm);
+	color: var(--tw-ink-3);
+}
+
+.tw-bind-x {
+	display: grid;
+	place-items: center;
+	width: calc(15 * var(--tw-u));
+	height: calc(15 * var(--tw-u));
+	margin-left: calc(3 * var(--tw-u));
+	padding: 0;
+	border: 0;
+	border-radius: 50%;
+	background: rgba(255, 255, 255, 0.1);
+	color: var(--tw-ink-2, var(--tw-ink));
+	opacity: 0;
+	/* not clickable while it is invisible: a click meant for the row must not silently unbind an input
+	   that the player cannot see */
+	pointer-events: none;
+	transition: opacity 0.15s var(--tw-ease, ease);
+	cursor: pointer;
+}
+
+.tw-bind-x .tw-ico { width: calc(9 * var(--tw-u)); height: calc(9 * var(--tw-u)); }
+
+.tw-ctl-binding:hover .tw-bind-x,
+.tw-bind-x:focus-visible { opacity: 1; pointer-events: auto; }
+
+.tw-bind-x:hover { background: rgba(255, 255, 255, 0.2); }
+
+.tw-bind-hint {
+	margin-top: calc(5 * var(--tw-u));
+	font-size: var(--tw-fs-xs);
+	color: var(--tw-ink-3);
+}
+
+.tw-bind-hint.is-capture { color: var(--tw-aqua); }

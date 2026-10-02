@@ -25,6 +25,7 @@ const PATHS = {
 	info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.8h.01"/>',
 	check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
 	keyboard: '<rect x="2.5" y="6" width="19" height="12" rx="2"/><path d="M6 10h.01M9.5 10h.01M13 10h.01M16.5 10h.01M7 14h10"/>',
+	gamepad: '<path d="M8.5 7h7a5.5 5.5 0 0 1 5.4 4.5l.5 3.2a2.6 2.6 0 0 1-4.7 2l-1-1.4a2 2 0 0 0-1.7-.9h-4a2 2 0 0 0-1.7.9l-1 1.4a2.6 2.6 0 0 1-4.7-2l.5-3.2A5.5 5.5 0 0 1 8.5 7Z"/><path d="M8 11.5h2M9 10.5v2"/><path d="M15.5 11h.01M17.5 12.5h.01"/>',
 	mouse: '<rect x="6.5" y="3" width="11" height="18" rx="5.5"/><path d="M12 7v3"/>',
 	viewfinder: '<path d="M4 8.5V6a2 2 0 0 1 2-2h2.5M15.5 4H18a2 2 0 0 1 2 2v2.5M20 15.5V18a2 2 0 0 1-2 2h-2.5M8.5 20H6a2 2 0 0 1-2-2v-2.5"/><circle cx="12" cy="12" r="3"/>',
 	sliders: '<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/>',

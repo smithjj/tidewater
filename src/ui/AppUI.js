@@ -3,6 +3,10 @@ import { UI } from './UI.js';
 import { G } from '../core/Globals.js';
 import { GroundBounce } from '../materials/GroundBounce.js';
 import { SEA, writeConditions } from '../ocean/Conditions.js';
+import { ACTIONS, GROUPS } from '../core/Bindings.js';
+
+// the folder icon for each binding group
+const GROUP_ICON = { Movement: 'move', Fishing: 'boat', Interact: 'help', Interface: 'sliders' };
 
 // Binds the Tidewater UI (panel + HUD) to the running app.
 
@@ -232,6 +236,47 @@ export class AppUI {
 		} } );
 		view.addButton( { label: 'Free camera (F)', icon: 'camera', onClick: () => app.setFreeCam( ! app.freeCam ) } );
 
+		// ---------------------------------------------------------------- Controls
+		// The binding table (core/Bindings.js) is the single source of truth: every row here edits it in
+		// place, and the prompts, the help sheet and the guide read their glyphs back out of it.
+		const bind = app.bindings;
+		const controls = ui.addTab( 'controls', 'Controls', 'keyboard' );
+		const pad = controls.addFolder( 'Controller', { icon: 'gamepad' } );
+		const save = () => bind.save();
+		pad.addToggle( { label: 'Gamepad', object: bind.opts, key: 'padEnabled', tooltip: 'Read the connected controller. Off leaves the keyboard and mouse only.', onChange: save } );
+		pad.addSlider( { label: 'Stick deadzone', object: bind.opts, key: 'deadzone', min: 0, max: 0.4, step: 0.01, format: ( v ) => v.toFixed( 2 ), tooltip: 'How far a stick must be pushed before it reads as input.', onChange: save } );
+		pad.addSlider( { label: 'Look sensitivity', object: bind.opts, key: 'lookSensitivity', min: 0.3, max: 3, step: 0.05, unit: '×', tooltip: 'How fast the right stick turns the camera.', onChange: save } );
+		pad.addToggle( { label: 'Invert look', object: bind.opts, key: 'invertY', tooltip: 'Push the stick up to look down.', onChange: save } );
+		pad.addSlider( { label: 'Rumble', object: bind.opts, key: 'rumble', min: 0, max: 1, step: 0.05, format: ( v ) => ( v > 0 ? `${ Math.round( v * 100 ) }%` : 'Off' ), onChange: save } );
+		pad.addInfo( { label: 'Detected', get: () => {
+
+			const p = app.input.pad;
+			return p.connected ? `${ p.id.slice( 0, 34 ) } · ${ p.layout === 'ps' ? 'PlayStation' : 'Xbox' } layout` : 'No controller';
+
+		} } );
+
+		// one row per action, grouped as the help sheet groups them
+		const folders = {};
+		for ( const group of GROUPS ) folders[ group ] = controls.addFolder( group, { icon: GROUP_ICON[ group ] || 'sliders', open: group === 'Movement' } );
+		for ( const a of ACTIONS ) {
+
+			if ( a.noRebind ) continue; // the look stick is not a button: it has sensitivity, not a binding
+			( folders[ a.group ] || controls ).addBinding( {
+				action: a.id, bindings: bind, label: a.label,
+				layout: () => app.input.pad.layout, input: () => app.input,
+				tooltip: 'Click, then press a key, mouse button or controller button.',
+			} );
+
+		}
+
+		controls.addButton( { label: 'Reset all controls', icon: 'reset', variant: 'ghost', onClick: () => {
+
+			bind.resetAll();
+			ui.refresh();
+			ui.toast( 'Controls back to their defaults' );
+
+		} } );
+
 		// ---------------------------------------------------------------- Effects
 		const fx = ui.addTab( 'effects', 'Effects', 'effects' );
 		const post = fx.addFolder( 'Post-processing', { icon: 'sparkles' } );
@@ -279,6 +324,12 @@ export class AppUI {
 
 		this._t = 0;
 
+		// Every surface that names an input resolves it here, so a rebind or a controller in hand is
+		// reflected in the help sheet, the start overlay, the panel footer and the photo hint.
+		ui.labelFor = ( action ) => app.input.label( action );
+		ui.devicePad = app.input.device === 'pad';
+		this._device = app.input.device;
+
 	}
 
 	// per-frame HUD
@@ -288,12 +339,26 @@ export class AppUI {
 		const ui = this.ui;
 		ui.setStats( { fps: app.fps, frameMs: dt * 1000 } );
 		this.s.renderScale = app.post.scale;
+		// a rebinding row waiting for input: the pad has no events, so it is polled here
+		if ( ui.bindingCapture ) ui.bindingCapture.pollPad( app.input );
+		// the player picked up the other device: re-resolve every glyph that names an input
+		if ( app.input.device !== this._device ) {
+
+			this._device = app.input.device;
+			ui.devicePad = this._device === 'pad';
+			ui.refreshGlyphs();
+
+		}
 
 		const p = app.player;
+		// the interface commands (settings panel, photo mode, the control sheet, back) are actions now,
+		// so they can be rebound and reached from a pad. UI.command() ignores them behind the start
+		// overlay, exactly as the old raw key handler did.
+		for ( const name of [ 'settings', 'photo', 'controls', 'cancel' ] ) if ( app.input.actHit( name ) ) ui.command( name );
 		if ( app.freeCam ) {
 
 			ui.setMode( 'Free camera' );
-			ui.setPrompt( 'F', 'Walk' );
+			ui.setPrompt( app.input.label( 'freeCam' ), 'Walk' );
 			ui.setBoatGauges( { visible: false } );
 			ui.setDepth( { visible: false } );
 			return;
@@ -304,7 +369,8 @@ export class AppUI {
 			: p.mode === 'deck' ? 'On deck'
 			: p.mode === 'swim' ? ( app.camera.position.y < ( app.cameraWaterHeight ?? 0 ) - 0.3 ? 'Diving' : 'Swimming' ) : 'Walking';
 		ui.setMode( mode );
-		if ( p.prompt ) ui.setPrompt( p.prompt.key, p.prompt.text );
+		// prompts name an action; the glyph follows the device in hand (E, or A on a pad)
+		if ( p.prompt ) ui.setPrompt( p.prompt.action ? app.input.label( p.prompt.action ) : p.prompt.key, p.prompt.text );
 		else ui.setPrompt( null );
 
 		const b = app.boatCtl;

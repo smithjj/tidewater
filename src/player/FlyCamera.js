@@ -43,18 +43,23 @@ export class FlyCamera {
 		this.pitch = Math.max( - 1.55, Math.min( 1.55, this.pitch ) );
 		this.apply();
 
-		const fast = inp.down( 'ShiftLeft' ) || inp.down( 'ShiftRight' );
+		const fast = inp.act( 'sprint' );
 		const speed = this.speed * ( fast ? 6 : 1 );
 		this.camera.getWorldDirection( this._fwd );
 		this._right.crossVectors( this._fwd, this.camera.up ).normalize();
-		const move = new THREE.Vector3();
-		if ( inp.down( 'KeyW' ) ) move.add( this._fwd );
-		if ( inp.down( 'KeyS' ) ) move.sub( this._fwd );
-		if ( inp.down( 'KeyD' ) ) move.add( this._right );
-		if ( inp.down( 'KeyA' ) ) move.sub( this._right );
-		if ( inp.down( 'KeyE' ) || inp.down( 'Space' ) ) move.y += 1;
-		if ( inp.down( 'KeyQ' ) || inp.down( 'KeyC' ) ) move.y -= 1;
-		if ( move.lengthSq() > 0 ) move.normalize().multiplyScalar( speed );
+		const move = this._move || ( this._move = new THREE.Vector3() );
+		const mv = inp.move( this._mv || ( this._mv = { x: 0, y: 0 } ) );
+		const planar = Math.min( 1, Math.hypot( mv.x, mv.y ) );
+		move.set( 0, 0, 0 );
+		if ( mv.y ) move.addScaledVector( this._fwd, mv.y );
+		if ( mv.x ) move.addScaledVector( this._right, mv.x );
+		if ( move.lengthSq() > 0 ) move.normalize().multiplyScalar( planar );
+		// vertical: the walker's jump key and the interact key are both "up" here (this camera is the
+		// developer's, and E has always flown up in it), the dive key is down
+		const vert = ( inp.act( 'ascend' ) || inp.act( 'interact' ) ? 1 : 0 ) - ( inp.act( 'descend' ) ? 1 : 0 );
+		move.y += vert;
+		if ( move.lengthSq() > 0 ) move.normalize().multiplyScalar( Math.max( planar, Math.abs( vert ) ) );
+		move.multiplyScalar( speed );
 		this.velocity.lerp( move, 1 - Math.exp( - dt * 8 ) );
 		this.camera.position.addScaledVector( this.velocity, dt );
 

@@ -2,6 +2,8 @@ import './core/BenchSeed.js';
 import { App } from './App.js';
 import { UI } from './ui/UI.js';
 import { AppUI } from './ui/AppUI.js';
+import { resolveLabels } from './core/Bindings.js';
+import { PadUI } from './ui/PadUI.js';
 
 // ?bench runs in background tabs too (automation): rAF does not fire in a hidden page
 if ( /[?&]bench\b/.test( location.search ) ) {
@@ -16,9 +18,14 @@ const ui = new UI();
 const app = new App();
 window.__ui = ui;
 
+// the loader tips name inputs (the rod, the cooler): tag them with the device's glyphs as soon as there
+// is an input to read. A controller already connected shows its own buttons.
 app.init( ( p, text, until ) => ui.setLoading( p, text, until ) ).then( async () => {
 
 	app.ui = new AppUI( app, ui );
+	// the controller's menu layer (focus walking, synthetic navigation): it needs the panel to exist
+	app.padUI = new PadUI( app );
+	resolveLabels( document.querySelector( '.loader-tips' ), { label: ( a ) => app.input.label( a ), device: app.input.device } );
 	ui.setLoading( 1, 'Ready' );
 	await ui.hideLoader();
 	// frame-time benchmark and reference shots (see core/Bench.js): it drives the frames itself

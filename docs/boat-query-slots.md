@@ -4,7 +4,8 @@
 
 ## Background
 
-`WaterQuery` hands out a fixed table of `MAX_QUERIES = 64` slots (`src/ocean/WaterQuery.js`); allocating
+`WaterQuery` hands out a fixed table of `MAX_QUERIES` slots (`src/ocean/QueryLimits.js`; it was 64 when this
+was written and is 256 now, see the end); allocating
 past it throws `WaterQuery: out of slots`. Each hull sample of a `BoatController` asks the GPU for the water
 height under it, one slot per sample.
 
@@ -32,7 +33,7 @@ Reproduced headless: with the Pelagic beside it, the lobster boat's heave was of
    sample's height, plus its slope times the offset between the two) every physics step. They sit within
    about a metre of a hull sample, so the difference is small; stability results did not change.
 
-Result: lobster 32 + Pelagic 12 = 44 slots for the boats, and ~62 of 64 for the whole game, the same as
+Result: lobster 32 + Pelagic 12 = 44 slots for the boats, and ~62 slots for the whole game, the same as
 before any of this. Headroom is the original 2 slots, so a future query user should know about the cap.
 
 ## Slot budget (my count of every `allocate()` call)
@@ -44,11 +45,29 @@ before any of this. Headroom is the original 2 slots, so a future query user sho
 | Traps (`TRAP_LIMIT`) | 6 | `src/game/Traps.js`, `src/game/Gear.js` |
 | Wildlife | 8 | `src/world/wildlife/Wildlife.js` (class default `n = 8`; not confirmed against what `App.js` passes) |
 | Bobber, player, whale, Pelagic bob | 1 each | `FishingRod.js`, `Player.js`, `WhaleBrain.js`, `Pelagic30.js` |
-| **Total** | **~62 of 64** | |
+| **Total** | **~62 of 256** (of 64 before the table was raised) | |
 
 ## Checking
 
 `node test/boat-stability.mjs` covers this: both boats and the rest of the game's allocations must fit in
-64 slots, and a lobster boat beside the Pelagic must ride exactly as it does alone. The test fails with
+the table, and a lobster boat beside the Pelagic must ride exactly as it does alone. The test fails with
 the old shared allocation. The same file checks the stability range, slope following and the no-capsize
 runs.
+
+## The table is 256 slots now
+
+The headroom was two slots, which would have stopped any new user of water heights (village NPCs, more
+boats, wildlife), so `MAX_QUERIES` went from 64 to 256 (`src/ocean/QueryLimits.js`). Costs, estimated and not
+measured: about nine surface lookups per slot in use on the GPU, which is small next to the FFT ocean, and a
+4 KB readback per frame instead of 1 KB.
+
+Raising the number alone is not enough. The query kernel used to be dispatched as one 64-thread workgroup, so
+any slot past 63 would never have been computed and would have read back zeros, with no error anywhere. It is
+dispatched over every slot in use now (`queryWorkgroups( count )`), and `test/boat-stability.mjs` checks the
+dispatch covers every slot.
+
+That test cannot run the GPU. To check it in a browser, stand still and run `await __tw.queryProbe()` in the
+console: it reserves a block of slots that crosses 64, points all of them at the camera and reports whether
+the slots from 64 up read the same water height as slot 0 (`ok: true`). It keeps that block (about 10 slots)
+until the page is reloaded.
+

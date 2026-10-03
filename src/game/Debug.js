@@ -17,6 +17,7 @@
 //   __tw.haul( id? )           haul a pot (the nearest, or that one)
 //   __tw.clearTraps()          pull the whole gear out of the water and back aboard
 //   __tw.soak( hours )         age every pot in the water by that many hours
+//   __tw.queryProbe()          check the water queries past slot 64 work (a promise; stand still)
 //   __tw.help()                this list
 //
 // The objects themselves are here too: __tw.state, __tw.game, __tw.app, __tw.trapLine.
@@ -169,6 +170,36 @@ export function installDebugGame( app ) {
 
 		},
 
+		// Check the water queries past the old 64-slot table: reserves a block that crosses slot 64
+		// (kept until reload), points every slot of it at the camera, and after half a second reads
+		// them back. Stand still: each slot should equal slot 0 (the camera's own water height). A slot
+		// the kernel never reached reads 0 while slot 0 does not. Resolves to the numbers.
+		queryProbe() {
+
+			const q = app.query;
+			const need = Math.max( 2, 72 - q.count );
+			const start = q.allocate( 'debugProbe', need );
+			const n = q.slots.get( 'debugProbe' ).n;
+			const x = app.camera.position.x, z = app.camera.position.z;
+			for ( let i = 0; i < n; i ++ ) q.setPoint( start + i, x, z );
+			return new Promise( ( done ) => setTimeout( () => {
+
+				const h = ( i ) => q.cpu[ i * 4 ];
+				const slots = Array.from( { length: n }, ( _, i ) => start + i );
+				const high = slots.filter( ( i ) => i >= 64 );
+				const err = ( i ) => Math.abs( h( i ) - h( 0 ) );
+				done( {
+					used: q.count, max: 256, probe: [ start, start + n - 1 ], camera: h( 0 ),
+					below64: slots.length - high.length, from64: high.length,
+					worstErrorBelow64: Math.max( 0, ...slots.filter( ( i ) => i < 64 ).map( err ) ),
+					worstErrorFrom64: Math.max( 0, ...high.map( err ) ),
+					ok: high.length > 0 && high.every( ( i ) => err( i ) < 0.25 ),
+				} );
+
+			}, 500 ) );
+
+		},
+
 		help() {
 
 			const out = [
@@ -183,6 +214,7 @@ export function installDebugGame( app ) {
 				'__tw.haul( [id] )        haul the nearest pot',
 				'__tw.clearTraps()        pull the gear out of the water',
 				'__tw.soak( hours )       age every pot in the water',
+				'__tw.queryProbe()        check water queries past slot 64 (stand still)',
 				'__tw.state / .game / .app / .trapLine',
 			];
 			console.log( out.join( '\n' ) );

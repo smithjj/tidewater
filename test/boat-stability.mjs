@@ -11,6 +11,7 @@ import * as E from '../src/engine/index.js';
 import { BoatController } from '../src/player/BoatController.js';
 import { HullLines, RHO_SEAWATER } from '../src/world/boat/HullLines.js';
 import { Pelagic30 } from '../src/world/boats/Pelagic30.js';
+import { MAX_QUERIES, QUERY_WORKGROUP, queryWorkgroups } from '../src/ocean/QueryLimits.js';
 
 let fails = 0;
 const check = ( ok, msg ) => {
@@ -84,7 +85,7 @@ function makeQuery( sea ) {
 		allocate( name, n ) {
 
 			if ( this.slots.has( name ) ) return this.slots.get( name );
-			if ( this.n + n > 64 ) throw new Error( 'WaterQuery: out of slots' );
+			if ( this.n + n > MAX_QUERIES ) throw new Error( 'WaterQuery: out of slots' );
 			const s = this.n;
 			this.slots.set( name, s );
 			this.n += n;
@@ -216,7 +217,14 @@ for ( const [ name, build ] of Object.entries( boats ) ) {
 	// the boats: the table has to hold them too
 	let overflow = null;
 	try { for ( const [ name, n ] of [ [ 'bobber', 1 ], [ 'traps', 6 ], [ 'player', 1 ], [ 'whale', 1 ], [ 'wildlife', 8 ], [ 'pelagic', 1 ] ] ) query.allocate( name, n ); } catch ( e ) { overflow = e.message; }
-	check( overflow === null, `two boats and the rest of the game fit in the 64 query slots (${ query.n } used${ overflow ? ': ' + overflow : '' })` );
+	check( overflow === null, `two boats and the rest of the game fit in the query slots (${ query.n } used${ overflow ? ': ' + overflow : '' })` );
+	// the table is bigger than one workgroup: the kernel has to be dispatched over every slot in use, or the
+	// slots past the first workgroup read back zeros without any error
+	check( MAX_QUERIES === 256, `the query table is 256 slots (${ MAX_QUERIES })` );
+	let uncovered = null;
+	for ( const used of [ 1, 2, 63, 64, 65, 100, 128, 129, 255, 256 ] ) if ( queryWorkgroups( used ) * QUERY_WORKGROUP < used && uncovered === null ) uncovered = used;
+	check( uncovered === null && queryWorkgroups( 65 ) === 2 && queryWorkgroups( 64 ) === 1 && queryWorkgroups( 256 ) === 4, `the query kernel is dispatched over every slot in use (first gap at ${ uncovered })` );
+	check( queryWorkgroups( 0 ) === 1 && queryWorkgroups( 9999 ) === 4, 'and always at least the camera slot, never past the table' );
 
 	let worstY = 0, worstTilt = 0;
 	for ( let t = 0; t < 70; t += dt ) {

@@ -1,7 +1,9 @@
 import { G, StorageBuffer, ShaderModule, ComputeKernel, Readback } from '../engine/webgpu.js';
 import { commonModule } from '../engine/render/wgsl/common.js';
 
-export const MAX_QUERIES = 64;
+import { MAX_QUERIES, QUERY_WORKGROUP, queryWorkgroups } from './QueryLimits.js';
+
+export { MAX_QUERIES };
 
 // Water surface queries on the GPU.
 //   - slot 0 is always the camera (consumed the same frame by the waterline/underwater passes)
@@ -130,7 +132,7 @@ fn waterQueryHeightAtXZ( p: vec2f ) -> f32 {
 				queryInputs: { storage: this.inputBuffer, access: 'read' },
 				queryResults: { storage: this.results, access: 'read_write' },
 			},
-			workgroupSize: [ 64, 1, 1 ],
+			workgroupSize: [ QUERY_WORKGROUP, 1, 1 ],
 			code: /* wgsl */`
 @compute @workgroup_size( WG_X, WG_Y, WG_Z )
 fn main( @builtin( global_invocation_id ) gid: vec3u ) {
@@ -195,7 +197,7 @@ fn main( @builtin( global_invocation_id ) gid: vec3u ) {
 		// built on first use: the wake / shore attached to the surface after construction are included
 		if ( ! this.kernel ) this._build();
 		this.inputBuffer.write( this.inputs );
-		this.kernel.dispatch( 1 );
+		this.kernel.dispatch( queryWorkgroups( this.count ) ); // every slot in use, not just the first workgroup's
 
 		if ( ! this._pending ) {
 

@@ -113,7 +113,7 @@ rendering engine, no framework.
 | Left mouse | Hold to wind up, release to cast · strike when a fish takes the bait · hold to reel |
 | Right mouse | Reel an empty line in |
 | I or Tab | Cooler / fish hold and the fish log |
-| X | Drop or weigh the anchor, aboard a boat |
+| X | Drop or weigh the anchor, aboard a boat (an orange buoy and a minimap marker show where it lies) |
 | J | Fish guide: what you have learned about each species |
 | F | Free camera |
 | L | Flashlight |

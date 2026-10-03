@@ -53,7 +53,7 @@ export class Game {
 		// the working boat is handed over so the modelled pots can stand on its deck (see Traps._buildStack)
 		this.traps = new Traps( { scene: app.scene, terrain: app.terrainData, query: app.query, state: this.state, boat: app.boat, toast: ( t, ms ) => this.toast( t, ms ), splash: () => app.audio && app.audio.splash && app.audio.splash( 0.5 ) } );
 		// the anchor on the seabed and its line to the bow, for whichever boat has one down
-		this.anchors = new AnchorGear( { scene: app.scene, terrain: app.terrainData } );
+		this.anchors = new AnchorGear( { scene: app.scene, terrain: app.terrainData, query: app.query, boats: [ app.lobsterCtl, app.pelagicCtl ] } );
 		this.vendors = [ this.stand.vendor, this.chandlery.vendor ];
 		// boat upgrades: engine (thrust / top speed) and deck floodlights for night fishing.
 		// The rebuilt engine is the lobster boat's: always target it, not whichever boat is active.

@@ -506,10 +506,10 @@ export class Player {
 		let best = side ? null : this.ashoreTarget();
 
 		const dock = b.homeDock.position;
-		if ( b.position.distanceTo( dock ) < 14 && b.speed < 1.5 ) {
+		// near the berth it is tied up where it lies; with the anchor down the anchor holds it, and it stays down
+		if ( b.position.distanceTo( dock ) < 14 && b.speed < 1.5 && ! b.anchor.down ) {
 
 			b.moored = true;
-			b.weighAnchor(); // the dock's lines hold it now
 			b.mooring.anchor.set( b.position.x, 0, b.position.z );
 			b.mooring.heading = b.getYaw();
 

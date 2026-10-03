@@ -42,6 +42,7 @@ const CSS = /* css */`
 .gm-mk.is-marta > i { background: var(--tw-aqua); }
 .gm-mk.is-boat > i { background: #f2efe6; }
 .gm-mk.is-trap > i { background: #e8a33d; }
+.gm-mk.is-anch > i { background: #ee5a1e; }
 .gm-mk > b { position: absolute; left: 0; top: 0; width: 0; height: 0; border-left: calc(5 * var(--tw-u)) solid transparent; border-right: calc(5 * var(--tw-u)) solid transparent;
 	border-bottom: calc(7 * var(--tw-u)) solid rgba(255,255,255,0.9); margin: calc(-19 * var(--tw-u)) 0 0 calc(-5 * var(--tw-u)); transform-origin: calc(5 * var(--tw-u)) calc(19 * var(--tw-u)); display: none; }
 .gm-mk.is-edge > b { display: block; }
@@ -152,6 +153,13 @@ export class Minimap {
 
 			} },
 		];
+		// the anchor of the boat you last boarded, while it is down: an orange anchor where it lies
+		this.markers.push( { id: 'anchor', ...mk( 'anch', ICON.anchor ), pos: () => {
+
+			const p = game.app.player, b = p && p.boat;
+			return b && b.anchor && b.anchor.down ? { x: b.anchor.x, z: b.anchor.z } : null;
+
+		} } );
 		// the trap line: a marker pool, one per pot the licence allows in the water (hidden when
 		// that slot has no set), so hauling back to a pot you left is a matter of looking at the map
 		for ( let i = 0; i < TRAP_LIMIT; i ++ ) this.markers.push( { id: 'trap' + i, ...mk( 'trap', ICON.trap ), pos: () => {

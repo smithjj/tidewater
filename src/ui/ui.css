@@ -688,10 +688,10 @@ body {
 	100% { border-color: var(--tw-line); box-shadow: 0 0 0 10px rgba(var(--tw-aqua-rgb), 0); }
 }
 
-/* top-centre: notifications */
+/* top-centre: notifications, below the purse (money, clock, fuel) that runs in from the right and would hide a wide one */
 .tw-toasts {
 	position: absolute;
-	top: var(--tw-edge);
+	top: calc(var(--tw-edge) + 3 * var(--tw-fs-md));
 	left: 50%;
 	display: flex;
 	flex-direction: column;

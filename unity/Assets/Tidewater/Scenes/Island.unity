@@ -358,7 +358,7 @@ MonoBehaviour:
   m_AreaLightEmissiveMeshShadowCastingMode: 0
   m_AreaLightEmissiveMeshMotionVectorGenerationMode: 0
   m_AreaLightEmissiveMeshLayer: -1
---- !u!21 &321024891
+--- !u!21 &257187972
 Material:
   serializedVersion: 8
   m_ObjectHideFlags: 0
@@ -453,7 +453,71 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!21 &1138359774
+--- !u!1 &630552881
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 630552883}
+  - component: {fileID: 630552882}
+  m_Layer: 0
+  m_Name: Ocean
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &630552882
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 630552881}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 00ae3f58f322a35479c19bc799cb1f8f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.Ocean.OceanRenderer
+  fftShader: {fileID: 7200000, guid: 87dce48fd894f1d4899d629f8fae1b2e, type: 3}
+  foamShader: {fileID: 7200000, guid: 22aacd85181099c489c718d1e678b11c, type: 3}
+  queryShader: {fileID: 7200000, guid: 5d08c8a799680a74d8c7615046c60e97, type: 3}
+  material: {fileID: 1658628285}
+  sun: {fileID: 0}
+  gridSize: 32
+  seaState: 1
+  windDirection: 25
+  amplitude: 1
+  slopeScale: 1
+  foamCoverage: 1
+  foamSharpness: 2.2
+  foamScale: 0.09
+  backscatter: 0.035
+  sss: 1
+  foamIntensity: 1
+  waterRoughness: 0.035
+  reflectionStrength: 1
+  ssr: 1
+  debugView: 0
+--- !u!4 &630552883
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 630552881}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!21 &1658628285
 Material:
   serializedVersion: 8
   m_ObjectHideFlags: 0
@@ -485,7 +549,7 @@ Material:
     m_Colors: []
   m_BuildTextureStacks: []
   m_AllowLocking: 1
---- !u!1 &1325031996
+--- !u!1 &1731264656
 GameObject:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
@@ -493,70 +557,8 @@ GameObject:
   m_PrefabAsset: {fileID: 0}
   serializedVersion: 6
   m_Component:
-  - component: {fileID: 1325031998}
-  - component: {fileID: 1325031997}
-  m_Layer: 0
-  m_Name: Ocean
-  m_TagString: Untagged
-  m_Icon: {fileID: 0}
-  m_NavMeshLayer: 0
-  m_StaticEditorFlags: 0
-  m_IsActive: 1
---- !u!114 &1325031997
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1325031996}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: 00ae3f58f322a35479c19bc799cb1f8f, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.Ocean.OceanRenderer
-  fftShader: {fileID: 7200000, guid: 87dce48fd894f1d4899d629f8fae1b2e, type: 3}
-  foamShader: {fileID: 7200000, guid: 22aacd85181099c489c718d1e678b11c, type: 3}
-  material: {fileID: 1138359774}
-  sun: {fileID: 0}
-  gridSize: 32
-  seaState: 1
-  windDirection: 25
-  amplitude: 1
-  slopeScale: 1
-  foamCoverage: 1
-  foamSharpness: 2.2
-  foamScale: 0.09
-  backscatter: 0.035
-  sss: 1
-  foamIntensity: 1
-  waterRoughness: 0.035
-  reflectionStrength: 1
-  ssr: 1
---- !u!4 &1325031998
-Transform:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1325031996}
-  serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
-  m_ConstrainProportionsScale: 0
-  m_Children: []
-  m_Father: {fileID: 0}
-  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
---- !u!1 &1569315390
-GameObject:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  serializedVersion: 6
-  m_Component:
-  - component: {fileID: 1569315392}
-  - component: {fileID: 1569315391}
+  - component: {fileID: 1731264658}
+  - component: {fileID: 1731264657}
   m_Layer: 0
   m_Name: Terrain
   m_TagString: Untagged
@@ -564,13 +566,13 @@ GameObject:
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
   m_IsActive: 1
---- !u!114 &1569315391
+--- !u!114 &1731264657
 MonoBehaviour:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1569315390}
+  m_GameObject: {fileID: 1731264656}
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6ebcf40896d9365468247ee587f26f4b, type: 3}
@@ -579,15 +581,15 @@ MonoBehaviour:
   gridSize: 40
   rangeFactor: 2
   seed: 7
-  material: {fileID: 321024891}
-  stats: 'terrain: generate 2182 ms, textures 341 ms, total 2531 ms'
---- !u!4 &1569315392
+  material: {fileID: 257187972}
+  stats: 'terrain: generate 4723 ms, textures 694 ms, total 5424 ms'
+--- !u!4 &1731264658
 Transform:
   m_ObjectHideFlags: 0
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 1569315390}
+  m_GameObject: {fileID: 1731264656}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
   m_LocalPosition: {x: 0, y: 0, z: 0}
@@ -899,5 +901,5 @@ SceneRoots:
   - {fileID: 157207114}
   - {fileID: 432432461}
   - {fileID: 2013410475}
-  - {fileID: 1569315392}
-  - {fileID: 1325031998}
+  - {fileID: 1731264658}
+  - {fileID: 630552883}

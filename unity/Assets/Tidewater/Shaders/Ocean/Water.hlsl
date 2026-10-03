@@ -30,7 +30,8 @@ float4 _TWSunDir;             // toward the sun, sim space
 float4 _TWSunColor;           // sun illuminance (lux) x colour
 float4 _TWWind;               // sim wind direction xz, speed (m/s)
 float4 _TWDebug;              // x = debug view (see the end of Frag)
-float4 _TWCamera;             // xyz = sim camera position, w = water height at the camera (frame.cameraWaterHeight)
+float4 _TWCamera;             // xyz = sim camera position
+StructuredBuffer<float4> _TWWaterQuery;   // WaterQuery results: slot 0 = the camera ( height, nx, nz, sea floor )
 
 #define TW_IOR 1.333
 #define TW_WATER_BEHIND 0.05   // a refracted sample is usable when it lies this far behind the water surface (view depth, m)
@@ -403,7 +404,7 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 	// (nearest) fragment this is the medium the ray starts in at the near clip plane, which is exactly how the clip
 	// plane slices the water. The winding can't be trusted in folds of the choppy / breaking surface: there, and well
 	// above or below the surface, the camera's own medium decides.
-	float camH = camPos.y - _TWCamera.w;
+	float camH = camPos.y - _TWWaterQuery[ 0 ].x;   // frame.cameraWaterHeight (this frame's GPU result)
 	bool folded = surf.jacobian < 0.1;
 	bool nearSurface = abs( camH ) < 1.5;
 	bool viewFromBelow = ( nearSurface && ! folded ) ? ! front : camH < 0.0;

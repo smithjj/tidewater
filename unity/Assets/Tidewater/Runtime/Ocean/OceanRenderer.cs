@@ -19,7 +19,7 @@ namespace Tidewater.Ocean
 	[ExecuteAlways]
 	public sealed class OceanRenderer : MonoBehaviour
 	{
-		public ComputeShader fftShader, foamShader;
+		public ComputeShader fftShader, foamShader, queryShader;
 		public Material material;
 		public Light sun;
 		public int gridSize = 32;
@@ -39,6 +39,8 @@ namespace Tidewater.Ocean
 		public int debugView;
 
 		public OceanFFT fft { get; private set; }
+		// water-surface queries for gameplay (boats, swimmer, particles): slot 0 is the camera
+		public WaterQuery query { get; private set; }
 		public CDLOD lod { get; private set; }
 		RenderTexture foamTexture;
 
@@ -56,13 +58,14 @@ namespace Tidewater.Ocean
 #if UNITY_EDITOR
 			if ( fftShader == null ) fftShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/OceanFFT.compute" );
 			if ( foamShader == null ) foamShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/FoamPattern.compute" );
+			if ( queryShader == null ) queryShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/WaterQuery.compute" );
 #endif
 		}
 
 		void OnEnable()
 		{
 			FillDefaults();
-			if ( fftShader == null || foamShader == null ) { enabled = false; Debug.LogError( "OceanRenderer: compute shaders not assigned" ); return; }
+			if ( fftShader == null || foamShader == null || queryShader == null ) { enabled = false; Debug.LogError( "OceanRenderer: compute shaders not assigned" ); return; }
 			Build();
 			RenderPipelineManager.beginCameraRendering += OnBeginCamera;
 		}
@@ -93,6 +96,8 @@ namespace Tidewater.Ocean
 
 		void Release()
 		{
+			if ( query != null ) query.Dispose();
+			query = null;
 			if ( fft != null ) fft.Dispose();
 			fft = null;
 			if ( foamTexture != null ) { foamTexture.Release(); DestroyImmediate( foamTexture ); }
@@ -156,7 +161,7 @@ namespace Tidewater.Ocean
 			fft.SetGlobals();
 			Shader.SetGlobalTexture( "_TWFoamTex", foamTexture );
 			Shader.SetGlobalVector( "_TWViewPos", new Vector4( cp.x, cp.y, - cp.z, 0 ) );
-			Shader.SetGlobalVector( "_TWCamera", new Vector4( cp.x, cp.y, - cp.z, G.cameraWaterHeight ) );
+			Shader.SetGlobalVector( "_TWCamera", new Vector4( cp.x, cp.y, - cp.z, 0 ) );
 			Shader.SetGlobalVector( "_TWWaterA", new Vector4( amplitude, slopeScale, foamCoverage, foamSharpness ) );
 			Shader.SetGlobalVector( "_TWWaterB", new Vector4( foamScale, backscatter, sss, foamIntensity ) );
 			Shader.SetGlobalVector( "_TWWaterC", new Vector4( waterRoughness, reflectionStrength, ssr ? 1 : 0, G.seaLevel ) );
@@ -168,6 +173,24 @@ namespace Tidewater.Ocean
 			Shader.SetGlobalVector( "_TWSunColor", new Vector4( sc.x, sc.y, sc.z, 0 ) );
 			Shader.SetGlobalVector( "_TWDebug", new Vector4( debugView, 0, 0, 0 ) );
 			Shader.SetGlobalVector( "_TWWind", new Vector4( G.windDir.x, G.windDir.y, G.windSpeed, 0 ) );
+
+			// the queries: built once the terrain exists (the depth and sea floor come from it); slot 0 follows the game
+			// camera, and the shader reads its result the same frame (frame.cameraWaterHeight)
+			if ( query == null )
+			{
+				var tr = FindAnyObjectByType<Tidewater.World.TerrainRenderer>();
+				query = new WaterQuery( queryShader, fft, tr != null ? tr.gpu : null ) { amplitude = amplitude };
+			}
+
+			if ( cam.cameraType == CameraType.Game )
+			{
+				query.amplitude = amplitude;
+				query.SetCamera( cp.x, - cp.z );
+				query.Update();
+				G.cameraWaterHeight = query.cpuValid ? query.Get( 0 ).height : G.seaLevel;
+			}
+
+			Shader.SetGlobalBuffer( "_TWWaterQuery", query.resultsBuffer );
 
 			lod.Update( cam );
 			for ( int start = 0; start < lod.count; start += Batch )

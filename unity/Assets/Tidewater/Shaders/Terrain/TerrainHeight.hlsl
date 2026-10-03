@@ -27,6 +27,7 @@ float TWHeightAt( float2 xz )
 	return outside ? -90.0 : h;
 }
 
+#ifndef TW_NO_NORMAL_ROCK  // (compute shaders define this: the lookup needs implicit derivatives)
 // filtered macro normal (xz components, -1..1), rock mask, baked ambient occlusion at world xz (fragment only: implicit
 // derivatives); the WGSL terrainNormalRock
 float4 TWNormalRock( float2 xz )
@@ -35,5 +36,6 @@ float4 TWNormalRock( float2 xz )
 	float4 s = SAMPLE_TEXTURE2D( _TWNormalTex, sampler_TWNormalTex, uv );
 	return float4( s.xy * 2.0 - 1.0, s.z, s.w );
 }
+#endif
 
 #endif

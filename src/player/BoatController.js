@@ -30,6 +30,7 @@ const _c2 = new THREE.Vector3();
 const _c3 = new THREE.Vector3();
 const _c4 = new THREE.Vector3();
 const _c5 = new THREE.Vector3();
+let _boatCount = 0; // controllers made so far: each gets its own block of water queries
 const _invQ = new THREE.Quaternion();
 const _dq = new THREE.Quaternion();
 
@@ -78,7 +79,34 @@ export class BoatController {
 		let pitchK = 0;
 		for ( const s of this.samples ) pitchK += s.area * ( s.p.z - cbz ) ** 2;
 		this.pitchStiffness = RHO * GRAV * pitchK; // N m / rad (for the running-trim moment)
-		this.slot = query.allocate( 'boatHull', this.samples.length );
+		// COM above the centre of buoyancy, as this sample model has it (each buoyancy force acts at its own
+		// sample, so the centre is the force-weighted sample height at the design draft, not the hull's):
+		// the lever the wave-slope torque acts through (see step)
+		let fy = 0, fs = 0;
+		for ( const s of this.samples ) { const d = Math.max( - s.p.y, 0 ); fy += s.area * d * s.p.y; fs += s.area * d; }
+		this.BG = fs > 0 ? Math.max( 0, this.com.y - fy / fs ) : 0;
+		this.nHull = this.samples.length;
+		for ( const r of this._reserveSamples( model ) ) this.samples.push( r );
+		// Each reserve sample reads the water from the hull sample nearest it (see step): only the hull samples
+		// are queried, and each boat has a block of its own. (One shared name once gave both boats the same
+		// slots: the Pelagic's sample positions overwrote the lobster boat's every frame, which then read water
+		// heights measured at the Pelagic's mooring and floated a metre out of the water, or under it.)
+		for ( const r of this.samples ) {
+
+			if ( ! r.reserve ) continue;
+			let best = 0, bd = Infinity;
+			for ( let i = 0; i < this.nHull; i ++ ) {
+
+				const q = this.samples[ i ].p, d = ( q.x - r.p.x ) ** 2 + ( q.z - r.p.z ) ** 2;
+				if ( d < bd ) { bd = d; best = i; }
+
+			}
+
+			r.ref = best;
+
+		}
+
+		this.slot = query.allocate( 'boatHull' + ( _boatCount ++ ), this.nHull );
 
 		// lateral stations along the keel: (z, lateral area m^2) for hull lift and cross-flow drag
 		// (overridable per model: a different hull has its own keel line and coefficients)
@@ -142,6 +170,34 @@ export class BoatController {
 
 	}
 
+	// Reserve buoyancy of the topsides. The waterplane samples only know the hull at the waterline, so
+	// once the boat heels far enough that the windward side has lifted out they run out of righting
+	// moment (the stability curve died at ~40 degrees, and the boat capsized on a steep wave). A real hull
+	// keeps gaining righting arm as the flared topsides go under: a few samples out at the rail, just above
+	// the sole, that only push once the water reaches them. A model without hull lines gets none.
+	_reserveSamples( model ) {
+
+		const L = model.lines;
+		const cfg = model.reserve || {};
+		if ( ! L || ! L.halfBreadth || ! L.tAtSheerZ ) return [];
+		const zA = L.zAft, zF = L.zFwd ?? L.zBow;
+		if ( ! Number.isFinite( zA ) || ! Number.isFinite( zF ) ) return [];
+		const y = ( L.deckY ?? 0.35 ) + ( cfg.rise ?? 0.1 );
+		const fracs = cfg.stations ?? [ 0.2, 0.32, 0.44, 0.56, 0.68 ];
+		const out = [];
+		for ( const f of fracs ) {
+
+			const z = zA + f * ( zF - zA );
+			const x = L.halfBreadth( L.tAtSheerZ( z ), y ) * ( cfg.inset ?? 0.97 );
+			if ( ! ( x > 0.2 ) ) continue;
+			for ( const sd of [ 1, - 1 ] ) out.push( { p: new THREE.Vector3( sd * x, y, z ), area: cfg.area ?? 0.5, bottom: y, reserve: true } );
+
+		}
+
+		return out;
+
+	}
+
 	// world position of a local point
 	toWorld( local, out ) {
 
@@ -172,7 +228,7 @@ export class BoatController {
 
 		const q = this.query;
 		const lead = q.latency;
-		for ( let i = 0; i < this.samples.length; i ++ ) {
+		for ( let i = 0; i < this.nHull; i ++ ) {
 
 			this.toWorld( this.samples[ i ].p, _v ).addScaledVector( this.velocity, lead );
 			q.setPoint( this.slot + i, _v.x, _v.z );
@@ -195,7 +251,7 @@ export class BoatController {
 		this._qVersion = q.version;
 		this._qTime = q.resultTime;
 		const c = q.cpu, pts = q.resultInputs;
-		for ( let i = 0; i < this.samples.length; i ++ ) {
+		for ( let i = 0; i < this.nHull; i ++ ) {
 
 			const k = ( this.slot + i ) * 4;
 			// never let a bad GPU sample into the integrator (keep the last good value)
@@ -287,24 +343,52 @@ export class BoatController {
 
 		// ---- buoyancy + vertical damping per hull sample
 		let wetArea = 0, totalArea = 0, immersion = 0;
+		let slopeX = 0, slopeZ = 0; // the surface slope under the hull, area weighted (the waterplane samples)
 		for ( let i = 0; i < this.samples.length; i ++ ) {
 
 			const s = this.samples[ i ];
-			this.waterOff[ i ] *= blend;
-			const hw = this.waterH[ i ] + this.waterV[ i ] * this._age + this.waterOff[ i ];
-			this.hEff[ i ] = hw;
 			const pw = this.toWorld( s.p, _p );
+			let hw, wv;
+			if ( s.reserve ) {
+
+				// not queried: the surface plane of the hull sample nearest it (height and slope there)
+				const j = s.ref, pj = this.toWorld( this.samples[ j ].p, _t );
+				hw = this.hEff[ j ] + this.gx[ j ] * ( pw.x - pj.x ) + this.gz[ j ] * ( pw.z - pj.z );
+				wv = this.waterV[ j ];
+				this.hEff[ i ] = hw;
+
+			} else {
+
+				this.waterOff[ i ] *= blend;
+				hw = this.waterH[ i ] + this.waterV[ i ] * this._age + this.waterOff[ i ];
+				wv = this.waterV[ i ];
+				this.hEff[ i ] = hw;
+
+			}
+
 			const depth = hw - pw.y;
-			totalArea += s.area;
+			if ( ! s.reserve ) {
+
+				totalArea += s.area;
+				slopeX += s.area * this.gx[ i ];
+				slopeZ += s.area * this.gz[ i ];
+
+			}
+
 			if ( depth <= 0 ) continue;
 			const sub = Math.min( depth, 1.6 );
-			const wet = Math.min( 1, depth / 0.3 );
-			wetArea += s.area * wet;
-			immersion += s.area * Math.min( sub / Math.max( - s.p.y, 0.05 ), 1.5 );
+			if ( ! s.reserve ) {
+
+				const wet = Math.min( 1, depth / 0.3 );
+				wetArea += s.area * wet;
+				immersion += s.area * Math.min( sub / Math.max( - s.p.y, 0.05 ), 1.5 );
+
+			}
+
 			// buoyancy + heave damping against the water's own vertical motion, along world up (in the
 			// boat frame a trimmed hull would turn forward speed into an upward push)
 			_vp.copy( this.angular ).cross( _r.copy( pw ).sub( comW ) ).add( this.velocity );
-			const vy = _vp.y - this.waterV[ i ] * 0.6;
+			const vy = _vp.y - wv * 0.6;
 			const wetK = Math.min( 1, sub / 0.25 ) * s.area;
 			_f.set( 0, RHO * GRAV * s.area * sub - ( 1800 * vy + 900 * vy * Math.abs( vy ) ) * wetK, 0 );
 			addForceAt( _f, pw );
@@ -323,6 +407,24 @@ export class BoatController {
 		this.speed = this.velocity.length();
 		this.forwardSpeed = u;
 		const aLoc = _a.copy( this.angular ).applyQuaternion( invQ ); // x pitch, y yaw, z roll rates
+
+		// ---- wave pressure on the hull. In a wave the water's own horizontal acceleration is ~ -g * slope
+		// (down the face), and that tilts the *effective* gravity until it stands on the surface: a boat
+		// rides the slope (heel = slope), however small its GM. World-vertical gravity alone does not: the
+		// weight stays plumb while the buoyancy follows the surface, and the hull heels by slope * BM / GM
+		// (x1.7, x2.4 once it is moving) -- a boat that exaggerates every wave and rolls over on a steep
+		// one. The missing piece is the horizontal pressure force on the hull, which acts at the centre of
+		// buoyancy, a lever BG below the COM. Only the torque is applied: the boat does not slide along
+		// with the water's orbit. Short waves wash out in the average over the hull. Scaled by how deep the
+		// hull sits (imm: 1 at its design draft, fading as it rises out), not by wetD, which is ~0.6 at rest.
+		if ( totalArea > 0 && this.BG > 0 ) {
+
+			// torque = r x F with r = -BG * up (COB below COM) and F = m * a, a = -g * slope (horizontal)
+			_f.set( slopeX, 0, slopeZ ).multiplyScalar( - m * GRAV * imm / totalArea ); // F (N), horizontal
+			_r.copy( up ).multiplyScalar( - this.BG ).cross( _f );
+			T.add( _r );
+
+		}
 
 		// ---- calm-water resistance (friction + the wave-making hump past hull speed + planing)
 		const au = Math.abs( u );
@@ -395,7 +497,7 @@ export class BoatController {
 		// ---- small extra angular damping (appendages, bilge), scaled by wetness
 		const wd = 0.2 + wetD;
 		// the keel's lift resists roll in proportion to speed (a boat underway rolls much less)
-		_v.set( - aLoc.x * 25000, - aLoc.y * 2000, - aLoc.z * ( 4500 + 900 * au ) ).multiplyScalar( wd ).applyQuaternion( this.quaternion );
+		_v.set( - aLoc.x * 50000, - aLoc.y * 2000, - aLoc.z * ( 4500 + 900 * au ) ).multiplyScalar( wd ).applyQuaternion( this.quaternion );
 		T.add( _v );
 
 		// ---- mooring lines when docked and not driven
@@ -475,7 +577,7 @@ export class BoatController {
 
 		// nearest hull sample's water height (good enough for the prop / rudder)
 		let best = 0, bd = Infinity;
-		for ( let i = 0; i < this.samples.length; i ++ ) {
+		for ( let i = 0; i < this.nHull; i ++ ) {
 
 			this.toWorld( this.samples[ i ].p, _t );
 			const d = ( _t.x - p.x ) ** 2 + ( _t.z - p.z ) ** 2;

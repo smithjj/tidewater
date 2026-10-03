@@ -34,7 +34,8 @@ export class Input {
 		this._padLook = { x: 0, y: 0 };
 		// the biggest mouse movement seen in one event, and in one frame's worth of them: a spike shows up
 		// in the first, a frame where the mouse was not read shows up in the second (see lookNow)
-		this.lookPeak = { event: 0, frame: 0, at: 0 };
+		this.lookPeak = { event: 0, frame: 0, dt: 0, at: 0 };
+		this._dt = 1 / 60;
 		this.wheel = 0;
 		this.mouseDown = false;
 		this.rightDown = false;
@@ -161,6 +162,7 @@ export class Input {
 	// once a frame, before anything reads input
 	poll( dt = 1 / 60 ) {
 
+		this._dt = dt;
 		const opts = this.bindings.opts;
 		this.pad.deadzone = opts.deadzone;
 		if ( ! opts.padEnabled ) {
@@ -193,7 +195,21 @@ export class Input {
 
 	requestLock() {
 
-		if ( ! this.locked ) this.dom?.requestPointerLock?.()?.catch?.( () => {} );
+		if ( this.locked || ! this.dom?.requestPointerLock ) return;
+		// Raw, unaccelerated deltas: with the OS pointer acceleration on (Windows' "enhance pointer
+		// precision") a fast flick turns disproportionately far, which reads as the view jumping. Browsers
+		// without the option ignore it; one that refuses it (a platform with no raw input) gets a plain lock.
+		const plain = () => this.dom.requestPointerLock()?.catch?.( () => {} );
+		try {
+
+			const p = this.dom.requestPointerLock( { unadjustedMovement: true } );
+			if ( p && p.catch ) p.catch( plain );
+
+		} catch ( err ) {
+
+			plain();
+
+		}
 
 	}
 
@@ -229,7 +245,12 @@ export class Input {
 
 		const l = { x: this.look.x + this._padLook.x, y: this.look.y + this._padLook.y };
 		const big = Math.max( Math.abs( l.x ), Math.abs( l.y ) );
-		if ( big > this.lookPeak.frame ) this.lookPeak.frame = Math.round( big );
+		if ( big > this.lookPeak.frame ) {
+
+			this.lookPeak.frame = Math.round( big );
+			this.lookPeak.dt = Math.round( this._dt * 1000 ); // ms of the frame that carried it: a late frame, or a fast hand?
+
+		}
 		this.look.x = 0;
 		this.look.y = 0;
 		this._padLook.x = 0;

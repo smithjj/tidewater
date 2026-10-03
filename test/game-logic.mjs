@@ -383,29 +383,37 @@ import { TRAP_PRICE, TRAP_LIMIT } from '../src/game/Gear.js';
 	const st3 = new GameState( { getItem: () => JSON.stringify( before2 ), setItem: () => {} } );
 	ok( st3.load() && st3.traps === 0 && st3.sets.length === 0 && st3.mulFor( 'grunt' ) === 1, 'older saves start with no pots out' );
 }
-// ---- what E does on the boat: the prompt decides between setting and hauling
+// ---- what E does on the boat's deck: the prompt decides between setting and hauling (at the helm it is
+// the cast button instead, and E leaves the helm: see test/trap-handling.mjs)
 import { Game } from '../src/game/Game.js';
+import { Vector3 as V3 } from '../src/engine/index.js';
 {
 	const m = new Map();
 	const st = new GameState( { getItem: ( k ) => m.get( k ) ?? null, setItem: ( k, v ) => m.set( k, v ) } );
 	st.money = 0;
 	st.upgrades.trapLicence = 1;
 	st.traps = 3;
-	const boat = { position: { x: - 20, z: 140 }, speed: 0 };
+	// a boat heading +z: a pot goes in 0.9 m astern of its 3.9 m transom, 4.8 m behind its position
+	const boat = {
+		position: { x: - 20, z: 140 }, speed: 0, model: { sternZ: - 3.9 },
+		toWorld( l, out ) { out.x = l.x + this.position.x; out.y = l.y; out.z = l.z + this.position.z; return out; },
+	};
 	const toasts = [];
 	const game = Object.create( Game.prototype );
 	Object.assign( game, {
 		state: st,
 		_haulCard: 0,
+		_modeChanged: false,
+		_tmp: new V3(),
 		hud: null,
 		app: {
 			lobsterCtl: boat,
-			player: { boat, mode: 'boat', position: boat.position },
+			player: { boat, mode: 'deck', position: boat.position },
 			settings: { timeOfDay: 9 }, // game.hour reads this
 			terrainData: { heightAt: () => - 12 }, // 12 m of water everywhere
 			audio: null,
 		},
-		traps: { haulVisual() {} },
+		traps: { haulVisual() {}, setVisual() { return true; }, stack: [ 0, 1, 2, 3 ], busy: false },
 		habitatAtPoint: () => ( { bay: 1, shallows: 0, reef: 0, pier: 0, deep: 0 } ),
 		toast: ( t ) => toasts.push( t ),
 	} );
@@ -417,8 +425,9 @@ import { Game } from '../src/game/Game.js';
 	ok( act() === 'set', 'clear water: E offers to set' );
 	press();
 	ok( st.sets.length === 1 && st.traps === 2, 'E puts a pot over the side' );
-	// the pot is now at the boat's own position, so it is inside haul range: E must not take it back
-	ok( act() === 'set', 'standing on the pot just set, E still offers to set the next one' );
+	ok( Math.abs( st.sets[ 0 ].x - - 20 ) < 1e-9 && Math.abs( st.sets[ 0 ].z - ( 140 - 3.9 - 0.9 ) ) < 1e-9, 'over the stern, astern of the transom' );
+	// the pot is now 4.8 m astern, inside haul range: E must not take it back
+	ok( act() === 'set', 'with the pot just set astern, E still offers to set the next one' );
 	press();
 	ok( st.sets.length === 1 && st.traps === 2, 'pressing E again does not pick the pot back up' );
 	ok( toasts.some( ( t ) => /already a pot here/.test( t ) ), 'it says the pot is already there' );

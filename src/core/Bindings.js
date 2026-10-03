@@ -49,17 +49,18 @@ export const ACTIONS = [
 
 	// ---- fishing
 	{ id: 'rod', label: 'Take out the rod', group: 'Fishing', kind: 'button', menu: 'allow', help: 'Fishing rod<small>Take out / put away</small>', kb: [ 'KeyR' ], pad: [ 'LB' ] },
-	{ id: 'rodUse', label: 'Cast / strike / reel', group: 'Fishing', kind: 'button', menu: 'allow', help: 'Cast, strike, reel<small>Hold to wind up / reel</small>', mouse: [ 'LMB' ], pad: [ 'RT' ] },
+	{ id: 'rodUse', label: 'Cast / strike / reel', group: 'Fishing', kind: 'button', menu: 'allow', help: 'Cast, strike, reel<small>Hold to wind up / reel. At the helm: set and haul pots</small>', mouse: [ 'LMB' ], pad: [ 'RT' ] },
 	{ id: 'rodIn', label: 'Reel in an empty line', group: 'Fishing', kind: 'button', menu: 'allow', help: 'Reel in an empty line', mouse: [ 'RMB' ], pad: [ 'RB' ] },
 
 	// ---- interact
-	{ id: 'interact', label: 'Interact', group: 'Interact', kind: 'button', menu: 'allow', help: 'Interact<small>Board, helm, step ashore, trade, traps</small>', kb: [ 'KeyE' ], pad: [ 'A' ] },
+	{ id: 'interact', label: 'Interact', group: 'Interact', kind: 'button', menu: 'allow', help: 'Interact<small>Board, helm, step ashore, trade, traps on deck</small>', kb: [ 'KeyE' ], pad: [ 'A' ] },
 	{ id: 'cooler', label: 'Cooler and fish log', group: 'Interact', kind: 'button', menu: 'allow', help: 'Cooler and fish log', kb: [ 'KeyI', 'Tab' ], pad: [ 'R3' ] },
 	{ id: 'boatCamera', label: 'Boat camera', group: 'Interact', kind: 'button', menu: 'block', help: 'Boat camera<small>1st / 3rd person</small>', kb: [ 'KeyV' ], pad: [ 'L3' ] },
 
 	// ---- interface
 	{ id: 'settings', label: 'Settings panel', group: 'Interface', kind: 'button', menu: 'allow', help: 'Settings panel', kb: [ 'KeyH' ], pad: [ 'Menu' ] },
 	{ id: 'controls', label: 'All controls', group: 'Interface', kind: 'button', menu: 'allow', help: 'This sheet', kb: [ 'F1' ], pad: [ 'View' ] },
+	{ id: 'map', label: 'Large map', group: 'Interface', kind: 'button', menu: 'block', help: 'Large map<small>Open / close, north is up</small>', kb: [ 'KeyN' ], pad: [] },
 	{ id: 'photo', label: 'Photo mode', group: 'Interface', kind: 'button', menu: 'block', help: 'Photo mode<small>Hides all interface</small>', kb: [ 'KeyP' ], pad: [ 'DRight' ] },
 	{ id: 'cancel', label: 'Back / close', group: 'Interface', kind: 'button', menu: 'allow', help: 'Close, release the mouse', kb: [ 'Escape' ], pad: [ 'B' ] },
 	{ id: 'pauseTime', label: 'Run or pause the day', group: 'Interface', kind: 'button', menu: 'block', help: 'Run or pause the day', kb: [ 'KeyT' ], pad: [ 'DUp' ] },

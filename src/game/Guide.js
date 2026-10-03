@@ -112,7 +112,7 @@ const TIPS = {
 	joe: '<b>Joe</b> buys your fish. <kbd data-bind="interact">E</kbd> to see what he will pay.',
 	marta: '<b>Marta</b> sells upgrades and diesel. <kbd data-bind="interact">E</kbd> to see her stock.',
 	night: 'After dark the <b>tarpon</b> and snapper feed, and the lamps come on. <b>Deck floodlights</b> from Marta let you fish from the boat at night.',
-	trap: '<b>Traps</b>: <kbd data-bind="interact">E</kbd> sets a pot from the working boat and <kbd data-bind="interact">E</kbd> hauls one back. They soak on the clock — a few hours fills them, and the map marks where you left them.',
+	trap: '<b>Traps</b>: on deck <kbd data-bind="interact">E</kbd> sets a pot from the working boat and hauls one back; at the helm it is <kbd data-bind="rodUse">LMB</kbd>, at a crawl. They soak on the clock — a few hours fills them, and the map marks where you left them.',
 };
 
 const h = ( tag, cls, html ) => {

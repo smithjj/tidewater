@@ -19,6 +19,7 @@ const EXT = 1280; // metres covered by the bake
 const X0 = - EXT / 2, Z0 = - 180 - EXT / 2; // world at canvas (0, 0): the island sits north of the bay
 const PPM = N / EXT; // canvas px per metre
 const ROWS_PER_FRAME = 48;
+const BIG_RADIUS = 360; // metres from the centre to the rim of the large map
 
 const CSS = /* css */`
 .gm-map { position: absolute; right: var(--tw-edge); bottom: var(--tw-edge); width: calc(184 * var(--tw-u)); height: calc(184 * var(--tw-u));
@@ -61,6 +62,11 @@ const CSS = /* css */`
 @keyframes gm-map-ring { 0% { transform: scale(0.45); } 100% { transform: scale(1.15); border-color: rgba(var(--tw-aqua-rgb), 0); } }
 .gm-map-label { position: absolute; left: 50%; bottom: calc(-2 * var(--tw-u)); transform: translate(-50%, 100%); padding-top: calc(4 * var(--tw-u));
 	font: 500 var(--tw-fs-xs) var(--tw-mono); color: var(--tw-ink-3); white-space: nowrap; text-shadow: 0 1px 2px rgba(0,0,0,0.7); display: none; }
+/* the large map (N): a big round window in the middle of the screen, north up */
+.gm-map.is-big { right: 50%; bottom: 50%; width: min(78vh, 78vw); height: min(78vh, 78vw); transform: translate(50%, 50%); padding: calc(8 * var(--tw-u)); transition: opacity var(--tw-med) var(--tw-ease); }
+.tw-root[data-panel='open'] .gm-map.is-big { right: 50%; }
+.gm-map.is-big .gm-map-label { display: block; }
+.gm-map.is-big .gm-map-view { box-shadow: inset 0 0 0 1px rgba(255,255,255,0.12), inset 0 0 40px rgba(0,0,0,0.4); }
 /* short windows: the settings rail (right, vertically centred) reaches down to the corner */
 @media (max-height: 860px) { .gm-map { right: calc(var(--tw-edge) + 58 * var(--tw-u)); } }
 @media (max-width: 640px) { .gm-map { width: calc(128 * var(--tw-u)); height: calc(128 * var(--tw-u)); } }
@@ -112,11 +118,14 @@ export class Minimap {
 
 		this.el = h( 'div', 'gm-map tw-glass', `<div class="gm-map-view"><canvas width="${ N }" height="${ N }"></canvas><div class="gm-map-vig"></div>
 			<div class="gm-map-marks"></div>
-			<div class="gm-map-me"><svg viewBox="0 0 24 24"><path d="M12 2 20 21 12 16.5 4 21Z" fill="#fff" stroke="#0b1418" stroke-width="1.4" stroke-linejoin="round"/></svg></div></div>` );
+			<div class="gm-map-me"><svg viewBox="0 0 24 24"><path d="M12 2 20 21 12 16.5 4 21Z" fill="#fff" stroke="#0b1418" stroke-width="1.4" stroke-linejoin="round"/></svg></div></div><div class="gm-map-label"></div>` );
 		this.el.setAttribute( 'aria-hidden', 'true' );
 		this.view = this.el.querySelector( '.gm-map-view' );
 		this.canvas = this.el.querySelector( 'canvas' );
 		this.marks = this.el.querySelector( '.gm-map-marks' );
+		this.me = this.el.querySelector( '.gm-map-me svg' );
+		this.label = this.el.querySelector( '.gm-map-label' );
+		this.big = false;
 		parent.append( this.el );
 
 		const mk = ( kind, icon ) => {
@@ -195,6 +204,16 @@ export class Minimap {
 		if ( el[ k ] === on ) return;
 		el[ k ] = on;
 		el.classList.toggle( cls, on );
+
+	}
+
+	// the large map: open / close (on = undefined toggles). key is the label of the binding, for the hint under it
+	toggleBig( key = '', on = ! this.big ) {
+
+		if ( on === this.big ) return;
+		this.big = on;
+		this.el.classList.toggle( 'is-big', on );
+		this.label.textContent = on ? `${ key }  close map` : '';
 
 	}
 
@@ -343,11 +362,21 @@ export class Minimap {
 
 		}
 
+		// the large map is north up: the map frame is fixed and the arrow in the middle turns instead
+		const heading = Math.atan2( fx, - fz );
+		if ( this.big ) {
+
+			fx = 0; fz = - 1;
+
+		}
+
+		this._setStyle( this.me, 'transform', this.big ? `rotate(${ heading }rad)` : '' );
+
 		const rx = - fz, rz = fx; // right
 		const x = cam.position.x, z = cam.position.z;
 
 		// zoom: close on foot, wider at sea
-		const want = p.mode === 'boat' || p.mode === 'deck' || p.mode === 'swim' ? 240 : 110;
+		const want = this.big ? BIG_RADIUS : p.mode === 'boat' || p.mode === 'deck' || p.mode === 'swim' ? 240 : 110;
 		this.radiusM += ( want - this.radiusM ) * ( 1 - Math.exp( - dt * 1.5 ) );
 		const kpm = R / this.radiusM; // css px per metre
 

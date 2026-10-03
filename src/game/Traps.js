@@ -9,7 +9,7 @@
 //    from it, split off by material family (the rope down to the pot stays procedural, because it is
 //    scaled to the depth here).
 //  - Each pot has its own buoy line, riding the same water readback the boats use.
-import { Group, Mesh, Vector3, Color } from '../engine/index.js';
+import { Group, Mesh, Vector3, Quaternion, Euler, Color } from '../engine/index.js';
 import { box, rod, cylinder, sphere, prepare, mergePrepared, mat4 } from '../world/boat/GeoKit.js';
 import { TRAP, TRAPS } from '../world/boat/DeckGear.js';
 import { loadStaticModel } from '../world/StaticGLB.js';
@@ -44,6 +44,36 @@ const PALE_WOOD_STYLE = { body: 0xa89a86 };
 export const SOAK_MIN = 1.5; // game hours before anything worthwhile is aboard
 export const MAX_KEEP = 3; // most animals in one pot
 
+// Working the line from the boat (see Game.updateTraps). A pot goes over the stern or comes up on the
+// hauler only at a crawl: faster than this, the gear would be dragged.
+export const TRAP_MAX_SPEED = 2; // m/s of the boat
+export const SET_ASTERN = 0.9; // m behind the transom a set pot goes into the water
+
+// Does the trap line fire this frame? `mode` is the player's; `interact` and `work` are the two buttons'
+// edges this frame (E / A, and the cast button: LMB / RT); `live` says the mouse is captured (or a pad is
+// in hand), so the click that grabs the pointer does not also set a pot; `modeChanged` says the mode
+// changed this frame (E had just brought the player aboard, or off the helm).
+//   - at the helm E leaves it and is never also a pot (it used to be both, in the same frame);
+//   - the cast button works the pots there instead: nothing else uses it at the helm;
+//   - on deck it is E, as it always was.
+export function trapTriggered( { mode, interact, work, live, modeChanged } ) {
+
+	if ( mode === 'boat' ) return !! ( work && live );
+	if ( mode === 'deck' ) return !! ( interact && ! modeChanged );
+	return false;
+
+}
+
+// Which of the deck stack's `slots` are showing: one pot per pot aboard (up to the slots there are), and
+// `held` -- the slot a hauled pot is still on its way to -- not yet.
+export function stackVisible( aboard, slots, held = - 1 ) {
+
+	const out = [];
+	for ( let i = 0; i < slots; i ++ ) out.push( i < aboard && i !== held );
+	return out;
+
+}
+
 // game hours a set has been soaking
 export function soakHours( set, { hour, day } ) {
 
@@ -76,9 +106,11 @@ export function haulYield( { soak, depth, habitat, hour, rng = Math.random } ) {
 
 export class Traps {
 
-	constructor( { scene, terrain, query, state, toast = null, boat = null } ) {
+	constructor( { scene, terrain, query, state, toast = null, boat = null, splash = null } ) {
 
 		this.scene = scene;
+		this.onSplash = splash; // a pot hits the water (the sound is the caller's)
+		this._held = - 1; // the stack slot a hauled pot is still on its way to
 		this.boat = boat; // the working boat: its deck carries the stack
 		this.stack = [];
 		this.terrain = terrain;
@@ -161,6 +193,24 @@ export class Traps {
 			this.views.set( s.id, v );
 
 		}
+
+		this._syncStack();
+
+	}
+
+	// the pot being set or hauled right now: leave the others alone until it is done
+	get busy() {
+
+		return this._anim !== null;
+
+	}
+
+	// the deck stack shows what is aboard: a pot per pot, so setting one empties a place and hauling one
+	// fills it (when it lands)
+	_syncStack() {
+
+		const show = stackVisible( this.state.traps, this.stack.length, this._held );
+		for ( let i = 0; i < this.stack.length; i ++ ) this.stack[ i ].visible = show[ i ];
 
 	}
 
@@ -246,6 +296,16 @@ export class Traps {
 
 		}
 
+		this._syncStack();
+
+	}
+
+	// where a pot lies in stack slot i, in the boat's own frame (the same place _buildStack puts it)
+	_slotAt( i, out ) {
+
+		const [ x, level, z ] = TRAPS[ i ];
+		return out.set( x, this.boat.lines.deckY + 0.03 + level * ( TRAP.H + 0.035 ), z );
+
 	}
 
 	_swapAnimMesh() {
@@ -255,12 +315,43 @@ export class Traps {
 
 	}
 
-	// bring a pot up beside the stern and swing it onto the stack (the catch is the caller's job)
+	// Bring a pot up on the hauler and swing it onto the stack, lowering it into the next empty place (the
+	// catch is the caller's job). Call it after the haul is in the state, so `traps aboard` counts this pot.
 	haulVisual( boat ) {
 
+		if ( ! this.stack.length ) return false;
+		const slot = Math.min( this.state.traps, this.stack.length ) - 1;
+		this._held = this.state.traps <= this.stack.length ? slot : - 1; // an occupied place just takes it
+		this._syncStack();
 		this._swapAnimMesh();
 		this.holder.visible = true;
-		this._anim = { t: 0, dur: 3.6, boat };
+		this._slotAt( Math.max( slot, 0 ), _end );
+		this._anim = { kind: 'haul', t: 0, dur: 3.6, boat, slot: Math.max( slot, 0 ), end: _end.clone() };
+		return true;
+
+	}
+
+	// Put a pot over the stern: it lifts off the stack (the place it came from, `slot`), swings aft over the
+	// transom and drops into the water, which is where the caller's splash lands. Call it after the set is
+	// in the state, so the stack has already lost it.
+	setVisual( boat, slot ) {
+
+		if ( ! this.stack.length ) return false;
+		slot = Math.max( 0, Math.min( slot, this.stack.length - 1 ) );
+		this._swapAnimMesh();
+		this.holder.visible = true;
+		this._slotAt( slot, _end );
+		this._anim = { kind: 'set', t: 0, dur: 1.15, boat, slot, end: _end.clone(), fall: null };
+		return true;
+
+	}
+
+	_finish() {
+
+		this.holder.visible = false;
+		this._anim = null;
+		this._held = - 1;
+		this._syncStack();
 
 	}
 
@@ -268,25 +359,56 @@ export class Traps {
 
 		const a = this._anim;
 		a.t += dt;
-		const u = Math.min( 1, a.t / a.dur );
-		// up out of the water under the davit, then aft onto the deck stack
-		const up = smooth( 0, 0.42, u ), over = smooth( 0.42, 0.78, u ), away = smooth( 0.82, 1, u );
-		const x = lerp( - 1.05, - 0.68, over );
-		const y = lerp( - 1.25, 1.2, up ) + lerp( 0, - 0.82, over ) - away * 0.35;
-		const z = lerp( - 0.8, - 3.2, over );
 		const b = a.boat;
-		if ( b && b.toWorld ) {
+		if ( ! b || ! b.toWorld ) { this._finish(); return; }
+		const yaw = TRAPS[ a.slot ][ 3 ];
 
-			_hero.set( x, y, z );
-			b.toWorld( _hero, this.holder.position );
-			this.holder.rotation.set( 0, ( b.getYaw ? b.getYaw() : 0 ) + 0.35 * Math.sin( u * 7 ) * ( 1 - u ), 0.12 * Math.sin( u * 5 ) * ( 1 - u ) );
+		if ( a.kind === 'haul' ) {
+
+			const u = Math.min( 1, a.t / a.dur );
+			// up out of the water under the davit, over the deck, and down into its place
+			const up = smooth( 0, 0.4, u ), over = smooth( 0.4, 0.75, u ), down = smooth( 0.75, 1, u );
+			_pos.copy( HAUL_FROM ).lerp( HAUL_TOP, up );
+			_above.copy( a.end ); _above.y += 0.75;
+			_pos.lerp( _above, over ).lerp( a.end, down );
+			b.toWorld( _pos, this.holder.position );
+			_eul.set( 0.12 * Math.sin( u * 5 ) * ( 1 - u ), 0.35 * Math.sin( u * 7 ) * ( 1 - u ) + yaw * over, 0 );
+			this.holder.quaternion.copy( b.quaternion ).multiply( _quat.setFromEuler( _eul ) );
+			if ( u >= 1 ) this._finish();
+			return;
 
 		}
 
-		if ( u >= 1 ) {
+		// setting: lift off the stack, swing aft over the transom, then let go and fall in the world
+		if ( ! a.fall ) {
 
-			this.holder.visible = false;
-			this._anim = null;
+			const u = Math.min( 1, a.t / a.dur );
+			const lift = smooth( 0, 0.3, u ), aft = smooth( 0.3, 1, u );
+			_above.copy( a.end ); _above.y += 0.7;
+			_stern.set( 0, _above.y + 0.5, ( b.model && b.model.sternZ !== undefined ? b.model.sternZ : - 3.8 ) - 0.45 );
+			_pos.copy( a.end ).lerp( _above, lift ).lerp( _stern, aft );
+			b.toWorld( _pos, this.holder.position );
+			_eul.set( 0, yaw * ( 1 - aft ), 0 );
+			this.holder.quaternion.copy( b.quaternion ).multiply( _quat.setFromEuler( _eul ) );
+			if ( u >= 1 ) a.fall = { y: this.holder.position.y, v: 0, x: this.holder.position.x, z: this.holder.position.z, spin: 0 };
+			return;
+
+		}
+
+		// let go: straight down in the world (the boat is under way, at a crawl), a little tumble, until the sea
+		const f = a.fall;
+		f.v += 9.81 * dt;
+		f.y -= f.v * dt;
+		f.spin += dt * 2.2;
+		this.holder.position.set( f.x, f.y, f.z );
+		_eul.set( 0, 0, f.spin );
+		this.holder.quaternion.setFromEuler( _eul );
+		_water.set( f.x, 0, f.z );
+		const sea = b.sampleWaterAt ? b.sampleWaterAt( _water ) : 0;
+		if ( f.y <= sea - 0.1 ) {
+
+			if ( this.onSplash ) this.onSplash();
+			this._finish();
 
 		}
 
@@ -294,7 +416,10 @@ export class Traps {
 
 }
 
-const _hero = new Vector3();
+const _end = new Vector3(), _pos = new Vector3(), _above = new Vector3(), _stern = new Vector3(), _water = new Vector3();
+const _eul = new Euler(), _quat = new Quaternion();
+// the hauler's snatch block (boat frame: starboard, just aft of the wheelhouse): where a pot comes up
+const HAUL_FROM = new Vector3( - 1.05, - 1.25, - 0.8 ), HAUL_TOP = new Vector3( - 1.0, 1.25, - 0.8 );
 
 // ---- the meshes
 

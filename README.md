@@ -110,6 +110,7 @@ rendering engine, no framework.
 | L | Flashlight |
 | T | Run or pause the day |
 | M | Mute |
+| N | Large map (north up) |
 | H | Settings panel |
 | P | Photo mode |
 | F1 | All controls |
@@ -127,11 +128,11 @@ layout:
 |---|---|
 | Left stick | Move (analogue: push it halfway to walk slowly) · throttle and rudder at the helm |
 | Right stick | Look |
-| RT | Cast, strike, reel |
+| RT | Cast, strike, reel · at the helm, set and haul pots |
 | RB | Reel in an empty line |
 | LT | Sprint, boat boost |
 | LB | Take out / put away the rod |
-| A | Interact: board, helm, step ashore, trade, set and haul traps |
+| A | Interact: board, helm, step ashore, trade, set and haul traps on deck |
 | B | Back, close, dismiss the catch card |
 | X | Jump, swim up |
 | Y | Crouch, dive |
@@ -161,8 +162,11 @@ night fishing. The boat burns diesel at the helm; fill up at the chandlery. Prog
 
 ### Lobstering
 
-Marta also sells a **trap licence** and wooden lobster pots. Aboard the working boat, **E** puts a pot over
-the side and **E** hauls the nearest one back up, timing it by the clock: a pot dropped in the morning is
+Marta also sells a **trap licence** and wooden lobster pots. Aboard the working boat, **E** on deck (or the
+cast button, **LMB** or **RT**, at the helm) puts a pot over the stern and hauls the nearest one back up, at
+a crawl: the boat has to be under about 2 m/s, and **E** at the helm still just leaves it. The deck stack
+shows how many pots are aboard, and each one visibly goes over the stern or comes up on the hauler. Timing is
+by the clock: a pot dropped in the morning is
 worth pulling after lunch, and one left overnight is full. What comes up is mostly spiny lobster on the
 deeper ground, with the odd fish that wandered in, and the map marks every pot you have in the water.
 

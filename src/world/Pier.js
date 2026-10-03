@@ -1,4 +1,4 @@
-import { Color, Vector3 } from '../engine/index.js';
+import { Color, Euler, Vector3 } from '../engine/index.js';
 import { WORLD } from './WorldLayout.js';
 import {
 	WOOD, HARD, C, lin, bollard, cleat, tireFender, ropeCoil, ropeLoop, lifeRing, lampPost,
@@ -33,6 +33,8 @@ export const PIER = {
 
 const _v = new Vector3();
 const _h = new Vector3();
+const _up = new Vector3();
+const _e = new Euler();
 
 export function buildPier( { B, terrain, colliders, rand, lights, inst, signB = null, hang = null } ) {
 
@@ -64,6 +66,17 @@ export function buildPier( { B, terrain, colliders, rand, lights, inst, signB = 
 	const addBox = ( cx, cy, cz, hx, hy, hz, opts ) => colliders.addBox( _v.set( cx, cy, cz ), _h.set( hx, hy, hz ), 0, opts );
 
 	// ------------------------------------------------------------------ piles
+	const piles = new Map();
+	const pileKey = ( px, pz ) => px.toFixed( 3 ) + ',' + pz.toFixed( 3 );
+	// where a pile's axis is at height y, and the offset from it to the face a brace of thickness t sits on
+	const pileAt = ( px, pz, y, t = 0.05 ) => {
+
+		const q = piles.get( pileKey( px, pz ) );
+		const k = Math.min( 1, Math.max( 0, ( y - q.bottom ) / ( q.top - q.bottom ) ) );
+		const r = q.rBot + ( q.rTop - q.rBot ) * k;
+		return { x: q.x + q.sx * ( y - q.yRef ), z: q.z + q.sz * ( y - q.yRef ), off: r + t * 0.3 };
+
+	};
 	const pile = ( px, pz, top, opts = {} ) => {
 
 		const g = ground( px, pz );
@@ -75,7 +88,14 @@ export function buildPier( { B, terrain, colliders, rand, lights, inst, signB = 
 		const tilt = post ? 0.008 : 0.028;
 		const data = WOOD( rand.next(), rand.range( 0.8, 1.0 ), 0, 0 );
 		const rx = rand.range( - tilt, tilt ), rz = rand.range( - tilt, tilt );
-		B.cyl( 'wood', px, bottom, pz, r * rand.range( 0.86, 0.95 ), r * 1.06, h, {
+		const rTop = r * rand.range( 0.86, 0.95 ), rBot = r * 1.06;
+		// the pile leans about the height its cap beams / rail posts attach at, so the axis passes
+		// through ( px, pz ) there; braces follow the leaning axis (pileAt) and stay attached
+		const lean = _up.set( 0, 1, 0 ).applyEuler( _e.set( rx, 0, rz, 'YXZ' ) );
+		const sx = lean.x / lean.y, sz = lean.z / lean.y;
+		const yRef = post ? DK : capBot;
+		piles.set( pileKey( px, pz ), { x: px, z: pz, sx, sz, yRef, bottom, top, rTop, rBot } );
+		B.cyl( 'wood', px - sx * ( yRef - bottom ), bottom, pz - sz * ( yRef - bottom ), rTop, rBot, h, {
 			segs: 10, capTop: ! post || !! opts.flatTop, rx, rz, tint: tone(), data,
 		} );
 		const wl = 0.0; // mean sea level
@@ -144,15 +164,23 @@ export function buildPier( { B, terrain, colliders, rand, lights, inst, signB = 
 		const yTop = capBot - 0.12;
 		const yBot = Math.max( clearBottom + 0.35, yTop - 4.2 );
 		if ( yTop - yBot < 0.9 ) return;
-		const off = PIER.pileR + 0.035;
 		// bays differ: one brace lost to a storm, braces replaced at slightly different heights
 		const r = rand.next();
 		const j = () => rand.range( - 0.18, 0.18 );
 		const piece = () => rand.chance( 0.2 ) ? { tint: freshTone(), data: WOOD( rand.next(), rand.range( 0.25, 0.5 ), 0, 0 ) } : { tint: tone(), data: pierWood( 0.8, 1 ) };
-		if ( r > 0.12 ) B.beam( 'wood', [ xa, yTop + j(), bz + off ], [ xb, yBot + j(), bz + off ], 0.05, rand.range( 0.17, 0.22 ), piece() );
-		if ( r < 0.84 ) B.beam( 'wood', [ xa, yBot + j(), bz - off ], [ xb, yTop + j(), bz - off ], 0.05, rand.range( 0.17, 0.22 ), piece() );
-		// a horizontal waler here and there
-		if ( rand.chance( 0.25 ) ) B.beam( 'wood', [ xa - 0.1, yBot + 0.3, bz + off + 0.05 ], [ xb + 0.1, yBot + 0.3 + rand.range( - 0.06, 0.06 ), bz + off + 0.05 ], 0.05, 0.18, { tint: tone(), data: pierWood( 0.85, 1 ) } );
+		// each end is fixed to the face of its pile at that height (side = +1 / -1 of the pile row)
+		const end = ( px, y, side ) => { const a = pileAt( px, bz, y ); return [ a.x, y, a.z + side * a.off ]; };
+		if ( r > 0.12 ) { const ya = yTop + j(), yb = yBot + j(); B.beam( 'wood', end( xa, ya, 1 ), end( xb, yb, 1 ), 0.05, rand.range( 0.17, 0.22 ), piece() ); }
+		if ( r < 0.84 ) { const ya = yBot + j(), yb = yTop + j(); B.beam( 'wood', end( xa, ya, - 1 ), end( xb, yb, - 1 ), 0.05, rand.range( 0.17, 0.22 ), piece() ); }
+		// a horizontal waler here and there, lapped over the pile faces
+		if ( rand.chance( 0.25 ) ) {
+
+			const y = yBot + 0.3, side = r > 0.12 ? 1 : - 1;
+			const a = end( xa, y, side ), b = end( xb, y + rand.range( - 0.06, 0.06 ), side );
+			a[ 0 ] -= 0.1; b[ 0 ] += 0.1; a[ 2 ] += side * 0.05; b[ 2 ] += side * 0.05;
+			B.beam( 'wood', a, b, 0.05, 0.18, { tint: tone(), data: pierWood( 0.85, 1 ) } );
+
+		}
 
 	};
 
@@ -162,6 +190,7 @@ export function buildPier( { B, terrain, colliders, rand, lights, inst, signB = 
 	const nB = Math.round( ( zbN - zb0 ) / 3.0 );
 	for ( let i = 0; i <= nB; i ++ ) bentZ.push( zb0 + i * ( zbN - zb0 ) / nB );
 	const lastBent = bentZ.length - 1;
+	const swayBraces = [];
 
 	const gapBays = { '-1': [ 9, 10, 20 ], '1': [ 14, 15, 26 ] };
 	const railBay = ( side, i ) => i >= 1 && i < lastBent && ! gapBays[ side ].includes( i );
@@ -195,13 +224,23 @@ export function buildPier( { B, terrain, colliders, rand, lights, inst, signB = 
 			const bz2 = bentZ[ bi + 1 ];
 			for ( const side of [ - 1, 1 ] ) {
 
-				const xo = X + side * ( PIER.pileOff + PIER.pileR + 0.03 );
 				const g = Math.max( ground( X + side * PIER.pileOff, bz ), ground( X + side * PIER.pileOff, bz2 ) );
 				const yTop = capBot - 0.2, yBot = Math.max( g + 0.4, yTop - 3.2 );
 				if ( yTop - yBot > 0.9 && rand.chance( 0.85 ) ) {
 
+					// from the outer face of one pile to the outer face of the next, ends on the pile axes;
+					// placed once the next bent's piles exist (swayBraces below)
 					const flip = rand.chance( 0.3 );
-					B.beam( 'wood', [ xo, flip ? yBot : yTop, bz + 0.25 + rand.range( 0, 0.2 ) ], [ xo, flip ? yTop : yBot, bz2 - 0.25 - rand.range( 0, 0.2 ) ], 0.05, rand.range( 0.17, 0.22 ), { tint: tone(), data: pierWood( 0.8, 1 ) } );
+					const px = X + side * PIER.pileOff;
+					const ya = flip ? yBot + rand.range( 0, 0.2 ) : yTop - rand.range( 0, 0.2 );
+					const yb = flip ? yTop - rand.range( 0, 0.2 ) : yBot + rand.range( 0, 0.2 );
+					const w = rand.range( 0.17, 0.22 ), opts = { tint: tone(), data: pierWood( 0.8, 1 ) };
+					swayBraces.push( () => {
+
+						const a = pileAt( px, bz, ya ), b = pileAt( px, bz2, yb );
+						B.beam( 'wood', [ a.x + side * a.off, ya, a.z ], [ b.x + side * b.off, yb, b.z ], 0.05, w, opts );
+
+					} );
 
 				}
 
@@ -210,6 +249,8 @@ export function buildPier( { B, terrain, colliders, rand, lights, inst, signB = 
 		}
 
 	}
+
+	for ( const place of swayBraces ) place();
 
 	// stringers per bay (4 lines), extend onto the head's north cap row
 	const stringerXs = [ - 1.2, - 0.42, 0.42, 1.2 ];

@@ -46,6 +46,7 @@ export class Player {
 		this.audio = audio;
 
 		this.mode = 'walk';
+		this.blockLeaveHelm = false; // set by Game while a catch card owns the E key
 		this.camMode = 'third';
 		const start = WORLD.start || WORLD.spawn;
 		this.position = new THREE.Vector3().copy( start.position );
@@ -757,7 +758,8 @@ export class Player {
 		const wheel = inp.consumeWheel();
 
 		if ( inp.actHit( 'boatCamera' ) ) this.camMode = this.camMode === 'first' ? 'third' : 'first';
-		if ( inp.actHit( 'interact' ) ) {
+		// (E also closes the catch card a haul leaves up: Game sets blockLeaveHelm while it is open)
+		if ( inp.actHit( 'interact' ) && ! this.blockLeaveHelm ) {
 
 			this.leaveHelm();
 			return;

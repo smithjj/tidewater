@@ -9,7 +9,7 @@ import { FishStand } from './FishStand.js';
 import { Chandlery } from './Chandlery.js';
 import { CatchDisplay } from './CatchDisplay.js';
 import { UPGRADES, fuelBurn, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
-import { Traps, soakHours, haulYield, SOAK_MIN } from './Traps.js';
+import { Traps, soakHours, haulYield, SOAK_MIN, TRAP_MAX_SPEED, SET_ASTERN, trapTriggered } from './Traps.js';
 import { GameHUD } from './GameHUD.js';
 import { Minimap } from './Minimap.js';
 import { Guide } from './Guide.js';
@@ -49,7 +49,7 @@ export class Game {
 		this.chandlery = new Chandlery( { scene: app.scene, terrain: app.terrainData, colliders: app.colliders, material: this.stand.material } );
 		// the trap line: pots on the seabed with a buoy on each (see game/Traps.js)
 		// the working boat is handed over so the modelled pots can stand on its deck (see Traps._buildStack)
-		this.traps = new Traps( { scene: app.scene, terrain: app.terrainData, query: app.query, state: this.state, boat: app.boat, toast: ( t, ms ) => this.toast( t, ms ) } );
+		this.traps = new Traps( { scene: app.scene, terrain: app.terrainData, query: app.query, state: this.state, boat: app.boat, toast: ( t, ms ) => this.toast( t, ms ), splash: () => app.audio && app.audio.splash && app.audio.splash( 0.5 ) } );
 		this.vendors = [ this.stand.vendor, this.chandlery.vendor ];
 		// boat upgrades: engine (thrust / top speed) and deck floodlights for night fishing.
 		// The rebuilt engine is the lobster boat's: always target it, not whichever boat is active.
@@ -195,6 +195,10 @@ export class Game {
 
 		const app = this.app, p = app.player, inp = app.input, rod = this.rod;
 		this._cardDismissed = false;
+		// the player has already been updated: a mode that differs from last frame's changed in this frame's
+		// input (E brought the player aboard, or off the helm), and that press is not also a pot
+		this._modeChanged = this._lastMode !== undefined && this._lastMode !== p.mode;
+		this._lastMode = p.mode;
 		if ( ! this.hud && app.ui && app.ui.ui && typeof document !== 'undefined' && document.head ) {
 
 			const ui = app.ui.ui;
@@ -224,6 +228,8 @@ export class Game {
 		}
 
 		if ( this.hud && inp.actHit( 'cooler' ) ) this.hud.toggleInventory();
+		if ( this.minimap && inp.actHit( 'map' ) ) this.minimap.toggleBig( inp.label( 'map' ) );
+		if ( this.minimap && inp.actHit( 'cancel' ) ) this.minimap.toggleBig( '', false );
 		if ( this.hud && inp.actHit( 'cancel' ) ) {
 
 			this.hud.toggleInventory( false );
@@ -345,6 +351,16 @@ export class Game {
 
 		// prompts when the player has nothing to say
 		if ( ! p.prompt ) p.prompt = this.trapPrompt( p ) || ( can ? this.prompt() : null );
+		if ( p.mode === 'boat' ) {
+
+			// at the helm the player's own prompt is "leave helm": the pots ride on the cast button there
+			const tp = this.trapPrompt( p );
+			if ( tp ) p.prompt = { action: 'rodUse', text: `${ tp.text }   ·   ${ inp.label( 'interact' ) }  leave helm` };
+
+		}
+
+		// E closes the catch card; at the helm it must not also leave it (read by Player.updateBoat next frame)
+		p.blockLeaveHelm = this._haulCard > 0 || !! ( this.hud && this.hud.catchOpen );
 
 		const aboard = p.mode === 'boat' || p.mode === 'deck';
 		// the catch card's live fish portrait (or one queued thumbnail)
@@ -496,10 +512,11 @@ export class Game {
 	trapPrompt( p ) {
 
 		if ( ! this.aboardWorkingBoat ) return null;
-		if ( this._haulCard > 0 || ( this.hud && this.hud.catchOpen ) ) return null;
+		if ( this._haulCard > 0 || ( this.hud && this.hud.catchOpen ) || this.traps.busy ) return null;
 		const s = this.state, b = this.app.lobsterCtl;
 		const near = s.nearestSet( b.position.x, b.position.z, 12 );
 		const canSet = s.mayTrap && s.traps > 0 && s.sets.length < TRAP_LIMIT;
+		const crawl = b.speed > TRAP_MAX_SPEED ? ' · slow down' : '';
 		if ( near ) {
 
 			const soak = soakHours( near, { hour: this.hour, day: s.day } );
@@ -509,21 +526,24 @@ export class Game {
 			if ( soak >= SOAK_MIN || ! canSet ) {
 
 				const when = soak < SOAK_MIN ? 'just set' : `soaked ${ soak < 10 ? soak.toFixed( 1 ) : Math.round( soak ) } h`;
-				return { action: 'interact', text: `Haul trap · ${ when }`, act: 'haul' };
+				return { action: 'interact', text: `Haul trap · ${ when }${ crawl }`, act: 'haul' };
 
 			}
 
 		}
 
 		if ( ! canSet ) return null;
-		return { action: 'interact', text: `Set a trap · ${ s.traps } aboard`, act: 'set' };
+		return { action: 'interact', text: `Set a trap · ${ s.traps } aboard${ crawl }`, act: 'set' };
 
 	}
 
 	updateTraps( inp, p ) {
 
 		if ( this._cardDismissed || this._haulCard > 0 || ( this.hud && this.hud.catchOpen ) ) return;
-		if ( ! inp.actHit( 'interact' ) ) return;
+		// the mouse is captured (or a pad is in hand): the click that grabs the pointer must not also set a pot
+		const ui = this.app.ui && this.app.ui.ui;
+		const live = ( inp.locked || inp.device === 'pad' ) && ! inp.menuMode && ! ( ui && ui._photo );
+		if ( ! trapTriggered( { mode: p.mode, interact: inp.actHit( 'interact' ), work: inp.actHit( 'rodUse' ), live, modeChanged: this._modeChanged } ) ) return;
 		const pr = this.trapPrompt( p );
 		if ( ! pr ) return;
 		if ( pr.act === 'haul' ) this.haulTrap();
@@ -537,14 +557,23 @@ export class Game {
 	setTrap( x = null, z = null ) {
 
 		const app = this.app, s = this.state, b = app.lobsterCtl;
-		if ( b.speed > 2 ) {
+		if ( b.speed > TRAP_MAX_SPEED ) {
 
 			this.toast( 'Slow down to set a pot', 2200 );
 			return null;
 
 		}
 
-		if ( x === null ) { x = b.position.x; z = b.position.z; }
+		// a pot goes over the stern, not under the keel: just astern of the transom
+		const fromBoat = x === null; // (a console caller names the place, and the boat does not carry it there)
+		if ( fromBoat ) {
+
+			const sternZ = b.model && b.model.sternZ !== undefined ? b.model.sternZ : - 3.8;
+			b.toWorld( this._tmp.set( 0, 0, sternZ - SET_ASTERN ), this._tmp );
+			x = this._tmp.x; z = this._tmp.z;
+
+		}
+
 		const depth = Math.max( 0, - app.terrainData.heightAt( x, z ) );
 		if ( depth < 2 ) {
 
@@ -572,6 +601,7 @@ export class Game {
 
 		}
 
+		const before = s.traps; // pots aboard: the one that goes over is the top of the stack
 		const set = s.setTrap( x, z, this.hour );
 		if ( ! set ) {
 
@@ -581,7 +611,8 @@ export class Game {
 		}
 
 		this.toast( `Pot set in ${ depth.toFixed( 0 ) } m · give it a few hours`, 3200 );
-		if ( app.audio && app.audio.splash ) app.audio.splash( 0.5 );
+		// the pot lifts off the stack and drops over the stern; the splash is heard when it lands
+		if ( ! ( fromBoat && this.traps.setVisual( b, Math.min( before, this.traps.stack.length ) - 1 ) ) && app.audio && app.audio.splash ) app.audio.splash( 0.5 );
 		return set;
 
 	}
@@ -591,6 +622,19 @@ export class Game {
 	haulTrap( set = null ) {
 
 		const app = this.app, s = this.state, b = app.lobsterCtl;
+		if ( ! set && this.aboardWorkingBoat ) {
+
+			// one pot at a time, and only at a crawl (a caller that names the set, like the console, is not held to it)
+			if ( this.traps.busy ) return null;
+			if ( b.speed > TRAP_MAX_SPEED ) {
+
+				this.toast( 'Slow down to haul a pot', 2200 );
+				return null;
+
+			}
+
+		}
+
 		if ( ! set ) {
 
 			const ref = this.aboardWorkingBoat ? b.position : app.player.position;

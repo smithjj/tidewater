@@ -1,0 +1,10 @@
+{
+	"name": "Tidewater.Runtime",
+	"rootNamespace": "Tidewater",
+	"references": [],
+	"includePlatforms": [],
+	"excludePlatforms": [],
+	"allowUnsafeCode": false,
+	"overrideReferences": false,
+	"autoReferenced": true
+}

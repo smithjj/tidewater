@@ -1,0 +1,10 @@
+{
+	"name": "Tidewater.Editor",
+	"rootNamespace": "Tidewater.EditorTools",
+	"references": [ "Tidewater.Runtime" ],
+	"includePlatforms": [ "Editor" ],
+	"excludePlatforms": [],
+	"allowUnsafeCode": false,
+	"overrideReferences": false,
+	"autoReferenced": true
+}

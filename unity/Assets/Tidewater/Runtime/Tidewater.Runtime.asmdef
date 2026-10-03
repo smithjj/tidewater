@@ -1,7 +1,9 @@
 {
 	"name": "Tidewater.Runtime",
 	"rootNamespace": "Tidewater",
-	"references": [],
+	"references": [
+		"Unity.InputSystem"
+	],
 	"includePlatforms": [],
 	"excludePlatforms": [],
 	"allowUnsafeCode": false,

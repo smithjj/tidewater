@@ -11,6 +11,9 @@ const { TerrainData } = await import( root + '/src/world/TerrainData.js' );
 const { Noise2D, mulberry32 } = await import( root + '/src/util/Noise.js' );
 const { hash2, erosionNoise } = await import( root + '/src/world/terrain/TerrainNoise.js' );
 const { ridgeEnvelope } = await import( root + '/src/world/terrain/IslandShape.js' );
+const { bakeTerrainMaps } = await import( root + '/src/world/terrain/TerrainBake.js' );
+// DetailTextures.js builds a GPU texture; its pixel loop is all we need, so run it against a stub Texture
+const { getDetailPixels } = await import( './detail-pixels.mjs' );
 
 const out = process.argv[ 2 ] || '.';
 const seed = + ( process.argv[ 3 ] ?? 7 );
@@ -23,6 +26,9 @@ const ms = Math.round( performance.now() - t0 );
 const w = ( name, arr ) => fs.writeFileSync( path.join( out, name ), Buffer.from( arr.buffer, arr.byteOffset, arr.byteLength ) );
 w( 'heights.f32', T.heights ); w( 'rock.f32', T.rock );
 for ( const k of [ 'sand', 'path', 'gully', 'seagrass', 'rubble', 'scarp' ] ) w( k + '.u8', T[ k ] );
+const maps = bakeTerrainMaps( T );
+w( 'normal.u8', maps.normal ); w( 'splat.u8', maps.splat );
+w( 'detail.u8', await getDetailPixels( root ) );
 
 // small-function samples
 const n = new Noise2D( seed ), rand = mulberry32( 12345 );

@@ -40,6 +40,15 @@ namespace Tidewater.EditorTools
 			CompareB( sb, "rubble", T.rubble, dir + "/rubble.u8" );
 			CompareB( sb, "scarp", T.scarp, dir + "/scarp.u8" );
 
+			var maps = TerrainBake.BakeTerrainMaps( T );
+			sb.AppendLine( $"bake ms: ao={maps.aoMs:F0} maps={maps.mapsMs:F0}" );
+			CompareB( sb, "normal", maps.normal, dir + "/normal.u8" );
+			CompareB( sb, "splat", maps.splat, dir + "/splat.u8" );
+			var sw = System.Diagnostics.Stopwatch.StartNew();
+			var detail = DetailTexture.Get();
+			sb.AppendLine( $"detail texture ms: {sw.ElapsedMilliseconds}" );
+			CompareB( sb, "detail", detail, dir + "/detail.u8" );
+
 			var file = JsonUtility.FromJson<SampleFile>( File.ReadAllText( dir + "/noise.json" ) );
 			var n = new Noise2D( 7 );
 			var worst = new Dictionary<string, double>();
@@ -99,7 +108,7 @@ namespace Tidewater.EditorTools
 				if ( first < 0 ) first = i;
 			}
 
-			sb.AppendLine( $"{name,-9} {a.Length} texels: exact {a.Length - diff}, differ {diff} ({100.0 * diff / a.Length:F3}%), max diff {max}" + ( first >= 0 ? $", first at ({first % 2048}, {first / 2048}) cs={a[ first ]} js={r[ first ]}" : "" ) );
+			sb.AppendLine( $"{name,-9} {a.Length} bytes: exact {a.Length - diff}, differ {diff} ({100.0 * diff / a.Length:F3}%), max diff {max}" + ( first >= 0 ? $", first at index {first} cs={a[ first ]} js={r[ first ]}" : "" ) );
 		}
 	}
 }

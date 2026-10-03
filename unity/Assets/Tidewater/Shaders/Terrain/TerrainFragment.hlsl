@@ -15,11 +15,9 @@
 #include "Packages/com.unity.render-pipelines.high-definition/Runtime/Material/MaterialUtilities.hlsl"
 
 // ---- terrain data (global shader properties, see TerrainGPU.SetGlobals / TerrainRenderer)
-TEXTURE2D(_TWHeightTex);                                  // R32F heights, loaded (manual bilinear)
-TEXTURE2D(_TWNormalTex); SAMPLER(sampler_TWNormalTex);    // macro normal xz, rock mask, AO
+#include "TerrainHeight.hlsl"                                // _TWHeightTex (R32F heights, loaded), _TWTerrainParams, TWHeightAt
 TEXTURE2D(_TWSplatTex); SAMPLER(sampler_TWSplatTex);      // sand, paths, gullies / seagrass, rubble / scarp
 TEXTURE2D(_TWDetailTex); SAMPLER(sampler_TWDetailTex);    // tileable detail heights (aniso 4, repeat)
-float4 _TWTerrainParams;   // origin, size, res, 0
 float4 _TWLodMorph[16];    // per LOD: morph start, 1 / morph range, grid spacing, 0
 float4 _TWViewPos;         // view camera, sim space (the morph centre in every pass, shadows included)
 float4 _TWWind;            // sim wind direction xz, speed (m/s)
@@ -27,25 +25,6 @@ float4 _TWGust;            // integrated gust offset xz
 
 #include "TerrainShading.hlsl"
 #include "TerrainSurface.hlsl"
-
-// exact bilinear height at world xz (matches TerrainData.HeightAt)
-float TWHeightAt( float2 xz )
-{
-	float res = _TWTerrainParams.z;
-	float2 f = ( xz - _TWTerrainParams.x ) / _TWTerrainParams.y * res - 0.5;
-	float2 fc = clamp( f, 0.0, res - 1.001 );
-	float2 i = floor( fc );
-	float2 t = frac( fc );
-	int2 ii = ( int2 ) i;
-	float a = _TWHeightTex.Load( int3( ii, 0 ) ).x;
-	float b = _TWHeightTex.Load( int3( ii + int2( 1, 0 ), 0 ) ).x;
-	float c = _TWHeightTex.Load( int3( ii + int2( 0, 1 ), 0 ) ).x;
-	float d = _TWHeightTex.Load( int3( ii + int2( 1, 1 ), 0 ) ).x;
-	float h = lerp( lerp( a, b, t.x ), lerp( c, d, t.x ), t.y );
-	// outside the domain: deep ocean floor
-	bool outside = f.x < 0.0 || f.y < 0.0 || f.x > res - 1.0 || f.y > res - 1.0;
-	return outside ? -90.0 : h;
-}
 
 struct TWLodVertex { float2 worldXZ; float spacing; float morphK; float lod; float size; };
 

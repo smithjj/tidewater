@@ -60,13 +60,20 @@ There is also a menu item, Tidewater > Compare terrain with JS oracle.
 | Terrain bakes: normal / rock / AO map, splat map, tileable detail texture | `terrain/TerrainBake.js`, `terrain/DetailTextures.js` | ported, **byte-exact** (16.8 MB + 16.8 MB + 1 MB) |
 | Terrain rendering: CDLOD, GPU textures, HDRP shader with the full terrain material | `Terrain.js`, `TerrainGPU.js`, `core/CDLOD.js`, `terrain/TerrainShading.js` | ported and rendering (51 nodes, 163k tris, 2.8 s startup); looks right in the Editor, not yet compared pixel-for-pixel |
 | Terrain: heightfield sun shadow, shore field / swash wetness, refraction path | `TerrainGPU.js` (sun shadow), `ShoreField.js`, `ShoreSim.js` | not started (static damp band and HDRP cascades stand in) |
-| Ocean (FFT, shore, wake, WaterQuery) | `src/ocean` | not started |
+| Ocean FFT: spectrum, 4 cascades, foam accumulation, sea-state presets | `ocean/OceanFFT.js`, `ocean/Conditions.js` | ported (compute shader, `Shaders/Ocean/OceanFFT.compute`); matches the JS running on Dawn to 0.01 % rms (float16 rounding) after 1 and 120 frames, all cascades and channels. Foam is 0 on both sides at the default wind: check it with a storm-wind dump |
+| Ocean surface: CDLOD mesh, displacement, shallow-water attenuation, normals, foam, shading (absorption / scattering, Fresnel, sun glitter, SSR, below-water view), foam pattern | `ocean/WaterSurface.js`, `ocean/WaterMaterial.js`, `ocean/FoamTexture.js` | ported and rendering (`Shaders/Ocean/Water.hlsl`, `OceanRenderer`); looks right; not compared pixel for pixel. Units: HDRP's sky cubemap and ambient probe are in physical units and the shader applies the exposure itself |
+| Ocean: shore waves / swash, shore sim, breakers, wake, surf foam, sea detail, caustics, refraction pass, underwater post, hull mask, local lights, sun shadow on the water | `ShoreWaves.js`, `ShoreSim.js`, `Breakers.js`, `WakeSim.js`, `SurfFoam.js`, `SeaDetail.js`, `Caustics.js`, `RefractionPass.js`, `post/Underwater.js` | not started (hooks marked in `Water.hlsl`) |
+| WaterQuery: GPU height solve + async readback for CPU physics | `ocean/WaterQuery.js` | not started |
 | Boats, player, fishing, economy, UI, audio, sky, post | | not started (sky, shadows and post come from HDRP) |
 
 JS comment drift noticed: the `IslandShape.js` header says the default ridge half width is `2.2 * height + 40`; the
 code uses `2.5 * height + 50` and that is what the port follows.
 
 ## Known issues
+
+- Exposure: the template volume's automatic exposure (limits EV 2..14) gives a dark sky and island in the Editor and
+  does not settle between scripted camera jumps; `tools/shot.sh` has `EV=` (fixed) / `EV=auto`. The look (sky,
+  exposure, bloom) is art direction still to do against the web version.
 
 - Terrain: a few speckled pixels right under the camera at high angles over the seabed (probably derivative use
   across the seabed / land branch in `TerrainSurface.hlsl`); check when the water exists.

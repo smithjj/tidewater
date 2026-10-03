@@ -1,0 +1,99 @@
+// Port of the kernel of src/ocean/FoamTexture.js: tileable procedural foam, generated once on the GPU.
+//
+// Real sea foam is an irregular bubbly mat: dense rafts with ragged edges, holes of every size, thin bubble streaks,
+// and fine bubbles. Thresholding this density field against the local foam coverage (in the water shader) makes foam
+// grow, tear into lace and dissolve naturally.
+//   R: foam density field (thresholded by coverage)
+//   G: fine bubble detail (brightness / normal variation)
+//   B: soft large-scale mottling
+//   A: streaks
+// (The hash uses sin() of large arguments, which differs in the last bits between GPUs: the pattern is statistically
+// the same as the JS one, not texel for texel.)
+
+#pragma kernel FoamPattern
+
+RWTexture2D<float4> _FoamOut;
+uint _FoamSize;
+
+float2 Hash2( float2 p ) { return frac( sin( float2( dot( p, float2( 127.1, 311.7 ) ), dot( p, float2( 269.5, 183.3 ) ) ) ) * 43758.5453 ); }
+// GLSL-style mod (TSL .mod): x - y * floor( x / y )
+float2 Fmod2( float2 x, float y ) { return x - y * floor( x / y ); }
+
+// periodic worley F1 with jittered cell sizes
+float Worley( float2 uv, float cells )
+{
+	float2 p = uv * cells;
+	float2 ip = floor( p );
+	float2 fp = frac( p );
+	float f1 = 8.0;
+	for ( int j = -1; j <= 1; j ++ )
+	{
+		for ( int i = -1; i <= 1; i ++ )
+		{
+			float2 o = float2( ( float ) i, ( float ) j );
+			float2 cell = Fmod2( ip + o, cells );
+			float2 h = Hash2( cell );
+			float d = length( o + h - fp );
+			f1 = min( f1, d );
+		}
+	}
+	return f1;
+}
+
+float Vnoise( float2 uv, float cells )
+{
+	float2 p = uv * cells;
+	float2 i = floor( p );
+	float2 f = frac( p );
+	float2 u = f * f * ( 3.0 - f * 2.0 );
+	float a = Hash2( Fmod2( i, cells ) ).x;
+	float b = Hash2( Fmod2( i + float2( 1.0, 0.0 ), cells ) ).x;
+	float c = Hash2( Fmod2( i + float2( 0.0, 1.0 ), cells ) ).x;
+	float d = Hash2( Fmod2( i + float2( 1.0, 1.0 ), cells ) ).x;
+	return lerp( lerp( a, b, u.x ), lerp( c, d, u.x ), u.y );
+}
+
+// fbm( uv, base, oct ): octave weights 0.5, 0.25, ... normalised
+float Fbm( float2 uv, float baseCells, int oct )
+{
+	float s = 0.0, a = 0.5, n = 0.0;
+	for ( int o = 0; o < oct; o ++ )
+	{
+		s += Vnoise( uv, baseCells * exp2( ( float ) o ) ) * a;
+		n += a;
+		a *= 0.5;
+	}
+	return s / n;
+}
+
+[numthreads( 8, 8, 1 )]
+void FoamPattern( uint3 gid : SV_DispatchThreadID )
+{
+	uint2 px = gid.xy;
+	float2 uv = ( float2( px ) + 0.5 ) / ( float ) _FoamSize;
+
+	// domain warp (organic, flowing shapes)
+	float2 w1 = ( float2( Fbm( uv, 3, 4 ), Fbm( uv + 0.43, 3, 4 ) ) - 0.5 ) * 0.14;
+	float2 wuv = uv + w1;
+
+	// density: ragged rafts
+	float dens = Fbm( wuv, 4, 6 );
+
+	// holes of many sizes punched through the mat (worley, radius varied by noise)
+	float holeA = smoothstep( 0.28, 0.12, Worley( wuv, 7.0 ) + ( Fbm( uv, 16, 3 ) - 0.5 ) * 0.25 );
+	float holeB = smoothstep( 0.30, 0.16, Worley( wuv + 0.17, 19.0 ) + ( Fbm( uv, 32, 2 ) - 0.5 ) * 0.3 );
+	float holeC = smoothstep( 0.32, 0.18, Worley( wuv + 0.61, 47.0 ) );
+	float holes = clamp( holeA * 0.9 + holeB * 0.7 + holeC * 0.45, 0.0, 1.0 );
+
+	// fine bubbles: small bright dots
+	float bub = smoothstep( 0.24, 0.08, Worley( uv + 0.33, 140.0 ) ) * 0.8 + smoothstep( 0.2, 0.05, Worley( uv + 0.71, 260.0 ) ) * 0.5;
+
+	// streaks (drawn out by flow)
+	float2 suv = float2( uv.x * 1.0, uv.y * 1.0 ) + w1 * 2.0;
+	float streak = Fbm( suv, 12, 4 );
+
+	float foam = clamp( dens * 1.35 - holes * 0.55 + bub * 0.08, 0.0, 1.0 );
+	float mottle = Fbm( uv, 2, 3 );
+
+	_FoamOut[ px ] = float4( foam, clamp( bub, 0.0, 1.0 ), mottle, streak );
+}

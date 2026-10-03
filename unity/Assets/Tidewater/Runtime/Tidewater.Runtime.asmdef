@@ -2,7 +2,9 @@
 	"name": "Tidewater.Runtime",
 	"rootNamespace": "Tidewater",
 	"references": [
-		"Unity.InputSystem"
+		"Unity.InputSystem",
+		"Unity.RenderPipelines.HighDefinition.Runtime",
+		"Unity.RenderPipelines.Core.Runtime"
 	],
 	"includePlatforms": [],
 	"excludePlatforms": [],

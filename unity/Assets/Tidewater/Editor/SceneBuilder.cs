@@ -1,3 +1,4 @@
+using Tidewater.Ocean;
 using Tidewater.Player;
 using Tidewater.World;
 using UnityEditor;
@@ -5,7 +6,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 
 // Builds the island scene from the HDRP template's OutdoorsScene (camera, sun, sky and fog volume): adds the
-// terrain, a placeholder sea (until the ocean is ported) and a debug fly camera.
+// terrain, the ocean and a debug fly camera.
 //   Tidewater > Build island scene
 namespace Tidewater.EditorTools
 {
@@ -23,21 +24,12 @@ namespace Tidewater.EditorTools
 			var t = GameObject.Find( "Terrain" ) ?? new GameObject( "Terrain" );
 			if ( t.GetComponent<TerrainRenderer>() == null ) t.AddComponent<TerrainRenderer>();
 
-			// placeholder sea: a flat plane at sea level
-			var sea = GameObject.Find( "Sea (placeholder)" );
-			if ( sea == null )
-			{
-				sea = GameObject.CreatePrimitive( PrimitiveType.Plane );
-				sea.name = "Sea (placeholder)";
-				Object.DestroyImmediate( sea.GetComponent<Collider>() );
-				sea.transform.localScale = new Vector3( 400, 1, 400 ); // 4 km square
-				var mat = new Material( Shader.Find( "HDRP/Lit" ) ) { name = "SeaPlaceholder" };
-				mat.SetColor( "_BaseColor", new Color( 0.01f, 0.12f, 0.2f ) );
-				mat.SetFloat( "_Smoothness", 0.92f );
-				AssetDatabase.CreateAsset( mat, "Assets/Tidewater/Scenes/SeaPlaceholder.mat" );
-				sea.GetComponent<MeshRenderer>().sharedMaterial = mat;
-				sea.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-			}
+			// the sea (replaces the flat placeholder plane the scene had before the ocean was ported)
+			var old = GameObject.Find( "Sea (placeholder)" );
+			if ( old != null ) Object.DestroyImmediate( old );
+			AssetDatabase.DeleteAsset( "Assets/Tidewater/Scenes/SeaPlaceholder.mat" );
+			var sea = GameObject.Find( "Ocean" ) ?? new GameObject( "Ocean" );
+			if ( sea.GetComponent<OceanRenderer>() == null ) sea.AddComponent<OceanRenderer>();
 
 			// camera: off the beach, looking north at the island (Unity +z = north)
 			var cam = Camera.main;
@@ -71,11 +63,57 @@ namespace Tidewater.EditorTools
 			return $"camera at sim ({simX}, {ground + eye:F1}, {simZ}), ground {ground:F2}";
 		}
 
+		// Fixed exposure (EV100) for repeatable screenshots, on an in-memory copy of the volume profile (the asset is not
+		// touched); NaN restores the profile's own (automatic) exposure.
+		static UnityEngine.Rendering.VolumeProfile original;
+		public static string Exposure( float ev )
+		{
+			var v = Object.FindAnyObjectByType<UnityEngine.Rendering.Volume>();
+			if ( v == null ) return "no volume";
+			if ( original == null ) original = v.sharedProfile;
+			if ( float.IsNaN( ev ) ) { v.profile = null; v.sharedProfile = original; return "automatic exposure"; }
+			var p = Object.Instantiate( original );
+			if ( p.TryGet( out UnityEngine.Rendering.HighDefinition.Exposure e ) )
+			{
+				e.mode.Override( UnityEngine.Rendering.HighDefinition.ExposureMode.Fixed );
+				e.fixedExposure.Override( ev );
+			}
+
+			v.sharedProfile = p;
+			return "fixed exposure EV " + ev;
+		}
+
 		public static string Sea( bool visible )
 		{
-			var sea = GameObject.Find( "Sea (placeholder)" );
+			var sea = GameObject.Find( "Ocean" );
 			if ( sea != null ) sea.SetActive( visible );
 			return "sea " + visible;
+		}
+	}
+}
+
+namespace Tidewater.EditorTools
+{
+	// Debug switches for isolating a renderer in screenshots.
+	public static class OceanDebug
+	{
+		public static string View( int v )
+		{
+			var o = Object.FindAnyObjectByType<OceanRenderer>();
+			if ( o != null ) o.debugView = v;
+			return "ocean debug view " + v;
+		}
+	}
+
+	public static class Isolate
+	{
+		public static string Set( bool terrain, bool ocean )
+		{
+			var t = Object.FindAnyObjectByType<TerrainRenderer>();
+			var o = Object.FindAnyObjectByType<OceanRenderer>();
+			if ( t != null ) t.enabled = terrain;
+			if ( o != null ) o.enabled = ocean;
+			return $"terrain {terrain}, ocean {ocean}";
 		}
 	}
 }

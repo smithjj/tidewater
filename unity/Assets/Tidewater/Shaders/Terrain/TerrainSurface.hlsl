@@ -58,13 +58,6 @@ float2 TWWetFoam( float2 xz, float h )
 	return float2( smoothstep( 0.5, 0.0, h ), 0.0 );
 }
 
-float4 TWNormalRock( float2 xz )
-{
-	float2 uv = ( xz - _TWTerrainParams.x ) / _TWTerrainParams.y;
-	float4 s = SAMPLE_TEXTURE2D( _TWNormalTex, sampler_TWNormalTex, uv );
-	return float4( s.xy * 2.0 - 1.0, s.z, s.w );
-}
-
 float4 TWSplat( float2 xz )
 {
 	float2 uv = ( xz - _TWTerrainParams.x ) / _TWTerrainParams.y;

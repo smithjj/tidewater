@@ -1,0 +1,365 @@
+// Port of the WGSL kernels of src/ocean/OceanFFT.js: multi-cascade FFT ocean (Tessendorf) with a Horvath /
+// JONSWAP spectrum.
+//
+// Each frame runs two big dispatches for all cascades:
+//   1. FFTRows: time-evolves the spectrum (h0 -> h(k,t)), builds 4 packed complex fields and performs a 256-point
+//      radix-2 IFFT per row in group-shared memory.
+//   2. FFTColumns: IFFT per column, sign correction, Jacobian based foam accumulation, and writes the displacement /
+//      derivative array textures.
+//
+// Packed complex fields (two real fields per complex IFFT):
+//   c0 = Dx  + i Dz        c1 = Dy   + i dDx/dz
+//   c2 = dDy/dx + i dDy/dz c3 = dDx/dx + i dDz/dz
+//
+// Differences from the JS: the mip chains of the two textures are made with RenderTexture.GenerateMips (a plain 2x2
+// box filter, what the JS compute mip kernels compute) instead of the two mip kernels.
+
+#pragma kernel InitSpectrum
+#pragma kernel Conjugate
+#pragma kernel CopyH0
+#pragma kernel CopyH0KeepFoam
+#pragma kernel SmoothH0
+#pragma kernel FFTRows
+#pragma kernel FFTColumns
+
+#define FFT_N 256u
+#define FFT_HALF 128u
+#define FFT_G 9.81
+#define PI 3.141592653589793
+#define TWO_PI 6.283185307179586
+
+// OceanParams
+float4 _Sizes[4];        // per cascade: x = tile size (m)
+float4 _Cuts[4];         // per cascade: x = low wavenumber cut, y = high cut
+float4 _SysA[2];         // per system: scale, angle, spreadBlend, swell
+float4 _SysB[2];         // per system: alpha, peakOmega, gamma, shortWavesFade
+float _Choppiness;
+float _FoamBias;
+float _FoamGain;
+float _FoamDecay;
+float _FoamAdd;
+float _OceanTime;
+float _OceanDepth;
+uint _Seed;
+float _H0Smooth;         // how far the live spectrum is moved towards the target this frame (SmoothH0)
+float _Dt;               // frame.dt
+
+RWStructuredBuffer<float4> _H0;
+RWStructuredBuffer<float4> _H0Target;
+RWStructuredBuffer<float4> _WaveData;
+RWStructuredBuffer<float4> _Tmp;
+RWStructuredBuffer<float> _Foam;
+RWTexture2DArray<float4> _DispOut;
+RWTexture2DArray<float4> _DerivOut;
+
+#define PLANE (FFT_N * FFT_N)
+
+uint FftBitReverse8( uint v )
+{
+	uint r = v;
+	r = ( ( r & 0x55u ) << 1u ) | ( ( r >> 1u ) & 0x55u );
+	r = ( ( r & 0x33u ) << 2u ) | ( ( r >> 2u ) & 0x33u );
+	r = ( ( r & 0x0Fu ) << 4u ) | ( ( r >> 4u ) & 0x0Fu );
+	return r;
+}
+
+// complex multiply of two packed complex numbers (v.xy, v.zw) by scalar complex w
+float4 FftCmul2( float4 v, float2 w )
+{
+	return float4( v.x * w.x - v.y * w.y, v.x * w.y + v.y * w.x, v.z * w.x - v.w * w.y, v.z * w.y + v.w * w.x );
+}
+
+// PCG hash
+uint FftPcg( uint v )
+{
+	uint state = v * 747796405u + 2891336453u;
+	uint word = ( ( state >> ( ( state >> 28u ) + 4u ) ) ^ state ) * 277803737u;
+	return ( word >> 22u ) ^ word;
+}
+
+float FftToUnit( uint h ) { return float( h >> 8u ) * ( 1.0 / 16777216.0 ) + ( 0.5 / 16777216.0 ); }
+
+float Sat( float x ) { return clamp( x, 0.0, 1.0 ); }
+
+// ---------- spectrum helpers ----------
+
+float Dispersion( float k ) { return sqrt( k * FFT_G * tanh( min( k * _OceanDepth, 20.0 ) ) ); }
+
+float DispersionDerivative( float k )
+{
+	float kd = min( k * _OceanDepth, 20.0 );
+	float th = tanh( kd );
+	float ch = cosh( kd );
+	return FFT_G * ( _OceanDepth * k / ( ch * ch ) + th ) / Dispersion( k ) * 0.5;
+}
+
+float TmaCorrection( float omega )
+{
+	float omegaH = omega * sqrt( _OceanDepth / FFT_G );
+	float a = omegaH * omegaH * 0.5;
+	float b = 1.0 - pow( 2.0 - omegaH, 2.0 ) * 0.5;
+	return omegaH <= 1.0 ? a : ( omegaH < 2.0 ? b : 1.0 );
+}
+
+float Jonswap( float omega, float4 sysA, float4 sysB )
+{
+	float alpha = sysB.x; float peakOmega = sysB.y; float gamma = sysB.z;
+	float sigma = omega <= peakOmega ? 0.07 : 0.09;
+	float d = omega - peakOmega;
+	float r = exp( - d * d / ( sigma * sigma * peakOmega * peakOmega * 2.0 ) );
+	float inv = 1.0 / omega;
+	float po = peakOmega * inv;
+	return sysA.x * TmaCorrection( omega ) * alpha * ( FFT_G * FFT_G )
+		* pow( inv, 5.0 )
+		* exp( pow( po, 4.0 ) * -1.25 )
+		* pow( abs( gamma ), r );
+}
+
+float NormalisationFactor( float s )
+{
+	float s2 = s * s; float s3 = s2 * s; float s4 = s3 * s;
+	float lo = s4 * -0.000564 + s3 * 0.00776 - s2 * 0.044 + s * 0.192 + 0.163;
+	float hi = s4 * -4.80e-08 + s3 * 1.07e-05 - s2 * 9.53e-04 + s * 5.90e-02 + 3.93e-01;
+	return s < 5.0 ? lo : hi;
+}
+
+float DirectionSpectrum( float theta, float omega, float4 sysA, float4 sysB )
+{
+	float peakOmega = sysB.y;
+	float ratio = omega / peakOmega;
+	float spreadPower = omega > peakOmega ? pow( abs( ratio ), -2.5 ) * 9.77 : pow( abs( ratio ), 5.0 ) * 6.97;
+	float s = spreadPower + tanh( min( ratio, 20.0 ) ) * 16.0 * sysA.w * sysA.w;
+	float dTheta = theta - sysA.y;
+	float cos2s = NormalisationFactor( s ) * pow( abs( cos( dTheta * 0.5 ) ), s * 2.0 );
+	float cosT = cos( dTheta );
+	float base = cosT * cosT * ( 2.0 / PI ) * ( cosT > 0.0 ? 1.0 : 0.0 );
+	return lerp( base, cos2s, sysA.z );
+}
+
+float ShortWavesFade( float k, float4 sysB ) { return exp( - sysB.w * sysB.w * k * k ); }
+
+// ---------- init spectrum ----------
+
+[numthreads( 16, 16, 1 )]
+void InitSpectrum( uint3 gid : SV_DispatchThreadID )
+{
+	int x = ( int ) gid.x; int y = ( int ) gid.y; int c = ( int ) gid.z;
+	int idx = c * ( int ) PLANE + y * ( int ) FFT_N + x;
+
+	float L = _Sizes[ c ].x;
+	float dk = TWO_PI / L;
+	float kx = float( x - ( int ) FFT_HALF ) * dk;
+	float kz = float( y - ( int ) FFT_HALF ) * dk;
+	float kLen = length( float2( kx, kz ) );
+
+	float4 outH = 0.0;
+	float4 outW = float4( kx, kz, 0.0, 0.0 );
+
+	if ( kLen >= _Cuts[ c ].x && kLen <= _Cuts[ c ].y )
+	{
+		float omega = Dispersion( kLen );
+		float dOmega = DispersionDerivative( kLen );
+		float theta = atan2( kz, kx );
+
+		float4 sa0 = _SysA[ 0 ]; float4 sb0 = _SysB[ 0 ];
+		float4 sa1 = _SysA[ 1 ]; float4 sb1 = _SysB[ 1 ];
+
+		float S0 = Jonswap( omega, sa0, sb0 ) * DirectionSpectrum( theta, omega, sa0, sb0 ) * ShortWavesFade( kLen, sb0 );
+		float S1 = Jonswap( omega, sa1, sb1 ) * DirectionSpectrum( theta, omega, sa1, sb1 ) * ShortWavesFade( kLen, sb1 );
+		float S = max( S0 + S1, 0.0 );
+
+		// E|h0|^2 = S(k) dk^2 / 2 so that var(height) = sum S(k) dk^2 (h has both +k and -k terms)
+		float amp = sqrt( S * abs( dOmega ) / kLen * dk * dk ) * 0.5;
+
+		// gaussian random pair (Box-Muller)
+		uint seed = ( uint ) idx * 4u + _Seed * 7919u;
+		float u1 = FftToUnit( FftPcg( seed ) );
+		float u2 = FftToUnit( FftPcg( seed + 1u ) );
+		float r = sqrt( log( u1 ) * -2.0 );
+		float g0 = r * cos( u2 * TWO_PI );
+		float g1 = r * sin( u2 * TWO_PI );
+
+		outH = float4( g0 * amp, g1 * amp, 0.0, 0.0 );
+		outW = float4( kx, kz, 1.0 / kLen, omega );
+	}
+
+	_H0Target[ idx ] = outH;
+	_WaveData[ idx ] = outW;
+}
+
+[numthreads( 16, 16, 1 )]
+void Conjugate( uint3 gid : SV_DispatchThreadID )
+{
+	int x = ( int ) gid.x; int y = ( int ) gid.y; int c = ( int ) gid.z;
+	int baseI = c * ( int ) PLANE;
+	int idx = baseI + y * ( int ) FFT_N + x;
+	int xm = ( ( int ) FFT_N - x ) % ( int ) FFT_N;
+	int ym = ( ( int ) FFT_N - y ) % ( int ) FFT_N;
+	int idxm = baseI + ym * ( int ) FFT_N + xm;
+	float2 hm = _H0Target[ idxm ].xy;
+	float2 cur = _H0Target[ idx ].xy;
+	_Tmp[ idx ] = float4( cur.x, cur.y, hm.x, - hm.y );
+}
+
+[numthreads( 16, 16, 1 )]
+void CopyH0( uint3 gid : SV_DispatchThreadID )
+{
+	uint idx = gid.z * PLANE + gid.y * FFT_N + gid.x;
+	_H0Target[ idx ] = _Tmp[ idx ];
+	_Foam[ idx ] = 0.0;
+}
+
+// The same copy without clearing the foam: the weather drifts the spectrum a fraction of a per cent at a time, and
+// wiping the foam on every one of those writes would keep the sea scrubbed clean. Only a jump (a preset, a load)
+// clears it.
+[numthreads( 16, 16, 1 )]
+void CopyH0KeepFoam( uint3 gid : SV_DispatchThreadID )
+{
+	uint idx = gid.z * PLANE + gid.y * FFT_N + gid.x;
+	_H0Target[ idx ] = _Tmp[ idx ];
+}
+
+// One step of the live field towards the target spectrum. A spectrum recomputed from slightly different weather is
+// only a per cent or so different, but as a *step* it moves the whole surface coherently in a single frame: about a
+// centimetre of water at a point, four times a second, which the boat reads as a jolt. Easing towards it costs one
+// small pass and removes the step at any cadence. _H0Smooth is 1 - exp(-dt / tau).
+[numthreads( 16, 16, 1 )]
+void SmoothH0( uint3 gid : SV_DispatchThreadID )
+{
+	uint idx = gid.z * PLANE + gid.y * FFT_N + gid.x;
+	float a = _H0Smooth;
+	_H0[ idx ] = lerp( _H0[ idx ], _H0Target[ idx ], a );
+}
+
+// ---------- IFFT ----------
+
+groupshared float4 fftShared[ 512 ];
+
+// the 8 radix-2 butterfly stages over the 256 complex values (two packed per float4 pair) of one row / column
+void FftStages( uint t )
+{
+	[unroll]
+	for ( uint s = 0u; s < 8u; s ++ )
+	{
+		uint hs = 1u << s;
+		uint pos = t & ( hs - 1u );
+		uint i = ( ( t >> s ) << ( s + 1u ) ) | pos;
+		uint j = i + hs;
+		float ang = float( pos ) * ( 3.14159265358979323846 / float( hs ) );
+		float2 w = float2( cos( ang ), sin( ang ) );
+		uint i2 = i * 2u; uint j2 = j * 2u;
+		float4 a0 = fftShared[ i2 ]; float4 a1 = fftShared[ i2 + 1u ];
+		float4 b0 = FftCmul2( fftShared[ j2 ], w ); float4 b1 = FftCmul2( fftShared[ j2 + 1u ], w );
+		fftShared[ i2 ] = a0 + b0;
+		fftShared[ i2 + 1u ] = a1 + b1;
+		fftShared[ j2 ] = a0 - b0;
+		fftShared[ j2 + 1u ] = a1 - b1;
+		GroupMemoryBarrierWithGroupSync();
+	}
+}
+
+[numthreads( 128, 1, 1 )]
+void FFTRows( uint3 lid : SV_GroupThreadID, uint3 wid : SV_GroupID )
+{
+	uint t = lid.x;
+	uint row = wid.x;
+	uint c = wid.y;
+	uint baseI = c * PLANE + row * FFT_N;
+	float time = _OceanTime;
+
+	for ( uint e = 0u; e < 2u; e ++ )
+	{
+		uint x = t + e * FFT_HALF;
+		uint idx = baseI + x;
+		float4 w = _WaveData[ idx ];
+		float4 hv = _H0[ idx ];
+		float ph = w.w * time;
+		float cs = cos( ph ); float sn = sin( ph );
+
+		// h = h0 * e^{i w t} + conj(h0(-k)) * e^{-i w t}
+		float hr = hv.x * cs - hv.y * sn + hv.z * cs + hv.w * sn;
+		float hi = hv.x * sn + hv.y * cs - hv.z * sn + hv.w * cs;
+
+		float kx = w.x; float kz = w.y; float ik = w.z;
+		float fx = kx * ik; float fz = kz * ik;
+
+		// Dx_hat = i kx/k h, Dz_hat = i kz/k h  ->  c0 = Dx + i Dz
+		float2 c0 = float2( - ( fx * hi + fz * hr ), fx * hr - fz * hi );
+		// c1 = Dy + i dDx/dz,  dDx/dz_hat = -kx kz / k h
+		float q = - ( kx * kz * ik );
+		float2 c1 = float2( hr - q * hi, hi + q * hr );
+		// c2 = dDy/dx + i dDy/dz
+		float2 c2 = float2( - ( kx * hi + kz * hr ), kx * hr - kz * hi );
+		// c3 = dDx/dx + i dDz/dz
+		float a = - ( kx * kx * ik ); float b = - ( kz * kz * ik );
+		float2 c3 = float2( a * hr - b * hi, a * hi + b * hr );
+
+		uint r = FftBitReverse8( x ) * 2u;
+		fftShared[ r ] = float4( c0, c1 );
+		fftShared[ r + 1u ] = float4( c2, c3 );
+	}
+
+	GroupMemoryBarrierWithGroupSync();
+	FftStages( t );
+
+	for ( uint e2 = 0u; e2 < 2u; e2 ++ )
+	{
+		uint x = t + e2 * FFT_HALF;
+		uint o = ( baseI + x ) * 2u;
+		_Tmp[ o ] = fftShared[ x * 2u ];
+		_Tmp[ o + 1u ] = fftShared[ x * 2u + 1u ];
+	}
+}
+
+[numthreads( 128, 1, 1 )]
+void FFTColumns( uint3 lid : SV_GroupThreadID, uint3 wid : SV_GroupID )
+{
+	uint t = lid.x;
+	uint col = wid.x;
+	uint c = wid.y;
+	uint baseI = c * PLANE;
+
+	for ( uint e = 0u; e < 2u; e ++ )
+	{
+		uint y = t + e * FFT_HALF;
+		uint idx = baseI + y * FFT_N + col;
+		uint r = FftBitReverse8( y ) * 2u;
+		fftShared[ r ] = _Tmp[ idx * 2u ];
+		fftShared[ r + 1u ] = _Tmp[ idx * 2u + 1u ];
+	}
+
+	GroupMemoryBarrierWithGroupSync();
+	FftStages( t );
+
+	float lambda = _Choppiness;
+	for ( uint e2 = 0u; e2 < 2u; e2 ++ )
+	{
+		uint y = t + e2 * FFT_HALF;
+		uint idx = baseI + y * FFT_N + col;
+		float sgn = ( ( col + y ) & 1u ) == 0u ? 1.0 : -1.0;
+		float4 A = fftShared[ y * 2u ] * sgn;
+		float4 B = fftShared[ y * 2u + 1u ] * sgn;
+
+		float Dx = A.x; float Dz = A.y; float Dy = A.z; float Dxz = A.w;
+		float Dyx = B.x; float Dyz = B.y; float Dxx = B.z; float Dzz = B.w;
+
+		float jxx = lambda * Dxx + 1.0;
+		float jzz = lambda * Dzz + 1.0;
+		float jxz = lambda * Dxz;
+		float J = jxx * jzz - jxz * jxz;
+
+		// Persistent foam: generated where the surface compresses (J < bias),
+		// then slowly decays so whitecaps leave trailing foam patches.
+		float prev = _Foam[ idx ];
+		float gen = Sat( ( _FoamBias - J ) * _FoamGain );
+		float f = prev * exp( - _FoamDecay * _Dt ) + gen * _FoamAdd * _Dt;
+		float fNew = clamp( max( f, gen * 0.5 ), 0.0, 1.5 );
+		_Foam[ idx ] = fNew;
+
+		uint3 uv = uint3( col, y, c );
+		float4 vDisp = float4( lambda * Dx, Dy, lambda * Dz, fNew );
+		float4 vDeriv = float4( Dyx, Dyz, lambda * Dxx, lambda * Dzz );
+		_DispOut[ uv ] = vDisp;
+		_DerivOut[ uv ] = vDeriv;
+	}
+}

@@ -1,4 +1,5 @@
 using System;
+using Tidewater.Core;
 using Tidewater.Util;
 using Tidewater.World.Terrain;
 using UnityEngine;
@@ -33,8 +34,6 @@ namespace Tidewater.World
 
 		// travelling gust field offset (integrated so speed / direction changes never jump)
 		Vector2 gustOffset;
-		public Vector2 windDir = new Vector2( 0.35f, 0.94f ).normalized; // sim xz
-		public float windSpeed = 7; // m/s at 10 m height
 
 		public string stats = "";
 
@@ -87,8 +86,8 @@ namespace Tidewater.World
 		void Update()
 		{
 			float dt = Application.isPlaying ? Time.deltaTime : 0;
-			float speed = 0.7f * windSpeed + 1.5f;
-			gustOffset += windDir * speed * dt;
+			float speed = 0.7f * G.windSpeed + 1.5f;
+			gustOffset += G.windDir * speed * dt;
 		}
 
 		// The CDLOD selection depends on the camera, so every camera selects and draws its own nodes (the Game view,
@@ -102,7 +101,7 @@ namespace Tidewater.World
 			// (with the pass camera they would morph toward the light camera instead).
 			var cp = cam.transform.position;
 			Shader.SetGlobalVector( "_TWViewPos", new Vector4( cp.x, cp.y, - cp.z, 0 ) );
-			Shader.SetGlobalVector( "_TWWind", new Vector4( windDir.x, windDir.y, windSpeed, 0 ) );
+			Shader.SetGlobalVector( "_TWWind", new Vector4( G.windDir.x, G.windDir.y, G.windSpeed, 0 ) );
 			Shader.SetGlobalVector( "_TWGust", new Vector4( gustOffset.x, gustOffset.y, 0, 0 ) );
 
 			lod.Update( cam );

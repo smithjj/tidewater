@@ -1,8 +1,14 @@
 {
 	"name": "Tidewater.Editor",
 	"rootNamespace": "Tidewater.EditorTools",
-	"references": [ "Tidewater.Runtime" ],
-	"includePlatforms": [ "Editor" ],
+	"references": [
+		"Tidewater.Runtime",
+		"Unity.RenderPipelines.Core.Runtime",
+		"Unity.RenderPipelines.HighDefinition.Runtime"
+	],
+	"includePlatforms": [
+		"Editor"
+	],
 	"excludePlatforms": [],
 	"allowUnsafeCode": false,
 	"overrideReferences": false,

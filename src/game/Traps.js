@@ -5,9 +5,8 @@
 //  - A set is one pot in the water: `state.sets` is the source of truth, this class draws it.
 //  - The pots are the modelled trap (assets/lobster_trap_decimated.glb): a set pot on the seabed, the
 //    stack on the working boat's deck, and the one that comes up on the hauler are the same geometry.
-//  - The same file also holds the trap's buoy with its line and marker: the floating marker is taken
-//    from it, split off by material family (the rope down to the pot stays procedural, because it is
-//    scaled to the depth here).
+//  - The floating marker is the buoy's own export (models/props/lobster_trap_buoy.glb); the rope down
+//    to the pot stays procedural, because it is scaled to the depth here.
 //  - Each pot has its own buoy line, riding the same water readback the boats use.
 import { Group, Mesh, Vector3, Quaternion, Euler, Color } from '../engine/index.js';
 import { box, rod, cylinder, sphere, prepare, mergePrepared, mat4 } from '../world/boat/GeoKit.js';
@@ -18,7 +17,7 @@ import { rollWeight, pickSpecies } from './Bites.js';
 import { TRAP_LIMIT } from './Gear.js';
 
 const BASE = ( import.meta.env && import.meta.env.BASE_URL ) || '/';
-const MODEL_URL = BASE + 'models/props/lobster_trap_decimated.glb'; // the pot (and, unused, its own buoy)
+const MODEL_URL = BASE + 'models/props/lobster_trap_decimated.glb'; // the pot
 const BUOY_URL = BASE + 'models/props/lobster_trap_buoy.glb'; // the marker float: its own export
 const POT_LENGTH = 0.98; // m, the modelled pot scaled to a working size (it exports at ~1.5 m)
 const BUOY_WIDTH = 0.34; // m across the float
@@ -26,9 +25,9 @@ const BUOY_WIDTH = 0.34; // m across the float
 // is what gives it a waterline: at a few centimetres it skims and reads as hovering above the sea.
 const BUOY_SINK = 0.22;
 
-// The decimated file is the trap *and* its buoy (231 k triangles for the pair): the pot is taken from it
-// by material family, and the marker comes from the buoy's own export. The loader hands each material
-// name to the skip predicate, which is how the halves are told apart.
+// The decimated file is the trap alone (85,616 triangles); the pot is taken from it by material family,
+// and the marker comes from the buoy's own export. The loader hands each material name to the skip
+// predicate, which is how a model's parts are told apart.
 const TRAP_MATS = /^(WOOD|TWINE|CORD|IRON) \|/;
 const SKIP_MATS = ( n ) => /^SETTING \|/.test( n ); // the scene's backdrop (a pegged plank)
 
@@ -246,7 +245,7 @@ export class Traps {
 
 	// ---- the haul: the modelled pot comes up on the hauler and lands on the aft deck
 
-	// The modelled trap and its buoy, in one file (6.7 MB). Loaded at once: the pots on the working
+	// The modelled trap (4 MB) and its buoy (1.6 MB), two files. Loaded at once: the pots on the working
 	// boat's deck are part of the furniture, so there is no "first time you need it" any more.
 	loadModels() {
 

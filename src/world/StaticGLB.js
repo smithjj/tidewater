@@ -1,7 +1,7 @@
 // Load a static glTF/GLB prop and merge its primitives into one mesh per material.
 //
 // Every scene in the file is walked, not just the default one: a prop file can hold more than one object
-// (the decimated trap carries its buoy as the file's first scene), and a caller that splits the result by
+// (a file can carry a second object as its own scene), and a caller that splits the result by
 // material wants all of it. A node reached twice is only added once.
 //
 // An authored or scanned prop arrives as hundreds of primitives (the lobster trap is 516 of them)

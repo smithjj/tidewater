@@ -6,3 +6,12 @@ dist
 # python bytecode (tools/ and blender/ scripts)
 __pycache__/
 *.pyc
+
+# Command Code session transcripts
+command-code-session-*.md
+
+# Command Code settings and notes
+.commandcode/
+
+# editor and export backups
+*.bak

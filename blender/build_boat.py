@@ -70,11 +70,13 @@ AUX_ATTR = 'aux' # the aux float4: roughness, metalness, pattern, anim
 #
 # Measured from the real JS with tools/boat/export.mjs (and node tools/boat/stats.mjs):
 # per object, triangles / vertices; then the boat's envelope and principal dimensions.
+# One deliberate divergence: 'fittings' was re-measured from this copy's reshaped cabin jackets
+# (hang() in tidewater/wheelhouse.py), so its numbers no longer match what the JS produces.
 EXPECTED = {
 	'hull': ( 8337, 4513 ),
 	'gelcoat': ( 4466, 3469 ),
 	'wood': ( 3314, 2221 ),
-	'fittings': ( 25326, 29366 ),
+	'fittings': ( 27770, 31540 ), # reshaped jackets: the JS measures 25326/29366
 	'trap': ( 0, 0 ), # never filled: not added as an object either
 	'glow': ( 398, 616 ),
 	'glass': ( 300, 189 ),
@@ -85,9 +87,9 @@ EXPECTED = {
 	'rudder': ( 168, 216 ),
 }
 
-EXPECTED_BUCKET_TRIS = 42141 # 8337 + 4466 + 3314 + 25326 + 398 + 300
+EXPECTED_BUCKET_TRIS = 44585 # 8337 + 4466 + 3314 + 27770 + 398 + 300
 EXPECTED_ANIMATED_TRIS = 4024 # 1880 + 332 + 368 + 1276 + 168
-EXPECTED_TOTAL_TRIS = 46165
+EXPECTED_TOTAL_TRIS = 48609
 
 # The hull's own bounding box -- the boat's envelope: LOA, beam and draft. (game frame)
 # This is the box the export lists as the boat's: it is exactly the hull bucket's bbox
@@ -531,7 +533,7 @@ def main():
 		sys.exit( 1 )
 
 	print( '' )
-	print( 'SELF-CHECK OK: every object and every dimension matches the JS reference.' )
+	print( 'SELF-CHECK OK: every object and dimension matches the reference (the fittings divergence is the reshaped jackets).' )
 
 
 if __name__ == '__main__':

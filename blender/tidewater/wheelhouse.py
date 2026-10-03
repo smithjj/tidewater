@@ -749,29 +749,204 @@ def buildCabinDetail( kit, L ):
 			tog.translate( x - 0.034, ry + ( - 0.007 if ( k * 7 + r * 3 ) % 5 == 0 else 0.007 ), z - 0.135 + k * 0.0386 )
 			kit.add( 'fittings', tog, { 'color': 0xb02a22 if ( k * 7 + r * 3 ) % 5 == 0 else 0x1e1f21, 'rough': 0.4 } )
 
-	def hang( z, yTop, color, scale ):
+	def hang( z, yTop, color, scale, hood = 1.0, vest = False ):
 
 		x = wallIn( L, 1, z, yTop )
 		kit.add( 'fittings', rod( V( x, yTop + 0.02, z ), V( x - 0.05, yTop + 0.04, z ), 0.006, 6 ), STAINLESS )
-		# garment hanging by its collar: narrow at the hook, sloping shoulders, a slightly flared hem
-		# with an open bottom, pressed flat against the wall; sleeves hang down the front
-		prof = [ [ 0.17, 0.0 ], [ 0.2, 0.03 ], [ 0.2, 0.3 ], [ 0.21, 0.5 ], [ 0.2, 0.56 ], [ 0.12, 0.62 ], [ 0.05, 0.66 ], [ 0.001, 0.665 ] ]
-		g = lathe( [ [ r * scale, h * scale ] for r, h in prof ], 20 )
-		g.applyMatrix4( mat4( x - 0.06, yTop - 0.66 * scale, z, 0, 0, 0, 0.3, 1, 1 ) )
-		kit.add( 'fittings', g, { 'color': color, 'rough': 0.6, 'pattern': 9 } )
+		H = 0.66 * scale
+		HB = H * ( 0.62 if vest else 1.0 ) # a lifejacket is a short, bulky vest: no sleeves
+		bulk = 1.5 if vest else 1.0
+		opts = { 'color': color, 'rough': 0.6, 'pattern': 9 }
+		dim = { 'color': Color( color ).multiplyScalar( 0.85 ).getHex(), 'rough': 0.6, 'pattern': 9 }
+		trim = { 'color': Color( color ).multiplyScalar( 0.6 ).getHex(), 'rough': 0.6, 'pattern': 9 }
+		CLEAR = 0.012 # stand-off from the analytic wall face (its chords stand ~1 cm proud)
+		K = 24
+		FRONT = math.pi / 2
 
-		for sd in [ - 1, 1 ]:
+		# how close a section point is to the centre front: 1 on the placket, ~0 elsewhere
+		def placket( a ):
 
-			sh = V( x - 0.07, yTop - 0.12 * scale, z + sd * 0.17 * scale )
-			sleeve = tube( [ sh, V( x - 0.1, yTop - 0.3 * scale, z + sd * 0.2 * scale ), V( x - 0.11, yTop - 0.52 * scale, z + sd * 0.16 * scale ) ], 0.045 * scale, 10, 8 )
-			kit.add( 'fittings', sleeve, { 'color': color, 'rough': 0.6, 'pattern': 9 } )
+			return math.exp( - ( ( ( a - FRONT + math.pi ) % ( math.pi * 2 ) - math.pi ) / 0.26 ) ** 2 / 2 )
 
-		hood = sphere( 0.1 * scale, 12, 8, 0, math.pi * 2, 0, math.pi * 0.6 )
-		hood.applyMatrix4( mat4( x - 0.04, yTop - 0.03, z, 0.5, 0, 0, 0.5, 0.8, 1 ) )
-		kit.add( 'fittings', hood, { 'color': Color( color ).multiplyScalar( 0.85 ).getHex(), 'rough': 0.6, 'pattern': 9 } )
+		# body: stacked horizontal D sections -- flat back pressed against the wall, front bulging --
+		# so the garment reads by its outline (sloping shoulders, a waist the sleeves hang clear of,
+		# a flared hem) instead of being a body of revolution; the front centre carries a zip flap
+		# and the hem rows pucker into folds where the cloth runs out of hanger
+		def torsoRow( y, w, d, flap = 0.0, fold = 0.0 ):
 
-	hang( - 0.12, 1.92, 0xe0a81c, 1.0 ) # yellow oilskin
-	hang( 0.14, 1.9, 0xe2531a, 0.8 ) # orange lifejacket
+			row = []
+
+			for i in range( K ):
+
+				a = i * math.pi * 2 / K
+				f = fold * math.cos( 5 * a + 1.3 )
+				zz = z + w * ( 1 + f ) * math.cos( a )
+				row.append( V( wallIn( L, 1, zz, y ) - CLEAR - d * ( 1 + 1.5 * f ) * max( 0.0, math.sin( a ) ) - flap * placket( a ), y, zz ) )
+
+			return row
+
+		#   dy    half-width  depth   folds
+		TORSO = [
+			[ 0.00, 0.050, 0.024, 0.0 ], # collar opening
+			[ 0.07, 0.084, 0.038, 0.0 ],
+			[ 0.16, 0.132, 0.044, 0.0 ],
+			[ 0.19, 0.148, 0.045, 0.0 ],
+			[ 0.23, 0.160, 0.046, 0.0 ], # shoulder point
+			[ 0.34, 0.140, 0.046, 0.0 ], # armpit
+			[ 0.52, 0.112, 0.040, 0.0 ], # waist, the sleeves hang clear of it
+			[ 0.72, 0.106, 0.032, 0.0 ],
+			[ 0.88, 0.114, 0.028, 0.03 ],
+			[ 0.95, 0.121, 0.026, 0.06 ],
+			[ 1.00, 0.126, 0.024, 0.09 ], # hem, a little flare
+		]
+
+		def torsoAt( dy ):
+
+			"""( half-width, depth ) of the body skin at dy, interpolated between the rows"""
+
+			for k in range( len( TORSO ) - 1 ):
+
+				d0, w0, e0, f0 = TORSO[ k ]
+				d1, w1, e1, f1 = TORSO[ k + 1 ]
+
+				if dy <= d1:
+
+					t = ( dy - d0 ) / ( d1 - d0 )
+					return ( w0 + ( w1 - w0 ) * t ) * scale, ( e0 + ( e1 - e0 ) * t ) * scale * bulk
+
+			return TORSO[ - 1 ][ 1 ] * scale, TORSO[ - 1 ][ 2 ] * scale * bulk
+
+		# a point on the front skin: dy below the collar, dz across from the centre, `off` proud
+		def skin( dy, dz, off = 0.0 ):
+
+			w, d = torsoAt( dy )
+			c = max( - 1.0, min( 1.0, dz / w ) )
+			y = yTop - 0.01 - dy * HB
+
+			return V( wallIn( L, 1, z + dz, y ) - CLEAR - d * math.sqrt( 1 - c * c ) - 0.01 * scale * placket( math.acos( c ) ) - off, y, z + dz )
+
+		# a raised pad that follows the skin: placket, pockets, tape
+		def patch( dy0, dy1, dz0, dz1, off, rows, cols, o ):
+
+			ring = []
+
+			for r in range( rows + 1 ):
+
+				dy = dy0 + ( dy1 - dy0 ) * r / rows
+				outer = [ skin( dy, dz1 + ( dz0 - dz1 ) * c / cols, off ) for c in range( cols + 1 ) ]
+				inner = [ skin( dy, dz0 + ( dz1 - dz0 ) * c / cols, - 0.006 ) for c in range( cols + 1 ) ]
+				ring.append( outer + inner )
+
+			kit.add( 'fittings', loft( ring, { 'closed': True } ), o )
+			kit.add( 'fittings', fanCap( ring[ 0 ], V( 0, 1, 0 ) ), o )
+			kit.add( 'fittings', fanCap( ring[ - 1 ], V( 0, - 1, 0 ) ), o )
+
+		body = [ torsoRow( yTop - 0.01 - dy * HB, w * scale, d * scale * bulk, 0.01 * scale, fold ) for dy, w, d, fold in TORSO ]
+		g = loft( body, { 'closed': True } )
+		# shade the same centre band a little darker, so the zip flap reads as a crease, and the
+		# hem a good deal darker, as a hem band
+		paintVertices( g, lambda v, i: Color( color ).multiplyScalar( ( 1 - 0.3 * placket( ( i % ( K + 1 ) ) * math.pi * 2 / K ) ) * ( 0.72 if i // ( K + 1 ) == len( TORSO ) - 1 else 1 ) ).getHex() )
+		kit.add( 'fittings', g, opts )
+		kit.add( 'fittings', fanCap( body[ 0 ], V( 0, 1, 0 ) ), opts )
+		kit.add( 'fittings', fanCap( body[ - 1 ], V( 0, - 1, 0 ) ), opts )
+
+		# front closure: a storm flap down the middle, shut with snaps
+		hw = 0.013 * scale
+		patch( 0.1, 0.99, - hw, hw, 0.007 * scale, 14, 2, trim if vest else dim )
+
+		for k in range( 5 ):
+
+			p = skin( 0.2 + k * 0.17, 0, 0.0135 * scale )
+			sn = cylinder( 0.008 * scale, 0.008 * scale, 0.006, 10 )
+			sn.applyMatrix4( mat4( p.x, p.y, p.z, 0, 0, math.pi / 2 ) )
+			kit.add( 'fittings', sn, { 'color': 0x2b2d30, 'rough': 0.4 } )
+
+		if vest:
+
+			# waist strap around the foam, buckled at the front, reflective tape on the chest
+			for dy in [ 0.58 ]:
+
+				w, d = torsoAt( dy )
+				w2, d2 = torsoAt( dy + 0.1 )
+				strap = [ torsoRow( yTop - 0.01 - dy * HB, w + 0.005, d + 0.006 ), torsoRow( yTop - 0.01 - ( dy + 0.1 ) * HB, w2 + 0.005, d2 + 0.006 ) ]
+				kit.add( 'fittings', loft( strap, { 'closed': True } ), { 'color': 0x1d1f22, 'rough': 0.55 } )
+
+			bp = skin( 0.63, 0, 0.018 )
+			kit.add( 'fittings', box( 0.012, 0.04 * scale, 0.05 * scale ).translate( bp.x, bp.y, bp.z ), STAINLESS )
+
+			for sd in [ - 1, 1 ]:
+
+				patch( 0.2, 0.26, min( sd * 0.04 * scale, sd * 0.1 * scale ), max( sd * 0.04 * scale, sd * 0.1 * scale ), 0.005, 2, 4, { 'color': 0xd8d9d2, 'rough': 0.35 } )
+				patch( 0.4, 0.46, min( sd * 0.05 * scale, sd * 0.11 * scale ), max( sd * 0.05 * scale, sd * 0.11 * scale ), 0.005, 2, 4, { 'color': 0xd8d9d2, 'rough': 0.35 } )
+
+		else:
+
+			# patch pockets low on the front, each under a flap
+			for sd in [ - 1, 1 ]:
+
+				za, zb = sorted( [ sd * 0.024 * scale, sd * 0.09 * scale ] )
+				patch( 0.58, 0.72, za, zb, 0.007 * scale, 4, 6, dim )
+				patch( 0.545, 0.6, za - 0.004, zb + 0.004, 0.012 * scale, 2, 6, trim )
+
+		# sleeves: leave the shoulder from inside it, hang clear of the waist and close on a cuff
+		for sd in ( [] if vest else [ - 1, 1 ] ):
+
+			#   dy    z offset  z radius  depth radius  stand-off from the wall
+			ARM = [
+				[ 0.17, 0.075, 0.016, 0.008, 0.022 ], # buried in the shoulder
+				[ 0.24, 0.100, 0.028, 0.022, 0.032 ],
+				[ 0.32, 0.122, 0.036, 0.028, 0.038 ],
+				[ 0.42, 0.134, 0.035, 0.028, 0.040 ],
+				[ 0.54, 0.140, 0.032, 0.026, 0.039 ],
+				[ 0.66, 0.142, 0.030, 0.024, 0.037 ],
+				[ 0.76, 0.137, 0.028, 0.022, 0.035 ],
+				[ 0.80, 0.135, 0.031, 0.025, 0.038 ], # cuff flare
+			]
+			arm = []
+
+			for dy, za, rz, rx, xo in ARM:
+
+				y = yTop - 0.01 - dy * H
+				zc = z + sd * za * scale
+				row = []
+
+				for i in range( 12 ):
+
+					a = i * math.pi * 2 / 12
+					zz = zc + rz * scale * math.cos( a )
+					row.append( V( wallIn( L, 1, zz, y ) - CLEAR - xo * scale - rx * scale * math.sin( a ), y, zz ) )
+
+				arm.append( row )
+
+			sleeve = loft( arm, { 'closed': True } )
+			paintVertices( sleeve, lambda v, i: Color( color ).multiplyScalar( 0.7 if i // 13 == len( ARM ) - 1 else 1 ).getHex() ) # cuff band
+			kit.add( 'fittings', sleeve, opts )
+			kit.add( 'fittings', fanCap( arm[ 0 ], V( 0, 1, 0 ) ), opts )
+			kit.add( 'fittings', fanCap( arm[ - 1 ], V( 0, - 1, 0 ) ), trim )
+
+		# the loop sewn into the collar, over the hook, and the collar rolled around it
+		loop = torus( 0.026, 0.004, 6, 16 )
+		loop.applyMatrix4( mat4( x - 0.025, yTop + 0.014, z, 0, math.pi / 2, 0 ) )
+		kit.add( 'fittings', loop, dim )
+		col = torus( 0.048 * scale, 0.020 * scale, 6, 14 )
+		col.applyMatrix4( mat4( x - 0.028 * scale, yTop - 0.045 * scale, z, math.pi / 2, 0, 0, 0.62, 1, 1 ) )
+		kit.add( 'fittings', col, opts )
+
+		if hood > 0:
+
+			#   dy below the collar top  half-width  depth
+			HOOD = [
+				[ 0.03, 0.028, 0.010 ],
+				[ 0.06, 0.052, 0.022 ],
+				[ 0.10, 0.060, 0.026 ],
+				[ 0.135, 0.050, 0.018 ],
+			]
+			hd = [ torsoRow( yTop - hy * scale, w * scale, d * scale * hood ) for hy, w, d in HOOD ]
+			kit.add( 'fittings', loft( hd, { 'closed': True } ), dim )
+			kit.add( 'fittings', fanCap( hd[ 0 ], V( 0, 1, 0 ) ), dim )
+
+	hang( - 0.165, 1.92, 0xe0a81c, 1.0 ) # yellow oilskin
+	hang( 0.15, 1.9, 0xe2531a, 0.8, 0.45, True ) # orange lifejacket
 
 	# ---- starboard wall: extinguisher on its bracket, photos and the tide table, torch in a clip
 	z = - 0.18; yb0 = y0 + 0.2; x = wallIn( L, - 1, z, 0.8 )

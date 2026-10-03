@@ -730,31 +730,246 @@ function buildCabinDetail( kit, L ) {
 
 	}
 
-	const hang = ( z, yTop, color, scale ) => {
+	const hang = ( z, yTop, color, scale, hood = 1.0, vest = false ) => {
 
 		const x = wallIn( L, 1, z, yTop );
 		kit.add( 'fittings', rod( V( x, yTop + 0.02, z ), V( x - 0.05, yTop + 0.04, z ), 0.006, 6 ), STAINLESS );
-		// garment hanging by its collar: narrow at the hook, sloping shoulders, a slightly flared hem
-		// with an open bottom, pressed flat against the wall; sleeves hang down the front
-		const prof = [ [ 0.17, 0.0 ], [ 0.2, 0.03 ], [ 0.2, 0.3 ], [ 0.21, 0.5 ], [ 0.2, 0.56 ], [ 0.12, 0.62 ], [ 0.05, 0.66 ], [ 0.001, 0.665 ] ];
-		const g = lathe( prof.map( ( [ r, h ] ) => [ r * scale, h * scale ] ), 20 );
-		g.applyMatrix4( mat4( x - 0.06, yTop - 0.66 * scale, z, 0, 0, 0, 0.3, 1, 1 ) );
-		kit.add( 'fittings', g, { color, rough: 0.6, pattern: 9 } );
-		for ( const sd of [ - 1, 1 ] ) {
+		const H = 0.66 * scale;
+		const HB = H * ( vest ? 0.62 : 1.0 ); // a lifejacket is a short, bulky vest: no sleeves
+		const bulk = vest ? 1.5 : 1.0;
+		const opts = { color, rough: 0.6, pattern: 9 };
+		const dim = { color: new Color( color ).multiplyScalar( 0.85 ).getHex(), rough: 0.6, pattern: 9 };
+		const trim = { color: new Color( color ).multiplyScalar( 0.6 ).getHex(), rough: 0.6, pattern: 9 };
+		const CLEAR = 0.012; // stand-off from the analytic wall face (its chords stand ~1 cm proud)
+		const K = 24;
+		const FRONT = Math.PI / 2;
 
-			const sh = V( x - 0.07, yTop - 0.12 * scale, z + sd * 0.17 * scale );
-			const sleeve = tube( [ sh, V( x - 0.1, yTop - 0.3 * scale, z + sd * 0.2 * scale ), V( x - 0.11, yTop - 0.52 * scale, z + sd * 0.16 * scale ) ], 0.045 * scale, 10, 8 );
-			kit.add( 'fittings', sleeve, { color, rough: 0.6, pattern: 9 } );
+		// how close a section point is to the centre front: 1 on the placket, ~0 elsewhere
+		// ( a - FRONT + PI is always >= PI/2 here, so JS' % is the Python floored modulo )
+		const placket = ( a ) => Math.exp( - ( ( ( ( a - FRONT + Math.PI ) % ( Math.PI * 2 ) - Math.PI ) / 0.26 ) ** 2 ) / 2 );
+
+		// body: stacked horizontal D sections -- flat back pressed against the wall, front bulging --
+		// so the garment reads by its outline (sloping shoulders, a waist the sleeves hang clear of,
+		// a flared hem) instead of being a body of revolution; the front centre carries a zip flap
+		// and the hem rows pucker into folds where the cloth runs out of hanger
+		const torsoRow = ( y, w, d, flap = 0.0, fold = 0.0 ) => {
+
+			const row = [];
+			for ( let i = 0; i < K; i ++ ) {
+
+				const a = i * Math.PI * 2 / K;
+				const f = fold * Math.cos( 5 * a + 1.3 );
+				const zz = z + w * ( 1 + f ) * Math.cos( a );
+				row.push( V( wallIn( L, 1, zz, y ) - CLEAR - d * ( 1 + 1.5 * f ) * Math.max( 0.0, Math.sin( a ) ) - flap * placket( a ), y, zz ) );
+
+			}
+
+			return row;
+
+		};
+
+		//   dy    half-width  depth   folds
+		const TORSO = [
+			[ 0.00, 0.050, 0.024, 0.0 ], // collar opening
+			[ 0.07, 0.084, 0.038, 0.0 ],
+			[ 0.16, 0.132, 0.044, 0.0 ],
+			[ 0.19, 0.148, 0.045, 0.0 ],
+			[ 0.23, 0.160, 0.046, 0.0 ], // shoulder point
+			[ 0.34, 0.140, 0.046, 0.0 ], // armpit
+			[ 0.52, 0.112, 0.040, 0.0 ], // waist, the sleeves hang clear of it
+			[ 0.72, 0.106, 0.032, 0.0 ],
+			[ 0.88, 0.114, 0.028, 0.03 ],
+			[ 0.95, 0.121, 0.026, 0.06 ],
+			[ 1.00, 0.126, 0.024, 0.09 ], // hem, a little flare
+		];
+
+		// ( half-width, depth ) of the body skin at dy, interpolated between the rows
+		const torsoAt = ( dy ) => {
+
+			for ( let k = 0; k < TORSO.length - 1; k ++ ) {
+
+				const [ d0, w0, e0 ] = TORSO[ k ];
+				const [ d1, w1, e1 ] = TORSO[ k + 1 ];
+
+				if ( dy <= d1 ) {
+
+					const t = ( dy - d0 ) / ( d1 - d0 );
+					return [ ( w0 + ( w1 - w0 ) * t ) * scale, ( e0 + ( e1 - e0 ) * t ) * scale * bulk ];
+
+				}
+
+			}
+
+			return [ TORSO[ TORSO.length - 1 ][ 1 ] * scale, TORSO[ TORSO.length - 1 ][ 2 ] * scale * bulk ];
+
+		};
+
+		// a point on the front skin: dy below the collar, dz across from the centre, `off` proud
+		const skin = ( dy, dz, off = 0.0 ) => {
+
+			const [ w, d ] = torsoAt( dy );
+			const c = Math.max( - 1.0, Math.min( 1.0, dz / w ) );
+			const y = yTop - 0.01 - dy * HB;
+			return V( wallIn( L, 1, z + dz, y ) - CLEAR - d * Math.sqrt( 1 - c * c ) - 0.01 * scale * placket( Math.acos( c ) ) - off, y, z + dz );
+
+		};
+
+		// a raised pad that follows the skin: placket, pockets, tape
+		const patch = ( dy0, dy1, dz0, dz1, off, rows, cols, o ) => {
+
+			const ring = [];
+			for ( let r = 0; r <= rows; r ++ ) {
+
+				const dy = dy0 + ( dy1 - dy0 ) * r / rows;
+				const outer = [], inner = [];
+				for ( let c = 0; c <= cols; c ++ ) {
+
+					outer.push( skin( dy, dz1 + ( dz0 - dz1 ) * c / cols, off ) );
+
+				}
+
+				for ( let c = 0; c <= cols; c ++ ) {
+
+					inner.push( skin( dy, dz0 + ( dz1 - dz0 ) * c / cols, - 0.006 ) );
+
+				}
+
+				ring.push( outer.concat( inner ) );
+
+			}
+
+			kit.add( 'fittings', loft( ring, { closed: true } ), o );
+			kit.add( 'fittings', fanCap( ring[ 0 ], V( 0, 1, 0 ) ), o );
+			kit.add( 'fittings', fanCap( ring[ ring.length - 1 ], V( 0, - 1, 0 ) ), o );
+
+		};
+
+		const body = TORSO.map( ( [ dy, w, d, fold ] ) => torsoRow( yTop - 0.01 - dy * HB, w * scale, d * scale * bulk, 0.01 * scale, fold ) );
+		const g = loft( body, { closed: true } );
+		// shade the same centre band a little darker, so the zip flap reads as a crease, and the
+		// hem a good deal darker, as a hem band
+		paintVertices( g, ( v, i ) => new Color( color ).multiplyScalar( ( 1 - 0.3 * placket( ( i % ( K + 1 ) ) * Math.PI * 2 / K ) ) * ( Math.floor( i / ( K + 1 ) ) === TORSO.length - 1 ? 0.72 : 1 ) ).getHex() );
+		kit.add( 'fittings', g, opts );
+		kit.add( 'fittings', fanCap( body[ 0 ], V( 0, 1, 0 ) ), opts );
+		kit.add( 'fittings', fanCap( body[ body.length - 1 ], V( 0, - 1, 0 ) ), opts );
+
+		// front closure: a storm flap down the middle, shut with snaps
+		const hw = 0.013 * scale;
+		patch( 0.1, 0.99, - hw, hw, 0.007 * scale, 14, 2, vest ? trim : dim );
+
+		for ( let k = 0; k < 5; k ++ ) {
+
+			const p = skin( 0.2 + k * 0.17, 0, 0.0135 * scale );
+			const sn = cylinder( 0.008 * scale, 0.008 * scale, 0.006, 10 );
+			sn.applyMatrix4( mat4( p.x, p.y, p.z, 0, 0, Math.PI / 2 ) );
+			kit.add( 'fittings', sn, { color: 0x2b2d30, rough: 0.4 } );
 
 		}
 
-		const hood = sphere( 0.1 * scale, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.6 );
-		hood.applyMatrix4( mat4( x - 0.04, yTop - 0.03, z, 0.5, 0, 0, 0.5, 0.8, 1 ) );
-		kit.add( 'fittings', hood, { color: new Color( color ).multiplyScalar( 0.85 ).getHex(), rough: 0.6, pattern: 9 } );
+		if ( vest ) {
+
+			// waist strap around the foam, buckled at the front, reflective tape on the chest
+			for ( const dy of [ 0.58 ] ) {
+
+				const [ w, d ] = torsoAt( dy );
+				const [ w2, d2 ] = torsoAt( dy + 0.1 );
+				const strap = [ torsoRow( yTop - 0.01 - dy * HB, w + 0.005, d + 0.006 ), torsoRow( yTop - 0.01 - ( dy + 0.1 ) * HB, w2 + 0.005, d2 + 0.006 ) ];
+				kit.add( 'fittings', loft( strap, { closed: true } ), { color: 0x1d1f22, rough: 0.55 } );
+
+			}
+
+			const bp = skin( 0.63, 0, 0.018 );
+			kit.add( 'fittings', box( 0.012, 0.04 * scale, 0.05 * scale ).translate( bp.x, bp.y, bp.z ), STAINLESS );
+
+			for ( const sd of [ - 1, 1 ] ) {
+
+				patch( 0.2, 0.26, Math.min( sd * 0.04 * scale, sd * 0.1 * scale ), Math.max( sd * 0.04 * scale, sd * 0.1 * scale ), 0.005, 2, 4, { color: 0xd8d9d2, rough: 0.35 } );
+				patch( 0.4, 0.46, Math.min( sd * 0.05 * scale, sd * 0.11 * scale ), Math.max( sd * 0.05 * scale, sd * 0.11 * scale ), 0.005, 2, 4, { color: 0xd8d9d2, rough: 0.35 } );
+
+			}
+
+		} else {
+
+			// patch pockets low on the front, each under a flap
+			for ( const sd of [ - 1, 1 ] ) {
+
+				const [ za, zb ] = [ sd * 0.024 * scale, sd * 0.09 * scale ].sort( ( a, b ) => a - b );
+				patch( 0.58, 0.72, za, zb, 0.007 * scale, 4, 6, dim );
+				patch( 0.545, 0.6, za - 0.004, zb + 0.004, 0.012 * scale, 2, 6, trim );
+
+			}
+
+		}
+
+		// sleeves: leave the shoulder from inside it, hang clear of the waist and close on a cuff
+		for ( const sd of ( vest ? [] : [ - 1, 1 ] ) ) {
+
+			//   dy    z offset  z radius  depth radius  stand-off from the wall
+			const ARM = [
+				[ 0.17, 0.075, 0.016, 0.008, 0.022 ], // buried in the shoulder
+				[ 0.24, 0.100, 0.028, 0.022, 0.032 ],
+				[ 0.32, 0.122, 0.036, 0.028, 0.038 ],
+				[ 0.42, 0.134, 0.035, 0.028, 0.040 ],
+				[ 0.54, 0.140, 0.032, 0.026, 0.039 ],
+				[ 0.66, 0.142, 0.030, 0.024, 0.037 ],
+				[ 0.76, 0.137, 0.028, 0.022, 0.035 ],
+				[ 0.80, 0.135, 0.031, 0.025, 0.038 ], // cuff flare
+			];
+			const arm = [];
+
+			for ( const [ dy, za, rz, rx, xo ] of ARM ) {
+
+				const y = yTop - 0.01 - dy * H;
+				const zc = z + sd * za * scale;
+				const row = [];
+
+				for ( let i = 0; i < 12; i ++ ) {
+
+					const a = i * Math.PI * 2 / 12;
+					const zz = zc + rz * scale * Math.cos( a );
+					row.push( V( wallIn( L, 1, zz, y ) - CLEAR - xo * scale - rx * scale * Math.sin( a ), y, zz ) );
+
+				}
+
+				arm.push( row );
+
+			}
+
+			const sleeve = loft( arm, { closed: true } );
+			paintVertices( sleeve, ( v, i ) => new Color( color ).multiplyScalar( Math.floor( i / 13 ) === ARM.length - 1 ? 0.7 : 1 ).getHex() ); // cuff band
+			kit.add( 'fittings', sleeve, opts );
+			kit.add( 'fittings', fanCap( arm[ 0 ], V( 0, 1, 0 ) ), opts );
+			kit.add( 'fittings', fanCap( arm[ arm.length - 1 ], V( 0, - 1, 0 ) ), trim );
+
+		}
+
+		// the loop sewn into the collar, over the hook, and the collar rolled around it
+		const loop = torus( 0.026, 0.004, 6, 16 );
+		loop.applyMatrix4( mat4( x - 0.025, yTop + 0.014, z, 0, Math.PI / 2, 0 ) );
+		kit.add( 'fittings', loop, dim );
+		const col = torus( 0.048 * scale, 0.020 * scale, 6, 14 );
+		col.applyMatrix4( mat4( x - 0.028 * scale, yTop - 0.045 * scale, z, Math.PI / 2, 0, 0, 0.62, 1, 1 ) );
+		kit.add( 'fittings', col, opts );
+
+		if ( hood > 0 ) {
+
+			//   dy below the collar top  half-width  depth
+			const HOOD = [
+				[ 0.03, 0.028, 0.010 ],
+				[ 0.06, 0.052, 0.022 ],
+				[ 0.10, 0.060, 0.026 ],
+				[ 0.135, 0.050, 0.018 ],
+			];
+			const hd = HOOD.map( ( [ hy, w, d ] ) => torsoRow( yTop - hy * scale, w * scale, d * scale * hood ) );
+			kit.add( 'fittings', loft( hd, { closed: true } ), dim );
+			kit.add( 'fittings', fanCap( hd[ 0 ], V( 0, 1, 0 ) ), dim );
+
+		}
+
 	};
 
-	hang( - 0.12, 1.92, 0xe0a81c, 1.0 ); // yellow oilskin
-	hang( 0.14, 1.9, 0xe2531a, 0.8 ); // orange lifejacket
+	hang( - 0.165, 1.92, 0xe0a81c, 1.0 ); // yellow oilskin
+	hang( 0.15, 1.9, 0xe2531a, 0.8, 0.45, true ); // orange lifejacket
 
 	// ---- starboard wall: extinguisher on its bracket, photos and the tide table, torch in a clip
 	{

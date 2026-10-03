@@ -14,7 +14,7 @@ import { GameHUD } from './GameHUD.js';
 import { Minimap } from './Minimap.js';
 import { Guide } from './Guide.js';
 
-import { fishNear, SONAR_RANGE, SONAR_FULL } from './Sonar.js';
+import { fishNear, schoolBite, SONAR_RANGE, SONAR_FULL } from './Sonar.js';
 // how long the catch card stays up unless dismissed (ms)
 const CATCH_CARD_MS = 9000;
 
@@ -710,6 +710,15 @@ export class Game {
 
 	}
 
+	// the shoal the cast is sitting on, if any: the schools the reef is really simulating, so
+	// fishing the school you can see (or the finder found) bites sooner and favours its species
+	schoolNear() {
+
+		const reef = this.app.reef;
+		return schoolBite( reef && reef.fish && reef.fish.groups, this.rod.bobber.x, this.rod.bobber.z );
+
+	}
+
 	habitatAtPoint( x, z, depth ) {
 
 		const b = { x, z };
@@ -738,7 +747,8 @@ export class Game {
 
 		}
 
-		this.bite = { phase: 'wait', t: biteDelay( this.habitat(), this.hour ) };
+		const s = this.schoolNear();
+		this.bite = { phase: 'wait', t: biteDelay( this.habitat(), this.hour, Math.random, s ? s.influence : 0 ) };
 
 	}
 
@@ -758,7 +768,8 @@ export class Game {
 		if ( b.phase === 'wait' ) {
 
 			const h = this.habitat();
-			const species = pickSpecies( h, this.hour );
+			const s = this.schoolNear();
+			const species = pickSpecies( h, this.hour, Math.random, s ? { id: s.model, k: s.bias } : null );
 			if ( ! species ) {
 
 				b.t = 8;
@@ -792,7 +803,8 @@ export class Game {
 		} else if ( b.phase === 'take' ) {
 
 			this.toast( 'It took the bait and ran', 1800 );
-			this.bite = { phase: 'wait', t: biteDelay( this.habitat(), this.hour ) };
+			const s = this.schoolNear();
+		this.bite = { phase: 'wait', t: biteDelay( this.habitat(), this.hour, Math.random, s ? s.influence : 0 ) };
 
 		}
 

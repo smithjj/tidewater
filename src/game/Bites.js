@@ -37,7 +37,9 @@ export function activity( pref, hour ) {
 
 // Weighted pick of the species that bites here; null when nothing lives here.
 // rng: () => [0, 1)
-export function pickSpecies( habitat, hour, rng = Math.random ) {
+// bias: { id, k } - a shoal of one species under the bobber (Sonar.schoolBite) multiplies that
+// species' weight, so a cast into a school favours what is actually swimming there
+export function pickSpecies( habitat, hour, rng = Math.random, bias = null ) {
 
 	let total = 0;
 	const w = [];
@@ -46,7 +48,8 @@ export function pickSpecies( habitat, hour, rng = Math.random ) {
 		const f = FISH[ id ];
 		let hw = 0;
 		for ( const k in f.habitat ) hw += f.habitat[ k ] * habitat[ k ];
-		const x = hw * f.rarity * activity( f.time, hour );
+		let x = hw * f.rarity * activity( f.time, hour );
+		if ( bias && bias.id === id ) x *= bias.k;
 		w.push( x );
 		total += x;
 
@@ -79,8 +82,9 @@ export function rollWeight( id, rng = Math.random ) {
 
 }
 
-// Seconds until the next bite at this spot: richer water bites sooner. Infinity when barren.
-export function biteDelay( habitat, hour, rng = Math.random ) {
+// Seconds until the next bite at this spot: richer water bites sooner, and a shoal under the
+// bobber sooner still (school: 0..1, see Sonar.schoolBite). Infinity when barren.
+export function biteDelay( habitat, hour, rng = Math.random, school = 0 ) {
 
 	let rich = 0;
 	for ( const k in habitat ) rich += habitat[ k ];
@@ -88,7 +92,7 @@ export function biteDelay( habitat, hour, rng = Math.random ) {
 	// open water between the named habitats still has fish: never much slower than a poor spot
 	rich = Math.max( rich, 0.35 );
 	const light = hour > 6 && hour < 19 ? 1 : 0.8;
-	const mean = 8 / ( Math.min( rich, 1.6 ) * light );
+	const mean = 8 / ( Math.min( rich, 1.6 ) * light * ( 1 + 0.9 * school ) );
 	return 2 + - Math.log( 1 - rng() * 0.98 ) * mean * 0.6;
 
 }

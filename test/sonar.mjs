@@ -1,6 +1,7 @@
 // The fish finder reading (src/game/Sonar.js): it reports the schools the reef is actually
 // simulating, not habitat. Pure data, so no GPU is needed.
-import { fishNear, SONAR_RANGE, SONAR_FULL } from '../src/game/Sonar.js';
+import { fishNear, schoolBite, SONAR_RANGE, SONAR_FULL } from '../src/game/Sonar.js';
+import { pickSpecies, biteDelay, habitatAt } from '../src/game/Bites.js';
 
 let fails = 0;
 const ok = ( c, msg ) => {
@@ -45,6 +46,29 @@ ok( Math.hypot( two[ 0 ].x - two[ 1 ].x, two[ 0 ].z - two[ 1 ].z ) >= 25, 'and t
 ok( fishNear( null, 0, 0, SONAR_RANGE ).length === 0, 'no reef, no reading (no throw)' );
 ok( fishNear( [ { center: null } ], 0, 0, SONAR_RANGE ).length === 0, 'and a malformed group is skipped' );
 ok( SONAR_FULL > 0 && SONAR_RANGE > 0, 'the constants are sane' );
+
+// a shoal under the cast: the bite comes sooner, and the species roll leans its way
+const shoal = schoolBite( [ group( 0, -4, 0.5, { count: 60 } ) ], 0, 0, 12 );
+ok( shoal && shoal.model === 'chromis', `a shoal under the bobber is found (${ shoal && shoal.name })` );
+ok( shoal.influence > 0.8 && shoal.bite <= 2 && shoal.bias <= 4, `close and big counts for most of it (influence ${ shoal.influence.toFixed( 2 ) }, bite x${ shoal.bite.toFixed( 2 ) }, bias x${ shoal.bias.toFixed( 2 ) })` );
+const edge = schoolBite( G, 0, 0, 12 );
+ok( edge && edge.influence < 0.2, `the edge of a shoal counts for little (${ edge && edge.influence.toFixed( 2 ) } at ${ edge && edge.dist.toFixed( 0 ) } m)` );
+ok( ! schoolBite( G, 500, 500, 12 ), 'and no shoal means no bonus' );
+const pair = schoolBite( [ group( 0, -4, 0.5, { count: 2 } ) ], 0, 0, 12 );
+ok( pair.influence < shoal.influence, `a pair of fish counts for less than a shoal (${ pair.influence.toFixed( 2 ) } vs ${ shoal.influence.toFixed( 2 ) })` );
+
+const reef = habitatAt( { depth: 8, reefDist: - 2, pierDist: 300 } );
+ok( biteDelay( reef, 12, () => 0.5, 1 ) < biteDelay( reef, 12, () => 0.5, 0 ), `a shoal shortens the wait (${ biteDelay( reef, 12, () => 0.5, 0 ).toFixed( 1 ) } s -> ${ biteDelay( reef, 12, () => 0.5, 1 ).toFixed( 1 ) } s)` );
+const sweep = ( bias ) => {
+
+	let n = 0;
+	for ( let i = 0; i < 240; i ++ ) if ( pickSpecies( reef, 12, () => ( ( i % 120 ) + 1 ) / 121, bias ) === 'tarpon' ) n ++;
+	return n;
+
+};
+const base = sweep( null ), biased = sweep( { id: 'tarpon', k: 1e6 } );
+ok( biased > 200, `a shoal of tarpon puts tarpon on the hook (${ biased } of 240 casts)` );
+ok( base < biased, `and without it the reef does not hand you tarpon (${ base } of 240)` );
 
 console.log( fails ? `\n${ fails } FAILED` : '\nsonar: all passed' );
 process.exit( fails ? 1 : 0 );

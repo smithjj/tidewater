@@ -35,6 +35,7 @@ export function fishNear( groups, x, z, r, max = 0, minSep = 0 ) {
 			dist: d,
 			// FISH is keyed by model and holds only catchable species, so a ray or turtle falls back
 			// to its behaviour name ('stingray', 'pierGrunt', ...)
+			model: ( g.sp && g.sp.model ) || null, // the FISH key: what a cast from here could catch
 			name: ( g.sp && FISH[ g.sp.model ] && FISH[ g.sp.model ].name ) || ( g.sp && g.sp.name ) || 'fish',
 		} );
 
@@ -51,5 +52,24 @@ export function fishNear( groups, x, z, r, max = 0, minSep = 0 ) {
 
 	}
 	return picked;
+
+}
+
+// The shoal a cast is sitting on, as an influence the bite model can use: the nearest school within
+// r, scaled by how close it is (1 under the shoal, 0 at the edge) and how many fish are in it (a
+// pair of grouper is not a bait ball). Null when there is nothing there. This is what makes casting
+// into a school you can see - or found with the finder - actually pay.
+export function schoolBite( groups, x, z, r = 12 ) {
+
+	const near = fishNear( groups, x, z, r, 1 )[ 0 ];
+	if ( ! near ) return null;
+	const closeness = 1 - near.dist / r;
+	const size = Math.min( 1, Math.max( 0.35, near.count / 40 ) );
+	return {
+		model: near.model, name: near.name, dist: near.dist, count: near.count,
+		influence: closeness * size, // 0..1, for biteDelay
+		bite: 1 + 0.9 * closeness * size, // the rate the wait is divided by
+		bias: 1 + 2.5 * closeness * size, // the weight its species is multiplied by
+	};
 
 }

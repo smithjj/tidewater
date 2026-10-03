@@ -31,8 +31,26 @@ const _c3 = new THREE.Vector3();
 const _c4 = new THREE.Vector3();
 const _c5 = new THREE.Vector3();
 let _boatCount = 0; // controllers made so far: each gets its own block of water queries
+const _chock = new THREE.Vector3();
+const _ch = new THREE.Vector3();
 const _invQ = new THREE.Quaternion();
 const _dq = new THREE.Quaternion();
+
+// The anchor (a boat holds still on it): dropped from the bow chock, it lies on the seabed where it landed,
+// and the rode (scope times the depth) lets the boat swing about it until the line comes taut. Past that
+// the line pulls at the chock like a stiff, damped spring (it only pulls), so a boat blown or drifting
+// downwind brings up on it and swings bow to the anchor, the way a real one lies. Numbers are tunable.
+export const ANCHOR = {
+	maxDepth: 20, // m of water: deeper and the rode would be too long to hold it
+	minDepth: 0.8, // m: aground, not afloat
+	maxSpeed: 2.5, // m/s through the water: faster and the anchor would not set (and would not be safe to let go)
+	scope: 5, // rode as a multiple of the depth (5:1 for a light boat in fair weather)
+	spare: 4, // m added to the rode for the height of the chock above the water
+	minRode: 8,
+	k: 9000, // N per m of stretch past the rode
+	c: 7000, // N s / m, only while the line is lengthening (it does not push the boat back)
+	maxTension: 60000, // N: what the anchor, line and chock will take (the engine's bollard pull is ~26 kN)
+};
 
 // Rigid-body model of an 8.2 m, 3.2 t Downeast lobster boat (semi-displacement hull, full keel).
 //
@@ -132,6 +150,8 @@ export class BoatController {
 		this.moored = true;
 		this.homeDock = dock; // where exitBoat re-moors (Player) and reset() returns to
 		this.mooring = { anchor: dock.position.clone(), heading: dock.heading };
+		// the anchor: where it lies (x, z), the rode paid out, the water it went down in, and the line's pull
+		this.anchor = { down: false, x: 0, z: 0, rode: 0, depth: 0, tension: 0 };
 
 		const n = this.samples.length;
 		this.waterH = new Float32Array( n ); // latest read-back
@@ -195,6 +215,44 @@ export class BoatController {
 		}
 
 		return out;
+
+	}
+
+	// the bow chock the anchor line leads through (boat frame)
+	get chock() {
+
+		return _chock.set( 0, this.model.lines ? this.model.lines.deckY : 0.9, this.model.bowZ ?? 3.9 );
+
+	}
+
+	// Can the anchor go down here? { ok, rode } or { ok: false, reason } (the reason reads as a toast)
+	canAnchor( depth ) {
+
+		if ( this.anchor.down ) return { ok: false, reason: 'The anchor is already down' };
+		if ( this.speed > ANCHOR.maxSpeed ) return { ok: false, reason: 'Slow down to drop the anchor' };
+		if ( depth < ANCHOR.minDepth ) return { ok: false, reason: 'Too shallow to anchor here' };
+		if ( depth > ANCHOR.maxDepth ) return { ok: false, reason: 'Too deep to anchor here' };
+		return { ok: true, rode: Math.max( ANCHOR.minRode, depth * ANCHOR.scope + ANCHOR.spare ) };
+
+	}
+
+	// let the anchor go from the bow, in `depth` metres of water
+	dropAnchor( depth ) {
+
+		const r = this.canAnchor( depth );
+		if ( ! r.ok ) return r;
+		const c = this.toWorld( this.chock, _p );
+		Object.assign( this.anchor, { down: true, x: c.x, z: c.z, rode: r.rode, depth, tension: 0 } );
+		return r;
+
+	}
+
+	weighAnchor() {
+
+		const was = this.anchor.down;
+		this.anchor.down = false;
+		this.anchor.tension = 0;
+		return was;
 
 	}
 
@@ -514,6 +572,26 @@ export class BoatController {
 
 		}
 
+		// ---- the anchor line: slack inside the rode, a stiff damped spring at the chock past it
+		const A = this.anchor;
+		if ( A.down ) {
+
+			const ch = this.toWorld( this.chock, _ch );
+			const dx = A.x - ch.x, dz = A.z - ch.z, d = Math.hypot( dx, dz );
+			if ( d > A.rode && d > 1e-6 ) {
+
+				const ux = dx / d, uz = dz / d;
+				// the chock's own velocity (the hull's plus its turn about the centre of mass)
+				const cv = _vp.crossVectors( this.angular, _r.copy( ch ).sub( comW ) ).add( this.velocity );
+				const away = - ( cv.x * ux + cv.z * uz ); // m/s the line is lengthening
+				const t = Math.min( ANCHOR.maxTension, ANCHOR.k * ( d - A.rode ) + ANCHOR.c * Math.max( 0, away ) );
+				addForceAt( _f.set( ux * t, 0, uz * t ), ch );
+				A.tension = t;
+
+			} else A.tension = 0;
+
+		}
+
 		// ---- grounding on terrain + contact with pier piles
 		this.contacts( F, T, comW );
 
@@ -563,6 +641,7 @@ export class BoatController {
 		this.moored = true;
 		this.mooring.anchor.copy( this.homeDock.position );
 		this.mooring.heading = this.homeDock.heading;
+		this.weighAnchor();
 
 	}
 

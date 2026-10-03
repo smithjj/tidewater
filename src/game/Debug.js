@@ -12,6 +12,7 @@
 //   __tw.hour() / __tw.hour( 7.5 )   the clock, 0..24
 //   __tw.weather( 'Storm' )    jump the sea state to a rung of the ladder (or null for the name)
 //   __tw.fish( 'lobster', 1.4 )      land a catch (cooler, log and catch card)
+//   __tw.anchor() / __tw.anchor( 'toggle' )   the anchor of the boat you are aboard (read / drop or weigh)
 //   __tw.guide( 'tuna' )       open the fish guide (on that species)
 //   __tw.learn( 'tuna', 6, 3 ) catch 6 tuna from random bay water and sell 3: fills the guide in
 //   __tw.order() / __tw.order( 9 )   Joe's order for today (or for that day)
@@ -115,6 +116,15 @@ export function installDebugGame( app ) {
 			const entry = s().addFish( species, weight, app.settings.timeOfDay );
 			if ( g().hud ) g().hud.showCatch( s().lastCatch, 7000 );
 			return entry;
+
+		},
+
+		// the anchor of the boat you are aboard: drop or weigh it (same as X), or read it
+		anchor( act ) {
+
+			const p = app.player, b = p.boat;
+			if ( act === 'toggle' ) g().toggleAnchor();
+			return { aboard: p.mode === 'boat' || p.mode === 'deck', down: b.anchor.down, rodeM: Math.round( b.anchor.rode ), tensionKN: Math.round( b.anchor.tension / 100 ) / 10, speed: Math.round( b.speed * 10 ) / 10 };
 
 		},
 
@@ -268,6 +278,7 @@ export function installDebugGame( app ) {
 				'__tw.hour( [h] )         clock 0..24',
 				`__tw.weather( [name] )   ${ CONDITIONS.join( ' | ' ) }`,
 				'__tw.fish( species, kg? )  land a catch',
+				'__tw.anchor( [\'toggle\'] )  read, or drop / weigh, the boat\'s anchor',
 				'__tw.guide( [species] )  open the fish guide',
 				'__tw.learn( sp, n, sold ) catch n of a species (and sell some): fills in the guide',
 				'__tw.order( [day] )      Joe\'s order of the day',

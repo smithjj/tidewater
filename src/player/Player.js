@@ -509,6 +509,7 @@ export class Player {
 		if ( b.position.distanceTo( dock ) < 14 && b.speed < 1.5 ) {
 
 			b.moored = true;
+			b.weighAnchor(); // the dock's lines hold it now
 			b.mooring.anchor.set( b.position.x, 0, b.position.z );
 			b.mooring.heading = b.getYaw();
 

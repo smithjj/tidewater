@@ -8,7 +8,7 @@
 //   - and so it capsized in an ordinary heavy sea.
 //   node test/boat-stability.mjs
 import * as E from '../src/engine/index.js';
-import { BoatController } from '../src/player/BoatController.js';
+import { BoatController, ANCHOR } from '../src/player/BoatController.js';
 import { HullLines, RHO_SEAWATER } from '../src/world/boat/HullLines.js';
 import { Pelagic30 } from '../src/world/boats/Pelagic30.js';
 import { MAX_QUERIES, QUERY_WORKGROUP, queryWorkgroups } from '../src/ocean/QueryLimits.js';
@@ -243,6 +243,116 @@ for ( const [ name, build ] of Object.entries( boats ) ) {
 	}
 
 	check( worstY < 0.1 && worstTilt < 1.5, `lobster boat beside the Pelagic rides the same as alone: heave off by ${ worstY.toFixed( 2 ) } m (< 0.1), tilt by ${ worstTilt.toFixed( 1 ) } degrees (< 1.5)` );
+
+}
+
+// ---- the anchor: holds the boat against a steady push, swings it bow to the line, and has rules
+{
+
+	const sea = irregularSea( 0.6, 4.5, 0.5 );
+	const depth = 6;
+	// a steady push along +x for `secs` (a squall: ~0.35 m/s^2 on the whole boat), the engine off; the boat
+	// starts heading +z with the chock's anchor, if any, dropped first
+	const blow = ( model, anchored, secs = 90, accel = 0.35, throttle = 0 ) => {
+
+		const b = makeBoat( model, sea );
+		b.boat.driven = throttle > 0;
+		for ( let i = 0; i < 90; i ++ ) frame( b, 0, 0 ); // settle on the water
+		let drop = null;
+		if ( anchored ) drop = b.boat.dropAnchor( depth );
+		const start = b.boat.position.clone(), A = b.boat.anchor;
+		let far = 0, maxT = 0;
+		for ( let i = 0; i < secs * 60; i ++ ) {
+
+			if ( throttle === 0 ) b.boat.velocity.x += accel * dt; // the wind (the engine case is thrust alone)
+			frame( b, throttle, 0 );
+			if ( anchored ) {
+
+				const c = b.boat.toWorld( b.boat.chock, new E.Vector3() );
+				far = Math.max( far, Math.hypot( c.x - A.x, c.z - A.z ) );
+				maxT = Math.max( maxT, A.tension );
+
+			}
+
+		}
+
+		return { b, drop, far, maxT, moved: b.boat.position.distanceTo( start ), speed: b.boat.speed };
+
+	};
+
+	for ( const [ name, model ] of [ [ 'lobster boat', lobsterModel() ], [ 'Pelagic 30', new Pelagic30() ] ] ) {
+
+		const free = blow( model, false ), held = blow( model, true );
+		const rode = held.drop.rode;
+		check( rode === Math.max( ANCHOR.minRode, depth * ANCHOR.scope + ANCHOR.spare ), `${ name }: ${ depth } m of water pays out ${ rode } m of rode` );
+		check( free.moved > 3 * rode, `${ name }: without the anchor a squall carries it ${ free.moved.toFixed( 0 ) } m in 90 s (more than 3x the rode)` );
+		check( held.far < rode + 3, `${ name }: on the anchor the bow never gets more than ${ ( held.far - rode ).toFixed( 1 ) } m past the rode (< 3 m)` );
+		check( held.speed < 0.4, `${ name }: and comes to rest (${ held.speed.toFixed( 2 ) } m/s)` );
+		check( held.maxT > 0 && held.maxT < ANCHOR.maxTension, `${ name }: the line takes up to ${ ( held.maxT / 1000 ).toFixed( 1 ) } kN, under its limit` );
+		// it lies bow to the anchor: the anchor is up-wind (the wind goes +x), so the bow ends up pointing -x
+		const f = held.b.boat.forward( new E.Vector3() );
+		const off = Math.acos( Math.min( 1, Math.max( - 1, - f.x / Math.hypot( f.x, f.z ) ) ) ) * DEG;
+		check( off < 40, `${ name }: it swings to lie bow to the anchor (heading ${ off.toFixed( 0 ) } degrees off the line)` );
+
+	}
+
+	// slack inside the rode: nothing pulls
+	{
+
+		const b = makeBoat( lobsterModel(), sea );
+		for ( let i = 0; i < 90; i ++ ) frame( b, 0, 0 );
+		b.boat.dropAnchor( depth );
+		let maxT = 0;
+		for ( let i = 0; i < 600; i ++ ) { frame( b, 0, 0 ); maxT = Math.max( maxT, b.boat.anchor.tension ); }
+		check( maxT === 0, 'inside its rode the anchor line is slack: no pull on a boat at rest in a seaway' );
+
+	}
+
+	// full ahead against the anchor: the line holds, the boat stays on its rode
+	{
+
+		const r = blow( lobsterModel(), true, 40, 0, 1 );
+		check( r.far < r.drop.rode + 7 && Number.isFinite( r.b.boat.position.x ), `full throttle against the anchor stays within ${ ( r.far - r.drop.rode ).toFixed( 1 ) } m of the rode end (< 7 m)` );
+		check( r.maxT <= ANCHOR.maxTension, `and the line never takes more than its cap (peak ${ ( r.maxT / 1000 ).toFixed( 1 ) } kN of ${ ANCHOR.maxTension / 1000 })` );
+
+	}
+
+	// the rules
+	{
+
+		const b = makeBoat( lobsterModel(), sea );
+		for ( let i = 0; i < 90; i ++ ) frame( b, 0, 0 );
+		const c = b.boat;
+		check( c.canAnchor( 0.3 ).ok === false && /shallow/.test( c.canAnchor( 0.3 ).reason ), 'too shallow: refused, and says so' );
+		check( c.canAnchor( ANCHOR.maxDepth + 1 ).ok === false && /deep/.test( c.canAnchor( ANCHOR.maxDepth + 1 ).reason ), 'too deep: refused, and says so' );
+		c.velocity.set( 3, 0, 0 ); c.speed = c.velocity.length();
+		check( c.canAnchor( depth ).ok === false && /Slow down/.test( c.canAnchor( depth ).reason ) && c.dropAnchor( depth ).ok === false && ! c.anchor.down, 'too fast: refused' );
+		c.velocity.set( 0, 0, 0 ); c.speed = 0;
+		const d = c.dropAnchor( depth );
+		check( d.ok && c.anchor.down, 'at rest in a fair depth: it goes down' );
+		const ch = c.toWorld( c.chock, new E.Vector3() );
+		check( Math.hypot( c.anchor.x - ch.x, c.anchor.z - ch.z ) < 0.01, 'and lands where the bow is' );
+		check( c.dropAnchor( depth ).ok === false, 'it cannot go down twice' );
+		check( c.weighAnchor() === true && ! c.anchor.down && c.weighAnchor() === false, 'weighing it brings it up (once)' );
+		c.dropAnchor( depth );
+		c.reset();
+		check( ! c.anchor.down, 'a boat put back at its berth has no anchor down' );
+
+	}
+
+	// weighed anchor: the boat is free again
+	{
+
+		const b = makeBoat( lobsterModel(), sea );
+		for ( let i = 0; i < 90; i ++ ) frame( b, 0, 0 );
+		b.boat.dropAnchor( depth );
+		for ( let i = 0; i < 20 * 60; i ++ ) { b.boat.velocity.x += 0.35 * dt; frame( b, 0, 0 ); }
+		const heldAt = b.boat.position.clone();
+		b.boat.weighAnchor();
+		for ( let i = 0; i < 30 * 60; i ++ ) { b.boat.velocity.x += 0.35 * dt; frame( b, 0, 0 ); }
+		check( b.boat.position.distanceTo( heldAt ) > 30, `weighed, it drifts off again (${ b.boat.position.distanceTo( heldAt ).toFixed( 0 ) } m in 30 s)` );
+
+	}
 
 }
 

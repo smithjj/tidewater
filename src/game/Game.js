@@ -9,6 +9,7 @@ import { FishStand } from './FishStand.js';
 import { Chandlery } from './Chandlery.js';
 import { CatchDisplay } from './CatchDisplay.js';
 import { UPGRADES, fuelBurn, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
+import { AnchorGear } from './AnchorGear.js';
 import { Traps, soakHours, haulYield, SOAK_MIN, TRAP_MAX_SPEED, SET_ASTERN, trapTriggered } from './Traps.js';
 import { GameHUD } from './GameHUD.js';
 import { Minimap } from './Minimap.js';
@@ -51,6 +52,8 @@ export class Game {
 		// the trap line: pots on the seabed with a buoy on each (see game/Traps.js)
 		// the working boat is handed over so the modelled pots can stand on its deck (see Traps._buildStack)
 		this.traps = new Traps( { scene: app.scene, terrain: app.terrainData, query: app.query, state: this.state, boat: app.boat, toast: ( t, ms ) => this.toast( t, ms ), splash: () => app.audio && app.audio.splash && app.audio.splash( 0.5 ) } );
+		// the anchor on the seabed and its line to the bow, for whichever boat has one down
+		this.anchors = new AnchorGear( { scene: app.scene, terrain: app.terrainData } );
 		this.vendors = [ this.stand.vendor, this.chandlery.vendor ];
 		// boat upgrades: engine (thrust / top speed) and deck floodlights for night fishing.
 		// The rebuilt engine is the lobster boat's: always target it, not whichever boat is active.
@@ -351,6 +354,10 @@ export class Game {
 		// the trap line (buoys ride the water; setting and hauling are E on the working boat)
 		this.traps.update( dt );
 		this.updateTraps( inp, p );
+		// the anchor (X, aboard either boat) and what it looks like
+		if ( inp.actHit( 'anchor' ) ) this.toggleAnchor();
+		this.anchorHint( dt, p );
+		if ( this.anchors ) this.anchors.update( p.boats, dt );
 
 		// prompts when the player has nothing to say
 		if ( ! p.prompt ) p.prompt = this.trapPrompt( p ) || ( can ? this.prompt() : null );
@@ -497,6 +504,51 @@ export class Game {
 		if ( r.count ) this.toast( `Sold ${ r.count } fish for $${ r.total }${ r.bonus > 0 ? ` · Joe's order +$${ r.bonus }` : '' }` );
 		if ( this.app.audio && this.app.audio.coin ) this.app.audio.coin();
 		return r;
+
+	}
+
+	// ---- the anchor
+	// Down or up for the boat the player is aboard (at the helm or on deck). It lands under the bow chock.
+	toggleAnchor() {
+
+		const p = this.app.player;
+		if ( p.mode !== 'boat' && p.mode !== 'deck' ) return null;
+		const b = p.boat;
+		if ( b.anchor.down ) {
+
+			b.weighAnchor();
+			this.toast( 'Anchor up', 2200 );
+			return { weighed: true };
+
+		}
+
+		const c = b.toWorld( b.chock, this._tmp );
+		const depth = Math.max( 0, - this.app.terrainData.heightAt( c.x, c.z ) );
+		const r = b.dropAnchor( depth );
+		if ( ! r.ok ) {
+
+			this.toast( r.reason, 2400 );
+			return null;
+
+		}
+
+		if ( this.app.audio && this.app.audio.splash ) this.app.audio.splash( 0.6 );
+		this.toast( `Anchor down · ${ Math.round( r.rode ) } m of line`, 2800 );
+		return r;
+
+	}
+
+	// driving against the anchor: say why the boat will not go (once in a while, not every frame)
+	anchorHint( dt, p ) {
+
+		this._anchorHintT = Math.max( 0, ( this._anchorHintT || 0 ) - dt );
+		if ( p.mode !== 'boat' || ! p.boat.anchor.down || this._anchorHintT > 0 ) return;
+		if ( p.boat.throttle > 0.4 && p.boat.anchor.tension > 2000 ) {
+
+			this._anchorHintT = 12;
+			this.toast( `The anchor is holding · ${ this.app.input.label( 'anchor' ) } to weigh it`, 2600 );
+
+		}
 
 	}
 

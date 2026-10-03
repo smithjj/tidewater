@@ -55,6 +55,7 @@ export const ACTIONS = [
 	// ---- interact
 	{ id: 'interact', label: 'Interact', group: 'Interact', kind: 'button', menu: 'allow', help: 'Interact<small>Board, helm, step ashore, trade, traps on deck</small>', kb: [ 'KeyE' ], pad: [ 'A' ] },
 	{ id: 'cooler', label: 'Cooler and fish log', group: 'Interact', kind: 'button', menu: 'allow', help: 'Cooler and fish log', kb: [ 'KeyI', 'Tab' ], pad: [ 'R3' ] },
+	{ id: 'anchor', label: 'Anchor', group: 'Interact', kind: 'button', menu: 'block', help: 'Anchor<small>Drop or weigh, aboard a boat</small>', kb: [ 'KeyX' ], pad: [] },
 	{ id: 'boatCamera', label: 'Boat camera', group: 'Interact', kind: 'button', menu: 'block', help: 'Boat camera<small>1st / 3rd person</small>', kb: [ 'KeyV' ], pad: [ 'L3' ] },
 
 	// ---- interface

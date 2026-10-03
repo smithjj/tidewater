@@ -8,6 +8,8 @@
 
 #include "../Terrain/TerrainHeight.hlsl"
 #include "../Common/CDLOD.hlsl"
+#include "../Common/Noise.hlsl"
+#include "ShoreWaves.hlsl"
 
 TEXTURE2D_ARRAY(_TWOceanDisp);  SAMPLER(sampler_TWOceanDisp);    // (Dx, Dy, Dz, foam) per cascade, mipmapped
 TEXTURE2D_ARRAY(_TWOceanDeriv); SAMPLER(sampler_TWOceanDeriv);   // (dDy/dx, dDy/dz, dDx/dx, dDz/dz), aniso 4
@@ -110,7 +112,9 @@ struct Varyings
 	float4 positionCS : SV_POSITION;
 	float3 positionRWS : TEXCOORD0;
 	float2 lagXZ : TEXCOORD1;
-	float4 misc : TEXCOORD2;   // wave height, sea depth, foam, 0
+	float4 misc : TEXCOORD2;   // wave height, sea depth, foam, shore (surf) foam
+	float4 shoreNS : TEXCOORD3; // shore normal xyz, swash
+	float2 surfMask : TEXCOORD4; // clear plunging face, whitewater roller relief (m)
 	UNITY_VERTEX_INPUT_INSTANCE_ID
 };
 
@@ -152,9 +156,51 @@ Varyings Vert( Attributes input )
 
 	disp *= _TWWaterA.x; // amplitude
 
-	// (shore waves, swash and the wake add to `extra` here once ported)
-	float3 total = disp;
+	float3 extra = 0.0;
+	float3 shoreN = float3( 0.0, 1.0, 0.0 );
+	float shoreFoam = 0.0;
+	float swash = 0.0;
+	float2 surfMask = 0.0; // clear plunging face, whitewater roller relief (m)
+
+	// Offshore of WATER_SHORE_DEEP the shore waves have faded out completely (their envelope is 0 from 26 m of depth, see
+	// ShoreWaves) and there is no swash: most of the sea skips their evaluation.
+	bool nearShore = depth < 26.0;
+	float swashLevel = -1e4;
+	if ( nearShore )
+	{
+		ShoreSample sw = ShoreEvaluate( worldXZ, depth, ground );
+		extra += sw.disp;
+		shoreN = clamp( sw.nShore, -1.0, 1.0 );
+		// (the foam line on the swash front is added per pixel in the water shader: on this coarse mesh it would end short
+		// of the front and follow the triangles)
+		shoreFoam = sw.foam;
+		surfMask = float2( sw.face, sw.roller );
+		swashLevel = sw.swashLevel;
+	}
+	// (the wake adds to `extra` here once ported)
+
+	float3 total = disp + extra;
 	float y = seaLevel + total.y;
+	if ( nearShore )
+	{
+		// thin run-up sheet on the sand: take whichever surface is higher (smooth max)
+		float k = 0.04;
+		// no run-up sheet on steep rock (cliffs, sea stacks): waves break against it instead
+		float4 nr = TWNormalRockLevel( worldXZ, 0.0 );
+		float gentle = smoothstep( 0.45, 0.25, length( nr.xy ) );
+		float hmx = TWSat( ( swashLevel - y ) / k * 0.5 + 0.5 ) * gentle;
+		float smax = lerp( y, swashLevel, hmx ) + hmx * ( 1.0 - hmx ) * k;
+		swash = smoothstep( -0.02, 0.03, swashLevel - y );
+		y = smax;
+		// Where the sheet is the surface it is the sheet that is seen, not the wave below it: the sheet lies on the sand (the
+		// sand's slope, no horizontal wave motion, no plunging face / roller). Otherwise the backwash sheet over the lower
+		// beach face, exposed by the trough of the next wave, keeps the trough's tilted normal and motion and reads as a
+		// separate dark strip between the sea and the thin film further up.
+		shoreN = normalize( lerp( shoreN, float3( nr.x, 1.0, nr.y ), hmx ) );
+		float still = 1.0 - hmx;
+		total = float3( total.x * still, total.y, total.z * still );
+		surfMask *= still;
+	}
 
 	// hide the water sheet below dry land (beyond the swash zone)
 	float below = depth < -3.0 ? min( ground - 2.0, seaLevel - 1.0 ) : ground - 0.06;
@@ -165,7 +211,9 @@ Varyings Vert( Attributes input )
 	o.positionRWS = GetCameraRelativePositionWS( posWS );
 	o.positionCS = TransformWorldToHClip( o.positionRWS );
 	o.lagXZ = worldXZ;
-	o.misc = float4( total.y, depth, foam, 0.0 );
+	o.misc = float4( total.y, depth, foam, shoreFoam );
+	o.shoreNS = float4( shoreN, swash );
+	o.surfMask = surfMask;
 	return o;
 }
 
@@ -190,10 +238,19 @@ float2 Rot( float2 v, float a )
 	return float2( v.x * c - v.y * s, v.x * s + v.y * c );
 }
 
-WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float depth, float vertexFoam )
+// extraFoam: foam carried by the water (ShoreSim; not ported yet); surfMask: clear face of a plunging wave, whitewater roller
+// relief (from the vertex stage)
+WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float depth, float vertexFoam, float3 shoreN, float shoreFoam, float extraFoam, float2 surfMask )
 {
 	float4 d = 0.0;
 	float foamSum = 0.0;
+	// the clear concave face of a plunging wave overhangs the trough: the foam carried by the (depth-averaged, world-space)
+	// shore simulation below it is not on the face
+	float face = TWSat( surfMask.x );
+	// (some of it stays: the lace of the previous wave is drawn up the face)
+	float simFoam = 0.0; // = extraFoam * ( 1 - face * 0.72 ) once ShoreSim exists
+	foamSum += simFoam;
+	// bubbles mixed into the water (milky, turquoise, hides the bottom): surf and wake
 	float aeration = 0.0;
 	// (sea detail: gusts / slicks modulate the short wind waves; not ported yet)
 	float rough = 1.0;
@@ -227,8 +284,27 @@ WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float dept
 	float jac = ( d.z + 1.0 ) * ( d.w + 1.0 );
 	// (the wake adds its slopes / foam / aeration here once ported)
 
-	// base normal (the shore waves' per-vertex normal is folded in here once ported)
-	float3 normal = normalize( float3( -slopes.x, 1.0, -slopes.y ) );
+	// base normal: large shoreline waves (per-vertex, can overhang) perturbed by FFT detail
+	float3 normal;
+	{
+		// On a coarse mesh the shore normal can flip between the vertices of a folding crest: the interpolated vector then
+		// cancels out (or is NaN). Keep it finite and facing up; NaN would otherwise surface as a white-hot cell after the
+		// output clamp.
+		float3 sn = clamp( shoreN, -1.0, 1.0 ) + float3( 0.0, 1e-3, 0.0 );
+		float3 Ns0 = sn / max( length( sn ), 1e-4 );
+		float3 Ns = normalize( float3( Ns0.x, max( Ns0.y, 0.12 ), Ns0.z ) );
+		// the ripples and chop ride on the wave: the detail normal is rotated onto the tilted face (reoriented normal
+		// mapping) instead of being flattened by it, so a steep face keeps the full texture of the sea surface rather than
+		// turning into smooth plastic
+		float3 nd = normalize( float3( -slopes.x, 1.0, -slopes.y ) );
+		float3 tq = Ns + float3( 0.0, 1.0, 0.0 );
+		float3 uq = float3( slopes.x, 1.0, slopes.y ) * nd.y;
+		normal = normalize( tq * ( dot( tq, uq ) / tq.y ) - uq );
+		foamSum += shoreFoam * 1.0;
+		// the roller and the water behind the plunge point are full of bubbles, decaying behind the bore with the foam it
+		// sheds; the clear face of a plunging wave is not
+		aeration += TWSat( shoreFoam * 1.2 + simFoam * 0.7 ) * ( 1.0 - face ) * smoothstep( -0.1, 0.3, depth );
+	}
 
 	// whitecaps: persistent (per vertex) + fresh where the surface is compressed right now
 	float fresh = TWSat( ( _TWOceanParams.y - 0.15 - jac ) * 2.0 );
@@ -388,14 +464,46 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 	float3 absorption = _TWWaterAbsorption.rgb;
 	float3 scattering = _TWWaterScattering.rgb;
 
-	// water film thickness at this pixel (the swash front is not ported: no analytic front, no meniscus lip)
+	// water film thickness at this pixel and the distance to the swash front (ShoreWaves.swashEdge): the sheet ends exactly on
+	// its analytic leading edge, not on the mesh triangles
 	float groundH = TWHeightAt( pos.xz );
 	float thickness = pos.y - groundH;
 	float frontD = 1e3;
-	float uprush = 1.0;
-	float lipW = 0.0;
+	float swTau = 0.0;
+	float swRt = 0.0;
+	if ( vDepth < 1.0 )
+	{
+		float tRaw = thickness;
+		float4 se = ShoreSwashEdge( pos.xz, thickness );
+		thickness = se.x; frontD = se.y; swTau = se.z; swRt = se.w;
+		// The draining sheet has no rounded front: it thins out over decimetres and breaks up where the sand drains faster.
+		// The analytic front runs parallel to the shoreline; kept as a hard, smooth edge (with the uprush's meniscus, rim and
+		// contact shadow) it read as a dark line ruled along the beach between the foam and the wet sand.
+		float backwash = smoothstep( 0.32, 0.46, swTau );
+		if ( backwash > 0.0 && swRt > 0.0 && frontD < 3.0 )
+		{
+			frontD += ( TWPerlin2( pos.xz * 1.1 ) * 0.35 + TWPerlin2( pos.xz * 3.7 + float2( 5.3, 1.9 ) ) * 0.15 ) * backwash;
+			thickness = min( tRaw, frontD * lerp( 0.08, 0.025, backwash ) );
+		}
+	}
+	// the foam line riding the swash front, per pixel: a dense bubbly bead right at the edge while the sheet runs up, a
+	// thinning lace behind it; weaker in the backwash (it sinks into the sand)
+	float uprush = smoothstep( 0.46, 0.32, swTau );
+	float bead = smoothstep( -0.01, 0.05, frontD ) * smoothstep( 0.6, 0.12, frontD );
+	float trail = smoothstep( -0.01, 0.25, frontD ) * smoothstep( 2.2, 0.3, frontD );
+	// patchy along the front (dense bunches and thin stretches), not an even white rope (only where the edge foam below can
+	// be non-zero: it is weighted by the run-up and the shallow depth)
+	float edgePatch = 1.0;
+	if ( swRt > 0.0 && vDepth < 0.4 )
+	{
+		edgePatch = smoothstep( -0.45, 0.55, TWPerlin2( pos.xz * 0.42 ) ) * 0.7 + smoothstep( -0.3, 0.6, TWPerlin2( pos.xz * 1.7 + float2( 3.1, 7.7 ) ) ) * 0.3;
+	}
+	float edgeFoam = ( bead * lerp( 0.45, 1.1, uprush ) * lerp( 0.35, 1.0, edgePatch ) + trail * lerp( 0.12, 0.4, uprush ) * edgePatch ) * smoothstep( 0.0, 1.0, swRt ) * smoothstep( 0.4, -0.2, vDepth );
+	// the meniscus: the last decimetre of the advancing sheet bends down to the sand
+	float lipW = ( 1.0 - smoothstep( 0.0, 0.14, frontD ) ) * uprush;
 
-	WaterSurfaceFrag surf = WaterSurfaceFragment( lagXZ, footprint, vDepth, input.misc.z );
+	// (simState: ShoreSim.sample here once ported)
+	WaterSurfaceFrag surf = WaterSurfaceFragment( lagXZ, footprint, vDepth, input.misc.z, input.shoreNS.xyz, input.misc.w + edgeFoam, 0.0, input.surfMask );
 	float foam = surf.foam;
 	// (the whale's churned white water and slick: not ported yet)
 
@@ -405,7 +513,7 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 	// plane slices the water. The winding can't be trusted in folds of the choppy / breaking surface: there, and well
 	// above or below the surface, the camera's own medium decides.
 	float camH = camPos.y - _TWWaterQuery[ 0 ].x;   // frame.cameraWaterHeight (this frame's GPU result)
-	bool folded = surf.jacobian < 0.1;
+	bool folded = surf.jacobian < 0.1 || normalize( input.shoreNS.xyz ).y < 0.35;
 	bool nearSurface = abs( camH ) < 1.5;
 	bool viewFromBelow = ( nearSurface && ! folded ) ? ! front : camH < 0.0;
 	// shading normal on the viewer's side of the interface. Triangle winding can't be trusted (tiny self-intersections
@@ -507,9 +615,8 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 			Lt = max( pos.y - TWHeightAt( pos.xz + Tv.xz * min( L1 * 0.5 + L0 * 0.5, 200.0 ) ), 0.0 ) / tDown;
 		}
 		float Lter = clamp( Lt, 0.0, 400.0 );
-		// thin breaking crests: the refracted ray leaves through the back of the wave into the sky (needs the shore
-		// waves' crest path: not ported yet)
-		float crestT = 1e4;
+		// thin breaking crests: the refracted ray leaves through the back of the wave into the sky
+		float crestT = ShoreCrestPath( lagXZ, vDepth, Tv );
 		bool thruCrest = crestT < Lter;
 
 		// project the refracted end point to the screen
@@ -539,9 +646,13 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 		// bubbles mixed into the water (the surf behind breakers, wakes): a strong scatterer, the water turns milky
 		// turquoise and the bottom disappears (WaterSurface.fragment aeration)
 		float aer = surf.aeration;
-		// (the surf zone's sand and bubbles, ShoreWaves.surfMedium: not ported yet)
-		float3 sigA = absorption;
-		float3 sigS = scattering + aer * 1.6;
+		// surf zone: sand and bubbles stirred up by the breakers (see ShoreWaves.surfMedium); sandK would also scale it by the
+		// foam carried by the shore sim (not ported yet)
+		float sandK = 1.0;
+		ShoreMedium surfMed = ShoreSurfMedium( pos.xz, vDepth );
+		float3 sigA = absorption + surfMed.absorb * sandK;
+		// (bubble plumes are shallow and patchy: a moderate scatterer, milky turquoise rather than a glow)
+		float3 sigS = scattering + surfMed.scatter * sandK + aer * 1.6;
 		float3 sigT = sigA + sigS;
 
 		// refracted sun direction
@@ -583,15 +694,20 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 		float3 foamLit = ( sunLight * ( max( dot( N, L ), 0.0 ) * 0.75 + 0.25 ) * INV_PI + skyIrradiance * 0.95 ) * 0.85;
 		float3 foamCol = foamLit * _TWWaterB.w;
 
-		// (the rim of the swash front and the local lights on the sea surface: not ported yet)
-		float3 water = lerp( transmitted, reflCol, F ) + sunSpec;
+		// a thin bright rim just behind the edge: the rounded bead catches the sky
+		float rim = smoothstep( 0.0, 0.025, frontD ) * smoothstep( 0.1, 0.035, frontD ) * uprush;
+		// (the local lights on the sea surface: not ported yet)
+		float3 water = lerp( transmitted, reflCol, F ) + sunSpec + skyRefl * ( 0.22 * rim );
 		float3 shaded = lerp( water, foamCol + sunSpec * 0.05, TWSat( foam ) );
 		// fade into the sand right at the leading edge (anti-aliased by the film thickness)
 		float edgeAA = smoothstep( 0.0, max( fwidth( thickness ) * 1.5, 0.004 ), thickness );
 		outCol = shaded;
 		if ( edgeAA < 1.0 )
 		{
-			float3 sandC = WaterSceneColorAt( screenUV );
+			// contact shadow: the sand just ahead of the advancing edge is darkened (the bead's shadow and the wetting front),
+			// fading within ~15 cm
+			float contact = smoothstep( -0.16, -0.005, frontD ) * ( 1.0 - edgeAA ) * uprush;
+			float3 sandC = WaterSceneColorAt( screenUV ) * ( 1.0 - 0.3 * contact );
 			outCol = lerp( sandC, shaded, edgeAA );
 		}
 	}

@@ -37,6 +37,7 @@ namespace Tidewater.Ocean
 		readonly int kernel;
 		readonly OceanFFT fft;
 		readonly TerrainGPU terrain; // optional
+		readonly ShoreWaves shore; // optional (needs the terrain)
 		readonly ComputeBuffer inputBuffer, results;
 		readonly Vector4[] inputsGpu = new Vector4[ MAX ];
 
@@ -58,12 +59,14 @@ namespace Tidewater.Ocean
 		AsyncGPUReadbackRequest request;
 
 		public float amplitude = 1;
+		// test hook: use the exact integer hash for the per-wave random (Shaders/Ocean/ShoreWaves.hlsl, TW_SHORE_ORACLE)
+		public bool oracleHash;
 		// the results table, for shaders that read the same-frame camera state (slot 0): ( height, nx, nz, sea floor )
 		public ComputeBuffer resultsBuffer => results;
 
-		public WaterQuery( ComputeShader shader, OceanFFT fft, TerrainGPU terrain = null )
+		public WaterQuery( ComputeShader shader, OceanFFT fft, TerrainGPU terrain = null, ShoreWaves shore = null )
 		{
-			cs = shader; this.fft = fft; this.terrain = terrain;
+			cs = shader; this.fft = fft; this.terrain = terrain; this.shore = terrain != null ? shore : null;
 			kernel = cs.FindKernel( "WaterQueries" );
 			inputBuffer = new ComputeBuffer( MAX, 16 );
 			results = new ComputeBuffer( MAX, 16 );
@@ -103,20 +106,27 @@ namespace Tidewater.Ocean
 			var sizes = new Vector4[ 4 ];
 			for ( int c = 0; c < 4; c ++ ) sizes[ c ] = new Vector4( c < fft.cascades ? ( float ) fft.sizes[ c ] : 1, 0, 0, 0 );
 			cs.SetVectorArray( "_TWOceanSizes", sizes );
-			cs.SetVector( "_QAmp", new Vector4( amplitude, G.seaLevel, terrain != null ? 1 : 0, 0 ) );
+			cs.SetVector( "_QAmp", new Vector4( amplitude, G.seaLevel, terrain != null ? 1 : 0, shore != null ? 1 : 0 ) );
 			if ( terrain != null )
 			{
 				cs.SetTexture( kernel, "_TWHeightTex", terrain.heightTexture );
 				cs.SetVector( "_TWTerrainParams", new Vector4( ( float ) terrain.origin, ( float ) terrain.size, terrain.res, 0 ) );
+				cs.SetTexture( kernel, "_TWShoreTex", terrain.shoreTexture );
+				cs.SetVector( "_TWShoreParams", new Vector4( terrain.shoreRes, 0, 0, 0 ) );
 			}
 			else
 			{
 				// the kernel never reads them without terrain, but the binding has to exist
 				cs.SetTexture( kernel, "_TWHeightTex", Texture2D.blackTexture );
+				cs.SetTexture( kernel, "_TWShoreTex", Texture2D.blackTexture );
 			}
+
+			if ( shore != null ) shore.SetCompute( cs, kernel, G.time, G.seaLevel );
+			else cs.SetTexture( kernel, "_TWShoreDirTex", Texture2D.blackTexture );
 
 			cs.SetBuffer( kernel, "_QueryInputs", inputBuffer );
 			cs.SetBuffer( kernel, "_QueryResults", results );
+			if ( oracleHash ) cs.EnableKeyword( "TW_SHORE_ORACLE" ); else cs.DisableKeyword( "TW_SHORE_ORACLE" );
 			cs.Dispatch( kernel, QueryLimits.QueryWorkgroups( count ), 1, 1 );
 
 			if ( ! pending )

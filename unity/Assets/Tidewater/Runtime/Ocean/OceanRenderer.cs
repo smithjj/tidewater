@@ -27,6 +27,8 @@ namespace Tidewater.Ocean
 		// sea state on the Conditions ladder: 0 Calm .. 3 Storm (1 = Breezy, the JS default spectrum)
 		[Range( 0, 3 )] public float seaState = 1;
 		public float windDirection = 25; // degrees (Conditions windDir)
+		// shore wave amplitude (offshore H/2) and period (s): written by the sea conditions (surf, period) once the weather exists
+		public float shoreAmplitude = 0.34f, shorePeriod = 9f;
 
 		// WaterSurface params
 		public float amplitude = 1, slopeScale = 1, foamCoverage = 1, foamSharpness = 2.2f;
@@ -41,6 +43,8 @@ namespace Tidewater.Ocean
 		public OceanFFT fft { get; private set; }
 		// water-surface queries for gameplay (boats, swimmer, particles): slot 0 is the camera
 		public WaterQuery query { get; private set; }
+		// the shoreline waves (needs the terrain's shore field); null until the terrain exists
+		public ShoreWaves shore { get; private set; }
 		public CDLOD lod { get; private set; }
 		RenderTexture foamTexture;
 
@@ -98,6 +102,8 @@ namespace Tidewater.Ocean
 		{
 			if ( query != null ) query.Dispose();
 			query = null;
+			if ( shore != null ) shore.Destroy();
+			shore = null;
 			if ( fft != null ) fft.Dispose();
 			fft = null;
 			if ( foamTexture != null ) { foamTexture.Release(); DestroyImmediate( foamTexture ); }
@@ -111,6 +117,7 @@ namespace Tidewater.Ocean
 			Conditions.WriteConditions( fft, c, out Vector2 wd, out float ws, true, jump );
 			G.windDir = wd;
 			G.windSpeed = ws;
+			shoreAmplitude = ( float ) c.surf; shorePeriod = ( float ) c.period;
 			appliedSeaState = seaState;
 		}
 
@@ -124,6 +131,19 @@ namespace Tidewater.Ocean
 				G.dt = Mathf.Min( Time.deltaTime, 0.1f );
 				G.time += G.dt;
 				fft.Update( G.dt );
+				if ( shore != null ) shore.Update( G.dt );
+			}
+		}
+
+		// Run the sea forward by `seconds` (editor tools and tests: the Editor does not tick Update when it is not playing).
+		public void Advance( float seconds, float step = 1f / 30f )
+		{
+			if ( fft == null ) return;
+			for ( float t = 0; t < seconds; t += step )
+			{
+				G.dt = step; G.time += step;
+				fft.Update( step );
+				if ( shore != null ) shore.Update( step );
 			}
 		}
 
@@ -179,8 +199,16 @@ namespace Tidewater.Ocean
 			if ( query == null )
 			{
 				var tr = FindAnyObjectByType<Tidewater.World.TerrainRenderer>();
-				query = new WaterQuery( queryShader, fft, tr != null ? tr.gpu : null ) { amplitude = amplitude };
+				if ( tr != null && tr.gpu != null && tr.shoreField != null ) shore = new ShoreWaves( tr.gpu, tr.shoreField );
+				query = new WaterQuery( queryShader, fft, tr != null ? tr.gpu : null, shore ) { amplitude = amplitude };
 			}
+
+			if ( shore != null )
+			{
+				shore.amplitude = shoreAmplitude; shore.period = shorePeriod;
+				shore.SetGlobals( G.time, G.seaLevel );
+			}
+			else ShoreWaves.SetDisabledGlobals();
 
 			if ( cam.cameraType == CameraType.Game )
 			{

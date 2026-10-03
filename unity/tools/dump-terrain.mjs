@@ -11,6 +11,8 @@ const { TerrainData } = await import( root + '/src/world/TerrainData.js' );
 const { Noise2D, mulberry32 } = await import( root + '/src/util/Noise.js' );
 const { hash2, erosionNoise } = await import( root + '/src/world/terrain/TerrainNoise.js' );
 const { ridgeEnvelope } = await import( root + '/src/world/terrain/IslandShape.js' );
+const { computeShoreField } = await import( root + '/src/world/ShoreField.js' );
+const { WORLD } = await import( root + '/src/world/WorldLayout.js' );
 const { bakeTerrainMaps } = await import( root + '/src/world/terrain/TerrainBake.js' );
 // DetailTextures.js builds a GPU texture; its pixel loop is all we need, so run it against a stub Texture
 const { getDetailPixels } = await import( './detail-pixels.mjs' );
@@ -27,6 +29,8 @@ const w = ( name, arr ) => fs.writeFileSync( path.join( out, name ), Buffer.from
 w( 'heights.f32', T.heights ); w( 'rock.f32', T.rock );
 for ( const k of [ 'sand', 'path', 'gully', 'seagrass', 'rubble', 'scarp' ] ) w( k + '.u8', T[ k ] );
 const maps = bakeTerrainMaps( T );
+const shore = computeShoreField( T, { res: 512, swellDir: [ WORLD.swellDir.x, WORLD.swellDir.y ] } );
+w( 'shore.f32', shore.data ); w( 'shore_depth.f32', shore.depth );
 w( 'normal.u8', maps.normal ); w( 'splat.u8', maps.splat );
 w( 'detail.u8', await getDetailPixels( root ) );
 

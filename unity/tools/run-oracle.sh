@@ -7,7 +7,13 @@ U=/mnt/c/Users/smith/AppData/Local/Unity/bin/unity.exe
 ORACLE=${1:-TerrainOracle}
 rm -f Temp/oracle/report.txt
 "$U" --no-banner recompile --focus || exit 1
-"$U" --no-banner command eval 'UnityEditor.EditorApplication.delayCall += () => { string r; try { r = Tidewater.EditorTools.'"$ORACLE"'.Compare(); } catch (System.Exception e) { r = e.ToString(); } System.IO.File.WriteAllText(System.IO.Path.GetFullPath(System.IO.Path.Combine(UnityEngine.Application.dataPath, "../Temp/oracle/report.txt")), r); }; return "scheduled";' >/dev/null 2>&1
+# schedule the comparison (retry: the Editor may still be reloading its domain after the compile)
+n=0
+while [ $n -lt 20 ]; do
+	out=$("$U" --no-banner command eval 'UnityEditor.EditorApplication.delayCall += () => { string r; try { r = Tidewater.EditorTools.'"$ORACLE"'.Compare(); } catch (System.Exception e) { r = e.ToString(); } System.IO.File.WriteAllText(System.IO.Path.GetFullPath(System.IO.Path.Combine(UnityEngine.Application.dataPath, "../Temp/oracle/report.txt")), r); }; return "scheduled";' 2>&1)
+	echo "$out" | grep -q '"result":"scheduled"' && break
+	n=$((n+1)); sleep 5
+done
 # an unfocused Editor does not tick EditorApplication.delayCall, and focus does not always survive the domain reload:
 # keep bringing the Editor forward (a no-op recompile with --focus) until the report appears
 i=0

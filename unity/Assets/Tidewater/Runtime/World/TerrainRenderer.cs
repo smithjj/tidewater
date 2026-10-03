@@ -25,6 +25,7 @@ namespace Tidewater.World
 		public TerrainData data { get; private set; }
 		public TerrainGPU gpu { get; private set; }
 		public CDLOD lod { get; private set; }
+		public ShoreFieldData shoreField { get; private set; }
 
 		const int Batch = 1023;
 		readonly Matrix4x4[] identity = new Matrix4x4[ Batch ];
@@ -55,7 +56,9 @@ namespace Tidewater.World
 			var sw = System.Diagnostics.Stopwatch.StartNew();
 			data = new TerrainData( seed );
 			double genMs = sw.Elapsed.TotalMilliseconds;
-			gpu = new TerrainGPU( data );
+			// the wave travel-time field the shore waves follow (App.js: res 512, the world's swell direction)
+			shoreField = ShoreField.Compute( data, 512, WorldLayout.SwellDirX, WorldLayout.SwellDirZ );
+			gpu = new TerrainGPU( data, shoreField );
 			gpu.SetGlobals();
 			double half = data.size / 2;
 			lod = new CDLOD( gridSize, 8, 9, rangeFactor, 0.66, 1500, - 20, 20,
@@ -79,7 +82,7 @@ namespace Tidewater.World
 		void Release()
 		{
 			if ( gpu != null ) gpu.Destroy();
-			gpu = null; data = null; lod = null;
+			gpu = null; data = null; lod = null; shoreField = null;
 		}
 
 		// travelling gust field offset (the same integration as Vegetation's vegGustOffset)

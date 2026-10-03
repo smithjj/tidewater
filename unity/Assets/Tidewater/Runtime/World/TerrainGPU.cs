@@ -21,12 +21,13 @@ namespace Tidewater.World
 	public sealed class TerrainGPU
 	{
 		public readonly TerrainData terrain;
-		public Texture2D heightTexture, normalTexture, splatTexture, detailTexture;
+		public Texture2D heightTexture, normalTexture, splatTexture, detailTexture, shoreTexture;
+		public int shoreRes = 1;
 		public readonly double origin, size;
 		public readonly int res;
 		public readonly double bakeMs;
 
-		public TerrainGPU( TerrainData terrain )
+		public TerrainGPU( TerrainData terrain, ShoreFieldData shoreField = null )
 		{
 			this.terrain = terrain;
 			res = terrain.res;
@@ -47,7 +48,28 @@ namespace Tidewater.World
 			// tileable detail: repeat wrapping, trilinear, anisotropy 4 (the JS aniso4Repeat sampler)
 			detailTexture = DataTexture( DetailTexture.Get(), DetailTexture.S, "terrainDetail", TextureWrapMode.Repeat, 4 );
 
+			// placeholder until the shore field is set (1 texel, no waves)
+			shoreTexture = ShoreFieldTexture( new float[] { 1e4f, 0, 0, 0 }, 1 );
+			if ( shoreField != null ) SetShoreField( shoreField );
+
 			bakeMs = sw.Elapsed.TotalMilliseconds;
+		}
+
+		static Texture2D ShoreFieldTexture( float[] data, int res )
+		{
+			// float32 data with manual bilinear filtering (TWShoreSample): point sampled, loaded
+			var t = new Texture2D( res, res, TextureFormat.RGBAFloat, false, true ) { name = "terrainShoreField", filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp };
+			t.SetPixelData( data, 0 );
+			t.Apply( false, true );
+			return t;
+		}
+
+		// the travel-time field of the shore waves (ShoreField.Compute)
+		public void SetShoreField( ShoreFieldData f )
+		{
+			shoreRes = f.res;
+			if ( shoreTexture != null ) UnityEngine.Object.DestroyImmediate( shoreTexture );
+			shoreTexture = ShoreFieldTexture( f.data, f.res );
 		}
 
 		static Texture2D DataTexture( byte[] data, int n, string label, TextureWrapMode wrap = TextureWrapMode.Clamp, int aniso = 1 )
@@ -65,13 +87,15 @@ namespace Tidewater.World
 			Shader.SetGlobalTexture( "_TWNormalTex", normalTexture );
 			Shader.SetGlobalTexture( "_TWSplatTex", splatTexture );
 			Shader.SetGlobalTexture( "_TWDetailTex", detailTexture );
+			Shader.SetGlobalTexture( "_TWShoreTex", shoreTexture );
+			Shader.SetGlobalVector( "_TWShoreParams", new Vector4( shoreRes, 0, 0, 0 ) );
 			Shader.SetGlobalVector( "_TWTerrainParams", new Vector4( ( float ) origin, ( float ) size, res, 0 ) );
 		}
 
 		public void Destroy()
 		{
 			Object.DestroyImmediate( heightTexture ); Object.DestroyImmediate( normalTexture );
-			Object.DestroyImmediate( splatTexture ); Object.DestroyImmediate( detailTexture );
+			Object.DestroyImmediate( splatTexture ); Object.DestroyImmediate( detailTexture ); Object.DestroyImmediate( shoreTexture );
 		}
 	}
 }

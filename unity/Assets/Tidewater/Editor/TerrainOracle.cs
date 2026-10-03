@@ -49,6 +49,12 @@ namespace Tidewater.EditorTools
 			sb.AppendLine( $"detail texture ms: {sw.ElapsedMilliseconds}" );
 			CompareB( sb, "detail", detail, dir + "/detail.u8" );
 
+			var sw2 = System.Diagnostics.Stopwatch.StartNew();
+			var shore = ShoreField.Compute( T, 512, WorldLayout.SwellDirX, WorldLayout.SwellDirZ );
+			sb.AppendLine( $"shore field ms: {sw2.ElapsedMilliseconds}" );
+			CompareF( sb, "shore", shore.data, dir + "/shore.f32" );
+			CompareF( sb, "shoreDepth", shore.depth, dir + "/shore_depth.f32" );
+
 			var file = JsonUtility.FromJson<SampleFile>( File.ReadAllText( dir + "/noise.json" ) );
 			var n = new Noise2D( 7 );
 			var worst = new Dictionary<string, double>();
@@ -92,7 +98,7 @@ namespace Tidewater.EditorTools
 				if ( first < 0 ) first = i;
 			}
 
-			sb.AppendLine( $"{name,-9} {n} texels: exact {n - diff}, differ {diff} ({100.0 * diff / n:F3}%), > 1e-4: {big}, max abs diff {max:E3}" + ( first >= 0 ? $", first at ({first % 2048}, {first / 2048}) cs={a[ first ]:R} js={BitConverter.ToSingle( bytes, first * 4 ):R}" : "" ) );
+			sb.AppendLine( $"{name,-9} {n} texels: exact {n - diff}, differ {diff} ({100.0 * diff / n:F3}%), > 1e-4: {big}, max abs diff {max:E3}" + ( first >= 0 ? $", first at index {first} cs={a[ first ]:R} js={BitConverter.ToSingle( bytes, first * 4 ):R}" : "" ) );
 		}
 
 		static void CompareB( StringBuilder sb, string name, byte[] a, string file )

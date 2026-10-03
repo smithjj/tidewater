@@ -7,17 +7,20 @@
 // fixed-point iterations. Shore waves and the wake add to the displacement once ported (see WaterQueryDispAt).
 
 #pragma kernel WaterQueries
+#pragma multi_compile _ TW_SHORE_ORACLE   // exact per-wave hash for the JS oracle (see ShoreWaves.hlsl)
 
 #define TW_NO_NORMAL_ROCK
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
 #include "../Terrain/TerrainHeight.hlsl"
+#include "../Common/Noise.hlsl"
+#include "ShoreWaves.hlsl"
 
 #define MAX_QUERIES 256u
 
 Texture2DArray<float4> _TWOceanDisp;
 SamplerState sampler_LinearRepeat;
 float4 _TWOceanSizes[4];
-float4 _QAmp;                 // x = WaterSurface amplitude, y = sea level, z = has terrain (1/0)
+float4 _QAmp;                 // x = WaterSurface amplitude, y = sea level, z = has terrain (1/0), w = has shore waves (1/0)
 StructuredBuffer<float4> _QueryInputs;
 RWStructuredBuffer<float4> _QueryResults;
 
@@ -40,7 +43,8 @@ float3 WaterQueryDispAt( float2 x0, float depth )
 	}
 
 	d *= _QAmp.x;
-	// (shoreEvaluateNoNormal( x0, depth, terrainHeightAt( x0 ) ).disp and wakeDisplacement( x0 ) are added here once ported)
+	if ( _QAmp.w > 0.5 ) { d += ShoreEvaluateNoNormal( x0, depth, TWHeightAt( x0 ) ).disp; }
+	// (wakeDisplacement( x0 ) is added here once ported)
 	return d;
 }
 

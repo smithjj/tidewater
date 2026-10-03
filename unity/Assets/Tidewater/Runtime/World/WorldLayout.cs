@@ -54,5 +54,7 @@ namespace Tidewater.World
 
 		// Incoming swell direction (unit, travel direction)
 		public static readonly Vector2 SwellDir = new Vector2( - 0.12f, - 1 ).normalized;
+		// the same in doubles (the shore field is computed with them)
+		public static readonly double SwellDirX = - 0.12 / System.Math.Sqrt( 0.12 * 0.12 + 1 ), SwellDirZ = - 1 / System.Math.Sqrt( 0.12 * 0.12 + 1 );
 	}
 }

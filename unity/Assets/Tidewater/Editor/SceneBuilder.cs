@@ -97,6 +97,22 @@ namespace Tidewater.EditorTools
 	// Debug switches for isolating a renderer in screenshots.
 	public static class OceanDebug
 	{
+		// run the sea forward (the Editor does not tick the ocean when not playing)
+		public static string Advance( float seconds )
+		{
+			var o = Object.FindAnyObjectByType<OceanRenderer>();
+			if ( o == null ) return "no ocean";
+			o.Advance( seconds );
+			return "advanced " + seconds + " s";
+		}
+
+		public static string State( float seaState )
+		{
+			var o = Object.FindAnyObjectByType<OceanRenderer>();
+			if ( o != null ) o.seaState = seaState;
+			return "sea state " + seaState;
+		}
+
 		public static string View( int v )
 		{
 			var o = Object.FindAnyObjectByType<OceanRenderer>();

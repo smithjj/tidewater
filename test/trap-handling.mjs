@@ -136,6 +136,20 @@ const fire = ( o ) => { const t = mkGame( o ); t.g.setTrap = () => { t.calls.set
 	t = mkGame( { mode: 'boat', speed: TRAP_MAX_SPEED + 1, sets: [ pot ] } );
 	t.g.traps.haulVisual = () => true;
 	ok( t.g.haulTrap( t.state.sets[ 0 ] ) !== null, 'a caller that names the set (the console) is not held to the speed' );
+	// what comes up is logged with where it came from, for the fish guide's map
+	let logged = null;
+	for ( let i = 0; i < 60 && ! logged; i ++ ) {
+
+		t = mkGame( { mode: 'boat', sets: [ { x: 101, z: - 50, clock: 0 } ] } );
+		t.g.habitatAtPoint = () => ( { reef: 0.9, bay: 0.2, shallows: 0, pier: 0, deep: 0 } );
+		t.g.traps.haulVisual = () => true;
+		t.g.haulTrap();
+		const e = Object.values( t.state.log ).find( ( x ) => x.catches && x.catches.length );
+		if ( e ) logged = e.catches[ 0 ];
+
+	}
+
+	ok( logged && logged.x === 101 && logged.z === - 50 && logged.hab === 'reef', `a pot's catch is logged at the pot, in its water (${ logged ? `${ logged.x }, ${ logged.z }, ${ logged.hab }` : 'nothing came up in 60 tries' })` );
 	t = mkGame( { mode: 'boat', sets: [ pot ] } );
 	t.g.traps.busy = true;
 	ok( t.g.haulTrap() === null && t.state.sets.length === 1, 'a second haul cannot start while one is coming up' );

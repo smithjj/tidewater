@@ -58,6 +58,7 @@ export const ACTIONS = [
 	{ id: 'boatCamera', label: 'Boat camera', group: 'Interact', kind: 'button', menu: 'block', help: 'Boat camera<small>1st / 3rd person</small>', kb: [ 'KeyV' ], pad: [ 'L3' ] },
 
 	// ---- interface
+	{ id: 'codex', label: 'Fish guide', group: 'Interface', kind: 'button', menu: 'allow', help: 'Fish guide<small>What you have learned about each fish</small>', kb: [ 'KeyJ' ], pad: [] },
 	{ id: 'settings', label: 'Settings panel', group: 'Interface', kind: 'button', menu: 'allow', help: 'Settings panel', kb: [ 'KeyH' ], pad: [ 'Menu' ] },
 	{ id: 'controls', label: 'All controls', group: 'Interface', kind: 'button', menu: 'allow', help: 'This sheet', kb: [ 'F1' ], pad: [ 'View' ] },
 	{ id: 'map', label: 'Large map', group: 'Interface', kind: 'button', menu: 'block', help: 'Large map<small>Open / close, north is up</small>', kb: [ 'KeyN' ], pad: [] },

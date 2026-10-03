@@ -12,6 +12,9 @@
 //   __tw.hour() / __tw.hour( 7.5 )   the clock, 0..24
 //   __tw.weather( 'Storm' )    jump the sea state to a rung of the ladder (or null for the name)
 //   __tw.fish( 'lobster', 1.4 )      land a catch (cooler, log and catch card)
+//   __tw.guide( 'tuna' )       open the fish guide (on that species)
+//   __tw.learn( 'tuna', 6, 3 ) catch 6 tuna from random bay water and sell 3: fills the guide in
+//   __tw.order() / __tw.order( 9 )   Joe's order for today (or for that day)
 //   __tw.traps() / __tw.traps( 6 )   pots aboard
 //   __tw.setTrap()             set a pot where the boat is (or at x, z)
 //   __tw.haul( id? )           haul a pot (the nearest, or that one)
@@ -24,6 +27,8 @@
 import { CONDITIONS, SEA, writeConditions } from '../ocean/Conditions.js';
 import { FISH } from './FishTable.js';
 import { TRAP_LIMIT } from './Gear.js';
+import { orderFor } from './Orders.js';
+import { dominantHabitat } from './Codex.js';
 
 export function installDebugGame( app ) {
 
@@ -110,6 +115,60 @@ export function installDebugGame( app ) {
 			const entry = s().addFish( species, weight, app.settings.timeOfDay );
 			if ( g().hud ) g().hud.showCatch( s().lastCatch, 7000 );
 			return entry;
+
+		},
+
+		// open the fish guide (on a species, if given)
+		guide( species ) {
+
+			const hud = g().hud;
+			if ( ! hud ) return null;
+			if ( species && FISH[ species ] ) hud.fishGuide.selected = species;
+			hud.fishGuide.toggle( true );
+			return hud.fishGuide.selected;
+
+		},
+
+		// give the guide something to show: n catches of a species, from random water in the bay (hours,
+		// weights and places random), and `sold` of them sold to Joe. __tw.learn( 'grouper', 6, 3 )
+		learn( species, n = 1, sold = 0 ) {
+
+			const f = FISH[ species ];
+			if ( ! f ) return Object.keys( FISH );
+			const t = app.terrainData;
+			const spot = () => {
+
+				for ( let i = 0; i < 200; i ++ ) {
+
+					const x = - 80 + Math.random() * 260, z = - 40 + Math.random() * 220;
+					const depth = t ? - t.heightAt( x, z ) : 5;
+					if ( depth > 0.5 ) return { x, z, hab: dominantHabitat( g().habitatAtPoint( x, z, depth ) ) };
+
+				}
+
+				return null;
+
+			};
+			const st = s();
+			const got = []; // (a full cooler still logs the catch, it just keeps nothing)
+			for ( let i = 0; i < n; i ++ ) {
+
+				const kg = f.kg[ 0 ] + ( f.kg[ 1 ] - f.kg[ 0 ] ) * Math.pow( Math.random(), 2.2 );
+				const e = st.addFish( species, kg, Math.random() * 24, spot() );
+				if ( e ) got.push( e.id );
+
+			}
+
+			if ( sold > 0 ) st.sell( got.slice( 0, sold ) );
+			return { caught: st.log[ species ].count, sold: st.log[ species ].sold };
+
+		},
+
+		// Joe's order of the day: today's, or the one for another day (the pool follows the licence)
+		order( day ) {
+
+			const o = day === undefined ? s().todaysOrder : orderFor( day, { lobster: s().mayTrap } );
+			return o ? { ...o, name: FISH[ o.species ].name } : null;
 
 		},
 
@@ -209,6 +268,9 @@ export function installDebugGame( app ) {
 				'__tw.hour( [h] )         clock 0..24',
 				`__tw.weather( [name] )   ${ CONDITIONS.join( ' | ' ) }`,
 				'__tw.fish( species, kg? )  land a catch',
+				'__tw.guide( [species] )  open the fish guide',
+				'__tw.learn( sp, n, sold ) catch n of a species (and sell some): fills in the guide',
+				'__tw.order( [day] )      Joe\'s order of the day',
 				'__tw.traps( [n] )        pots aboard',
 				'__tw.setTrap( x?, z? )   set a pot (boat position by default)',
 				'__tw.haul( [id] )        haul the nearest pot',

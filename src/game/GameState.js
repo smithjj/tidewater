@@ -1,4 +1,6 @@
 import { FISH, FISH_IDS, fishValue, fishLengthCm } from './FishTable.js';
+import { orderFor, orderMul } from './Orders.js';
+import { emptyEntry, periodOf, CATCH_CAP } from './Codex.js';
 import { defaultUpgrades, gearStats, nextLevel, UPGRADES, FUEL_PRICE, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
 
 const SAVE_KEY = 'tidewater.save.v1';
@@ -13,7 +15,7 @@ export class GameState {
 		this.storage = storage;
 		this.money = 0;
 		this.inventory = []; // { id, species, kg, cm, value, caughtAt (game hours), record }
-		this.log = {}; // species -> { count, bestKg, bestCm }
+		this.log = {}; // species -> { count, bestKg, bestCm, minKg, first, catches, habs, periods, sold, earned } (see Codex.emptyEntry)
 		// the last addFish: { species, kg, cm, value, newSpecies, record, prevBestKg, prevBestCm, kept } (the catch card)
 		this.lastCatch = null;
 		this.upgrades = defaultUpgrades();
@@ -27,6 +29,8 @@ export class GameState {
 		this.sets = []; // { id, x, z, day, clock } — set at day * 24 + clock game hours
 		// Joe's prices move with the day: { day, mul: { species: factor } }
 		this.market = { day: 1, mul: {} };
+		// Joe's order of the day (see Orders.js): { day, species, minKg, filled, bonus }, rolled on first look each day
+		this.order = null;
 		this._nextId = 1;
 		this.listeners = new Set();
 
@@ -66,10 +70,32 @@ export class GameState {
 
 	}
 
-	// what a landed fish is worth at today's price (its own `value` is the standard price)
+	// ---- Joe's order: one species, a size or bigger, paid a multiplier all day (from day 2)
+
+	get todaysOrder() {
+
+		if ( ! this.order || this.order.day !== this.day ) {
+
+			const o = orderFor( this.day, { lobster: this.mayTrap } );
+			this.order = o ? { ...o, filled: 0, bonus: 0 } : null;
+
+		}
+
+		return this.order;
+
+	}
+
+	// ORDER_MULT when this fish fills today's order, else 1
+	orderMulFor( f ) {
+
+		return orderMul( this.todaysOrder, f );
+
+	}
+
+	// what a landed fish is worth at today's price and today's order (its own `value` is the standard price)
 	priceOf( f ) {
 
-		return Math.round( ( f.value ?? 0 ) * this.mulFor( f.species ) );
+		return Math.round( ( f.value ?? 0 ) * this.mulFor( f.species ) * this.orderMulFor( f ) );
 
 	}
 
@@ -99,15 +125,17 @@ export class GameState {
 
 	// store a caught fish; returns the entry, or null when the hold is full (it is logged either way).
 	// A record beats an earlier catch of the species; the first one of a species is a new species.
-	addFish( species, kg, timeOfDay = 12 ) {
+	// where: { x, z, hab } the spot it came from (the bobber, or the pot), for the fish guide's map
+	addFish( species, kg, timeOfDay = 12, where = null ) {
 
 		kg = Math.round( kg * 100 ) / 100;
 		const cm = Math.round( fishLengthCm( species, kg ) );
-		const logEntry = this.log[ species ] || ( this.log[ species ] = { count: 0, bestKg: 0 } );
+		const logEntry = this.entryFor( species );
 		const newSpecies = logEntry.count === 0;
 		const prevBestKg = logEntry.bestKg, prevBestCm = logEntry.bestCm ?? ( prevBestKg > 0 ? Math.round( fishLengthCm( species, prevBestKg ) ) : 0 );
 		const record = ! newSpecies && kg > prevBestKg;
 		logEntry.count ++;
+		this.noteCatch( logEntry, kg, timeOfDay, where );
 		if ( kg > prevBestKg ) {
 
 			logEntry.bestKg = kg;
@@ -134,18 +162,65 @@ export class GameState {
 
 	}
 
+	// the species' log entry, made (with every field the fish guide reads) if it is the first
+	entryFor( species ) {
+
+		const e = this.log[ species ] || ( this.log[ species ] = emptyEntry() );
+		// entries from before the guide have a count and a best, and gain the rest as they are used
+		if ( ! Array.isArray( e.catches ) ) Object.assign( e, { ...emptyEntry(), ...e, catches: [] } );
+		return e;
+
+	}
+
+	// the guide's memory of one catch: the lightest, the first, when (day and hour), where and in what water
+	noteCatch( e, kg, timeOfDay, where ) {
+
+		e.minKg = e.minKg > 0 ? Math.min( e.minKg, kg ) : kg;
+		if ( ! e.first ) e.first = { day: this.day, hour: timeOfDay };
+		const p = periodOf( timeOfDay );
+		e.periods[ p ] = ( e.periods[ p ] || 0 ) + 1;
+		if ( where && where.hab ) e.habs[ where.hab ] = ( e.habs[ where.hab ] || 0 ) + 1;
+		const c = { kg, day: this.day, hour: Math.round( timeOfDay * 100 ) / 100 };
+		if ( where && Number.isFinite( where.x ) && Number.isFinite( where.z ) ) { c.x = Math.round( where.x ); c.z = Math.round( where.z ); }
+		if ( where && where.hab ) c.hab = where.hab;
+		e.catches.push( c );
+		if ( e.catches.length > CATCH_CAP ) e.catches.splice( 0, e.catches.length - CATCH_CAP );
+
+	}
+
 	// sell the given fish ids (all when omitted); returns the money made
 	sell( ids = null ) {
 
 		const keep = [], sold = [];
 		for ( const f of this.inventory ) ( ids === null || ids.includes( f.id ) ? sold : keep ).push( f );
-		let total = 0;
-		for ( const f of sold ) total += this.priceOf( f );
+		let total = 0, bonus = 0, filled = 0;
+		for ( const f of sold ) {
+
+			const p = this.priceOf( f );
+			total += p;
+			const e = this.log[ f.species ] && this.entryFor( f.species ); // what the guide knows of its price
+			if ( e ) { e.sold ++; e.earned += p; }
+			if ( this.orderMulFor( f ) > 1 ) {
+
+				filled ++;
+				bonus += p - Math.round( ( f.value ?? 0 ) * this.mulFor( f.species ) ); // what the order added
+
+			}
+
+		}
+
+		if ( filled ) {
+
+			this.order.filled += filled;
+			this.order.bonus += bonus;
+
+		}
+
 		this.inventory = keep;
 		this.money += total;
 		this.save();
 		this.emit();
-		return { total, count: sold.length };
+		return { total, count: sold.length, bonus, filled };
 
 	}
 
@@ -327,7 +402,7 @@ export class GameState {
 
 		return { v: 1, money: this.money, inventory: this.inventory, log: this.log, upgrades: this.upgrades, fuel: this.fuel, nextId: this._nextId,
 			day: this.day, clock: this.clock, weather: this.weather,
-			traps: this.traps, sets: this.sets, market: this.market };
+			traps: this.traps, sets: this.sets, market: this.market, order: this.order };
 
 	}
 
@@ -340,6 +415,12 @@ export class GameState {
 		for ( const f of this.inventory ) if ( ! Number.isFinite( f.cm ) ) f.cm = Math.round( fishLengthCm( f.species, f.kg ) );
 		this.log = d.log && typeof d.log === 'object' ? d.log : {};
 		for ( const [ k, v ] of Object.entries( this.log ) ) if ( FISH[ k ] && v && v.bestKg > 0 && ! Number.isFinite( v.bestCm ) ) v.bestCm = Math.round( fishLengthCm( k, v.bestKg ) );
+		for ( const k of Object.keys( this.log ) ) {
+
+			if ( ! FISH[ k ] || ! this.log[ k ] || typeof this.log[ k ] !== 'object' ) { delete this.log[ k ]; continue; }
+			this.log[ k ] = sanitizeEntry( this.log[ k ] );
+
+		}
 		this.upgrades = { ...defaultUpgrades(), ...( d.upgrades || {} ) };
 		this.fuel = Number.isFinite( d.fuel ) ? d.fuel : null;
 		// saves from before the world clock existed simply start on day 1 at the default time
@@ -351,6 +432,10 @@ export class GameState {
 		this.sets = Array.isArray( d.sets ) ? d.sets.filter( ( s ) => s && Number.isFinite( s.x ) && Number.isFinite( s.z ) && Number.isFinite( s.day ) && Number.isFinite( s.clock ) ) : [];
 		this.market = d.market && typeof d.market === 'object' && d.market.mul && Number.isFinite( d.market.day )
 			? { day: d.market.day, mul: d.market.mul } : { day: this.day, mul: {} };
+		// today's order, if the save has one (a stale day is simply rolled afresh by the next look)
+		const o = d.order;
+		this.order = o && typeof o === 'object' && Number.isFinite( o.day ) && FISH[ o.species ] && Number.isFinite( o.minKg )
+			? { day: o.day, species: o.species, minKg: o.minKg, filled: o.filled | 0, bonus: Number.isFinite( o.bonus ) ? o.bonus : 0 } : null;
 		this._nextId = Math.max( d.nextId | 0, ...this.inventory.map( ( f ) => f.id + 1 ), ...this.sets.map( ( s ) => ( s.id | 0 ) + 1 ), 1 );
 		return true;
 
@@ -396,10 +481,30 @@ export class GameState {
 		this.traps = 0;
 		this.sets = [];
 		this.market = { day: 1, mul: {} };
+		this.order = null;
 		this.save();
 		this.emit();
 
 	}
+
+}
+
+// a saved log entry with every field the guide reads, clamped to what makes sense (a hand-edited or older save)
+function sanitizeEntry( v ) {
+
+	const num = ( x, d = 0 ) => Number.isFinite( x ) && x >= 0 ? x : d;
+	const e = { ...emptyEntry(), ...v };
+	e.count = Math.floor( num( v.count ) );
+	e.bestKg = num( v.bestKg );
+	e.minKg = num( v.minKg );
+	e.sold = Math.floor( num( v.sold ) );
+	e.earned = num( v.earned );
+	e.first = v.first && Number.isFinite( v.first.day ) && Number.isFinite( v.first.hour ) ? { day: v.first.day, hour: v.first.hour } : null;
+	const counts = ( o ) => Object.fromEntries( Object.entries( o && typeof o === 'object' ? o : {} ).filter( ( [ , n ] ) => Number.isFinite( n ) && n > 0 ) );
+	e.habs = counts( v.habs );
+	e.periods = counts( v.periods );
+	e.catches = ( Array.isArray( v.catches ) ? v.catches : [] ).filter( ( c ) => c && Number.isFinite( c.kg ) && Number.isFinite( c.day ) && Number.isFinite( c.hour ) ).slice( - CATCH_CAP );
+	return e;
 
 }
 

@@ -1,4 +1,6 @@
 import { FISH, fishLengthCm } from './FishTable.js';
+import { ORDER_MULT, fmtKg } from './Orders.js';
+import { FishGuide } from './FishGuide.js';
 import { UPGRADES, nextLevel, FUEL_PRICE, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
 import { FishPortrait } from './FishPortrait.js';
 import { resolveLabels } from '../core/Bindings.js';
@@ -25,6 +27,11 @@ const CSS = /* css */`
 .gm-clock-time::before, .gm-clock-sea::before { content: '·'; margin-right: var(--tw-2); color: var(--tw-ink-3); }
 .gm-val .gm-up, .gm-up { color: var(--tw-aqua); font-style: normal; margin-left: 3px; }
 .gm-down { color: var(--tw-coral); font-style: normal; margin-left: 3px; }
+.gm-star { color: var(--tw-sun); font-style: normal; margin-left: 3px; }
+.gm-order { padding: var(--tw-2) 0; font-size: var(--tw-fs-sm); color: var(--tw-ink-2); }
+.gm-order b { color: var(--tw-ink); }
+.gm-order-eyebrow { color: var(--tw-ink-3); }
+.gm-order-done { color: var(--tw-aqua); }
 .gm-market { display: flex; flex-wrap: wrap; gap: var(--tw-2) var(--tw-3); padding: var(--tw-2) 0; }
 .gm-market span { font-size: var(--tw-fs-sm); color: var(--tw-ink-2); }
 .gm-cooler { display: flex; align-items: center; gap: var(--tw-2); color: var(--tw-ink-2); font-size: var(--tw-fs-md); }
@@ -180,13 +187,25 @@ const fmtClock = ( hours ) => {
 };
 
 // what a fish is worth today, with a mark when the market is off the standard rate
-const priceTag = ( s, f ) => {
+export const priceTag = ( s, f ) => {
 
 	const m = s.mulFor( f.species );
 	const mark = m > 1.001 ? '<i class="gm-up" title="paying above the odds">▲</i>' : m < 0.999 ? '<i class="gm-down" title="paying under">▼</i>' : '';
-	return `$${ s.priceOf( f ) }${ mark }`;
+	const order = s.orderMulFor( f ) > 1 ? '<i class="gm-star" title="Joe\'s order of the day">★</i>' : '';
+	return `$${ s.priceOf( f ) }${ mark }${ order }`;
 
 };
+
+// Joe's order of the day: what he is asking for, the multiplier, and how it has gone so far
+export function orderBoard( s ) {
+
+	const o = s.todaysOrder;
+	if ( ! o ) return '';
+	const f = FISH[ o.species ];
+	const done = o.filled ? ` <span class="gm-order-done">filled ${ o.filled === 1 ? 'once' : o.filled + ' times' } · +$${ o.bonus }</span>` : '';
+	return `<div class="gm-order"><span class="gm-order-eyebrow">Joe wants</span> <b>${ f.name }</b>, ${ fmtKg( o.minKg ) } or bigger <i class="gm-star">★ ×${ ORDER_MULT }</i>${ done }</div>`;
+
+}
 
 // Joe's board: the day's movers (the top payers and the one that fell out of favour)
 function marketBoard( s ) {
@@ -257,6 +276,7 @@ export class GameHUD {
 		ui.root.append( this.inv, this.stand );
 		this.invOpen = false;
 		this.standOpen = false;
+		this.fishGuide = new FishGuide( this ); // the fish guide panel (J), after the panel styles above
 		this._last = {};
 		game.state.onChange( () => this.refresh() );
 		this.refresh();
@@ -271,6 +291,7 @@ export class GameHUD {
 
 	refresh() {
 
+		if ( this.fishGuide ) this.fishGuide.refresh(); // (open: the log or today's order changed)
 		const s = this.game.state;
 		const st = s.stats;
 		this.moneyEl.textContent = `$${ s.money.toLocaleString() }`;
@@ -296,6 +317,7 @@ export class GameHUD {
 	// per frame
 	update( { fight, casting, power, bite, aiming, fuel = null, sonar = null, clock = null, traps = null } ) {
 
+		this.fishGuide.tick();
 		// the world clock: the day, the hour, and what the sea is doing
 		if ( clock ) {
 
@@ -382,6 +404,7 @@ export class GameHUD {
 		else if ( info.record ) note = `<div class="gm-catch-note">Previous best <b>${ info.prevBestKg.toFixed( 2 ) } kg</b> · ${ info.prevBestCm } cm. Beaten by ${ ( info.kg - info.prevBestKg ).toFixed( 2 ) } kg.</div>`;
 		else if ( info.newSpecies ) note = '<div class="gm-catch-note">First one in your fish log.</div>';
 		else note = `<div class="gm-catch-note">Your best: ${ info.prevBestKg.toFixed( 2 ) } kg · ${ info.prevBestCm } cm</div>`;
+		if ( info.kept && this.game.state.orderMulFor( info ) > 1 ) note += `<div class="gm-catch-note"><i class="gm-star">★</i> Joe's order: he pays ×${ ORDER_MULT } for this one today.</div>`;
 		// splash burst around the fish as it lands in view
 		let drops = '';
 		for ( let i = 0; i < 26; i ++ ) {
@@ -440,12 +463,19 @@ export class GameHUD {
 	}
 
 	// ---- inventory
+	get guideOpen() {
+
+		return this.fishGuide.open;
+
+	}
+
 	toggleInventory( force ) {
 
 		this.invOpen = force ?? ! this.invOpen;
 		if ( this.invOpen ) {
 
 			this.closeStand();
+			this.fishGuide.toggle( false );
 			this.renderInventory();
 			releaseMouse();
 
@@ -486,6 +516,7 @@ export class GameHUD {
 		this.standOpen = true;
 		this.vendor = vendor;
 		this.toggleInventory( false );
+		this.fishGuide.toggle( false );
 		if ( vendor.kind === 'shop' ) this.renderShop();
 		else this.renderStand();
 		this.stand.classList.add( 'is-open' );
@@ -508,7 +539,7 @@ export class GameHUD {
 		this.stand.innerHTML = `
 			<h2>${ v.name }</h2>
 			<p class="gm-sub">${ s.inventory.length ? v.greeting || 'Let\'s see what you caught.' : v.idle || 'Come back when you\'ve got fish.' }</p>
-			${ marketBoard( s ) }
+			${ orderBoard( s ) }${ marketBoard( s ) }
 			<div class="gm-list">${ rows || '<div class="gm-empty">Your cooler is empty.</div>' }</div>
 			<div class="gm-foot"><button class="gm-btn is-ghost" data-close>Leave (<span data-bind="interact">E</span>)</button><button class="gm-btn" data-all ${ s.inventory.length ? '' : 'disabled' }>Sell all · $${ s.holdValue }</button></div>`;
 		this.stand.querySelector( '[data-close]' ).onclick = () => this.closeStand();

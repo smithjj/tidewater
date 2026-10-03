@@ -34,8 +34,15 @@ rendering engine, no framework.
 - A trap line: buy the licence and the pots from Marta, set them from the working boat, and haul them for
   lobster (and whatever else walked in) once they have soaked. They fish on the world clock, and the map
   marks where you left them.
+- A fish guide (J): every species, a blacked-out silhouette until you catch one. What it shows grows with how
+  many you have caught (a rough size range, then a tighter one, its waters and when it bites) and how many you
+  have sold (a guess at its price, then the real one), with a map of where you caught it over an estimate of
+  its water that sharpens as you learn it.
 - A daily market: Joe pays a different rate per species every day, so holding a catch overnight is a
   decision. His board lists the day's movers.
+- Joe's order of the day: from day 2 he asks for one species, a decent size or bigger, and pays 25% more on
+  every fish of it you sell that day, on top of the market rate. It is on his board, and a ★ marks the fish in
+  your cooler that fill it.
 - Walk the deck and the wheelhouse while the boat drifts; the boat burns fuel.
 - Two boats, both drivable, with decks you can stand on and fish from: the lobster boat (which carries the
   hauler and the pots) and the Pelagic 30 off the pier head.
@@ -106,6 +113,7 @@ rendering engine, no framework.
 | Left mouse | Hold to wind up, release to cast · strike when a fish takes the bait · hold to reel |
 | Right mouse | Reel an empty line in |
 | I or Tab | Cooler / fish hold and the fish log |
+| J | Fish guide: what you have learned about each species |
 | F | Free camera |
 | L | Flashlight |
 | T | Run or pause the day |

@@ -19,6 +19,7 @@ const EXT = 1280; // metres covered by the bake
 const X0 = - EXT / 2, Z0 = - 180 - EXT / 2; // world at canvas (0, 0): the island sits north of the bay
 const PPM = N / EXT; // canvas px per metre
 const ROWS_PER_FRAME = 48;
+export const MAP_GEOM = { N, EXT, X0, Z0 }; // the bake's pixels and the world square it covers (the fish guide's map crops it)
 const BIG_RADIUS = 360; // metres from the centre to the rim of the large map
 
 const CSS = /* css */`

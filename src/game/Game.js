@@ -12,6 +12,7 @@ import { UPGRADES, fuelBurn, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
 import { Traps, soakHours, haulYield, SOAK_MIN, TRAP_MAX_SPEED, SET_ASTERN, trapTriggered } from './Traps.js';
 import { GameHUD } from './GameHUD.js';
 import { Minimap } from './Minimap.js';
+import { dominantHabitat } from './Codex.js';
 import { Guide } from './Guide.js';
 
 import { fishNear, schoolBite, SONAR_RANGE, SONAR_FULL } from './Sonar.js';
@@ -228,19 +229,21 @@ export class Game {
 		}
 
 		if ( this.hud && inp.actHit( 'cooler' ) ) this.hud.toggleInventory();
+		if ( this.hud && inp.actHit( 'codex' ) ) this.hud.fishGuide.toggle();
 		if ( this.minimap && inp.actHit( 'map' ) ) this.minimap.toggleBig( inp.label( 'map' ) );
 		if ( this.minimap && inp.actHit( 'cancel' ) ) this.minimap.toggleBig( '', false );
 		if ( this.hud && inp.actHit( 'cancel' ) ) {
 
 			this.hud.toggleInventory( false );
 			this.hud.closeStand();
+			this.hud.fishGuide.toggle( false );
 
 		}
 
 		// the cast / reel button and its edges (the pad trigger and the left mouse both land here)
 		const lmb = inp.act( 'rodUse' ), rmb = inp.act( 'rodIn' );
 		const lDown = inp.actHit( 'rodUse' ), lUp = inp.actReleased( 'rodUse' ), rDown = inp.actHit( 'rodIn' );
-		const panelOpen = this.hud && ( this.hud.invOpen || this.hud.standOpen );
+		const panelOpen = this.hud && ( this.hud.invOpen || this.hud.standOpen || this.hud.guideOpen );
 
 		if ( rod.equipped && ! panelOpen ) {
 
@@ -491,7 +494,7 @@ export class Game {
 	sellAll() {
 
 		const r = this.state.sell();
-		if ( r.count ) this.toast( `Sold ${ r.count } fish for $${ r.total }` );
+		if ( r.count ) this.toast( `Sold ${ r.count } fish for $${ r.total }${ r.bonus > 0 ? ` · Joe's order +$${ r.bonus }` : '' }` );
 		if ( this.app.audio && this.app.audio.coin ) this.app.audio.coin();
 		return r;
 
@@ -651,7 +654,9 @@ export class Game {
 
 		const depth = Math.max( 0, - app.terrainData.heightAt( set.x, set.z ) );
 		const soak = soakHours( set, { hour: this.hour, day: s.day } );
-		const animals = haulYield( { soak, depth, habitat: this.habitatAtPoint( set.x, set.z, depth ), hour: this.hour } );
+		const habitat = this.habitatAtPoint( set.x, set.z, depth );
+		const animals = haulYield( { soak, depth, habitat, hour: this.hour } );
+		const where = { x: set.x, z: set.z, hab: dominantHabitat( habitat ) }; // for the fish guide's map
 		if ( ! s.haulTrap( set.id ) ) return null;
 		this.traps.haulVisual( b );
 		this.rumble( 0.85, 0.4, 220 );
@@ -672,7 +677,7 @@ export class Game {
 		let kept = 0;
 		for ( const a of animals ) {
 
-			const f = s.addFish( a.species, a.kg, this.hour );
+			const f = s.addFish( a.species, a.kg, this.hour, where );
 			if ( f ) kept ++;
 			const t = tally.get( a.species ) || { n: 0, kg: 0 };
 			t.n ++; t.kg += a.kg;
@@ -698,7 +703,7 @@ export class Game {
 	sell( ids ) {
 
 		const r = this.state.sell( ids );
-		if ( r.count ) this.toast( `Sold for $${ r.total }` );
+		if ( r.count ) this.toast( `Sold for $${ r.total }${ r.bonus > 0 ? ` · Joe's order +$${ r.bonus }` : '' }` );
 		return r;
 
 	}
@@ -850,7 +855,7 @@ export class Game {
 		const name = FISH[ f.species ].name;
 		if ( st === 'caught' ) {
 
-			const entry = this.state.addFish( f.species, f.kg, this.hour );
+			const entry = this.state.addFish( f.species, f.kg, this.hour, { x: this.rod.bobber.x, z: this.rod.bobber.z, hab: dominantHabitat( this.habitat() ) } );
 			const info = this.state.lastCatch;
 			if ( au && au.fishSplash ) au.fishSplash( this.rod.bobber, 0.8 );
 			if ( au && au.fishFlop ) au.fishFlop();
@@ -858,7 +863,7 @@ export class Game {
 			if ( this.hud ) this.landing = { species: f.species, kg: f.kg, card: info, cardT: 0 };
 			else {
 
-				if ( entry ) this.toast( `${ info.record ? 'New record! ' : '' }${ name } · ${ entry.kg.toFixed( 2 ) } kg · $${ entry.value }`, 3600 );
+				if ( entry ) this.toast( `${ info.record ? 'New record! ' : '' }${ name } · ${ entry.kg.toFixed( 2 ) } kg · $${ this.state.priceOf( entry ) }${ this.state.orderMulFor( entry ) > 1 ? ' · Joe\'s order!' : '' }`, 3600 );
 				else this.toast( `${ name } · ${ f.kg.toFixed( 1 ) } kg · no room in the ${ this.state.upgrades.hold > 0 ? 'hold' : 'cooler' }, let it go`, 3600 );
 				this.landing = { species: f.species, kg: f.kg };
 

@@ -40,7 +40,7 @@ export class PadUI {
 			: guide && guide.open ? 'guide'
 			: ui.helpOpen ? 'help'
 			: ui.panelOpen ? 'panel'
-			: hud && ( hud.invOpen || hud.standOpen ) ? 'hud'
+			: hud && ( hud.invOpen || hud.standOpen || hud.guideOpen ) ? 'hud'
 			: null;
 
 		// the world goes quiet while a panel owns the input (a keyboard player gets this too: T used to
@@ -135,9 +135,9 @@ export class PadUI {
 
 	_rescanHud( hud ) {
 
-		const panel = hud.invOpen ? hud.inv : hud.stand;
+		const panel = hud.guideOpen ? hud.fishGuide.el : hud.invOpen ? hud.inv : hud.stand;
 		if ( ! panel ) return;
-		this._set( [ ...panel.querySelectorAll( 'button[data-sell], button[data-all], button[data-buy], button[data-fuel], button[data-traps], button[data-release], button[data-close]' ) ].filter( ( b ) => ! b.disabled ) );
+		this._set( [ ...panel.querySelectorAll( 'button[data-fish], button[data-sell], button[data-all], button[data-buy], button[data-fuel], button[data-traps], button[data-release], button[data-close]' ) ].filter( ( b ) => ! b.disabled ) );
 
 	}
 

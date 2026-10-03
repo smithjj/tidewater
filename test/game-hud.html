@@ -8,7 +8,7 @@
 <body>
 <script type="module">
 // Dev page: the fishing game's HUD in every state, over a flat sky / sea backdrop.
-// ?view=fight | inv | stand | shop | cast | bite | catch | record | newspecies | full
+// ?view=fight | inv | stand | shop | guide | cast | bite | catch | record | newspecies | full   (guide: &fish=tuna)
 import '../src/ui/ui.css';
 import { GameHUD } from '../src/game/GameHUD.js';
 import { GameState } from '../src/game/GameState.js';
@@ -35,6 +35,22 @@ const h = new GameHUD( ui, game );
 const fight = { tension: 0.62, band: [ 0.35, 0.8 ], stamina: 0.55, distance: 11.4, surge: 0.1 };
 h.update( { fuel: { litres: 23, tank: 40 }, sonar: { depth: 12.4, fish: 0.5 }, fight: view === 'fight' ? fight : null, casting: view === 'cast', power: 0.7, bite: view === 'bite', aiming: true } );
 if ( view === 'inv' ) h.toggleInventory( true );
+if ( view === 'guide' ) {
+
+	// the fish guide at every level of knowledge: grouper well studied, jack and tuna barely, the rest unknown
+	// (no terrain here, so the habitat estimate is a uniform wash; in game it follows the real water)
+	game.app = { terrainData: { heightAt: () => - 6 } };
+	game.habitatAtPoint = ( x ) => ( { reef: x > 80 ? 0.9 : 0, bay: 0.5, shallows: 0, pier: 0, deep: 0 } );
+	game.minimap = null;
+	state.day = 6;
+	for ( let i = 0; i < 11; i ++ ) state.addFish( 'grouper', 3.5 + i * 0.9, 6 + i * 1.5, { x: 40 + i * 14, z: 60 + ( i % 3 ) * 20, hab: i % 2 ? 'reef' : 'bay' } );
+	state.addFish( 'jack', 4.2, 18.4, { x: 70, z: 40, hab: 'bay' } );
+	for ( let i = 0; i < 4; i ++ ) state.addFish( 'tuna', 5 + i, 21, { x: 120 + i * 9, z: 150, hab: 'deep' } );
+	state.sell( state.inventory.filter( ( f ) => f.species === 'grouper' ).slice( 0, 4 ).map( ( f ) => f.id ) );
+	h.fishGuide.selected = new URLSearchParams( location.search ).get( 'fish' ) || 'grouper';
+	h.fishGuide.toggle( true );
+
+}
 if ( view === 'shop' ) { state.buy( 'reel' ); h.openStand( { kind: 'shop', name: 'Marta · Chandlery', greeting: 'Line, reels, a bigger hold, diesel. What do you need?' } ); }
 if ( view === 'stand' ) h.openStand( { name: 'Joe · Fish buyer', greeting: 'Let\'s see what you caught. Fair prices, cash.' } );
 if ( view === 'fight' ) ui.toast( 'Fish on!' );

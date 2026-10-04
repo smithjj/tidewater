@@ -35,6 +35,10 @@ namespace Tidewater.World
 		public static readonly Vector3 PelagicMooringPosition = new Vector3( 43.5f, 0, 38 );
 		public const double PelagicMooringHeading = - 0.35;
 
+		// The mini fishing boat (a glTF punt: MiniFishingBoat.js), moored between the pier head and the beach.
+		public static readonly Vector3 MiniMooringPosition = new Vector3( 55, 0, 44 );
+		public const double MiniMooringHeading = 0.1;
+
 		public static class Village
 		{
 			public const double x = 40, z = - 118, radius = 95;

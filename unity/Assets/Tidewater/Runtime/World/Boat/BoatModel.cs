@@ -37,7 +37,7 @@ namespace Tidewater.World.Boat
 		public string tag; public Vector3 center, half; public bool walkable, solid;
 	}
 
-	public sealed class BoatModel
+	public class BoatModel
 	{
 		public static readonly string[] STATIC_BUCKETS = { "hull", "gelcoat", "wood", "fittings", "trap", "glow", "glass" };
 		public const double WHEEL_TURNS = 0.75;     // wheel turns from centre to hard over
@@ -67,6 +67,9 @@ namespace Tidewater.World.Boat
 			for ( int i = 0; i < n; i ++ ) I += ( 2.0 / 3 ) * Math.Pow( lines.halfBeamAt( z0 + ( i + 0.5 ) * dz ), 3 ) * dz;
 			return I;
 		}
+
+		// a model of another boat (the glTF boats: no hull lines, no animated parts): the subclass fills in the anchor points and the hydrostatics
+		protected BoatModel( bool bare ) { }
 
 		public BoatModel()
 		{
@@ -165,7 +168,7 @@ namespace Tidewater.World.Boat
 		// Closed, low-poly hull volume (shell + transom + lid at the sheer) in the boat frame. Not part of the model: useful as a
 		// water-exclusion mask (e.g. depth/stencil pre-pass so the ocean surface is not drawn inside the cockpit), occlusion or physics
 		// proxies.
-		public BufferGeometry createHullVolumeGeometry() => buildHullVolume( lines );
+		public virtual BufferGeometry createHullVolumeGeometry() => buildHullVolume( lines );
 
 		double maxHalfBeam()
 		{
@@ -175,7 +178,7 @@ namespace Tidewater.World.Boat
 		}
 
 		// what BoatController reads of the model
-		public Tidewater.Player.BoatDynamics dynamics() => new Tidewater.Player.BoatDynamics
+		public virtual Tidewater.Player.BoatDynamics dynamics() => new Tidewater.Player.BoatDynamics
 		{
 			hydro = hydro, hullSamples = hullSamples, propeller = propeller, rudderZ = rudder.z,
 			hasLines = true, zAft = lines.zAft, zFwd = lines.zBow, deckY = lines.deckY, halfBreadth = lines.halfBreadth, tAtSheerZ = lines.tAtSheerZ,

@@ -1,6 +1,6 @@
-// The lobster boat's materials: HDRP deferred Lit with the procedural surfaces of src/world/boat/BoatMaterials.js (BoatSurface.hlsl).
-// One shader, one material per kind (_BoatKind: 0 hull, 1 gelcoat, 2 wood, 3 fittings, 5 glow, 6 trap). Pass structure as the terrain's.
-Shader "Tidewater/Boat"
+// The swimming fish (FishSchoolsView): the skin of TidewaterFish.shader with the swimming vertex stage of src/world/fish/FishMaterial.js swimVertex (FishFragment.hlsl,
+// FISH_SWIM). One procedural instanced draw per model and level of detail: the instance comes from the lists and the records in the buffers the view fills.
+Shader "Tidewater/FishSwim"
 {
     Properties
     {
@@ -23,15 +23,7 @@ Shader "Tidewater/Boat"
         [HideInInspector] _ZTestDepthEqualForOpaque("_ZTestDepthEqualForOpaque", Int) = 4 // Less equal
         [HideInInspector] _ZTestGBuffer("_ZTestGBuffer", Int) = 4
 
-        [HideInInspector] _BoatKind("Kind", Float) = 0
-        [HideInInspector] _FacColor("Factor colour", Color) = (0.8, 0.8, 0.8, 1)
-        [HideInInspector] _FacPbr("Factor roughness, metalness, clear coat, coat roughness", Vector) = (1, 0, 0, 0.1)
-        [HideInInspector] _FacEmissive("Factor emissive", Color) = (0, 0, 0, 0)
         [HideInInspector] _AlphaCutoff("Alpha cutoff", Float) = 0.5
-        [HideInInspector] _FlagPivot("Flag pivot", Vector) = (0,0,0,0)
-        [HideInInspector] _FlagDir("Flag direction", Vector) = (0,0,-1,0)
-        [HideInInspector] _FlagWind("Flag wind", Float) = 0.5
-        [HideInInspector] _NavOn("Nav lights", Float) = 1
         [HideInInspector] _EmissionColor("Color", Color) = (1, 1, 1)
         [HideInInspector] _MainTex("Albedo", 2D) = "white" {}
         [HideInInspector] _Color("Color", Color) = (1,1,1,1)
@@ -86,7 +78,7 @@ Shader "Tidewater/Boat"
 
             //enable GPU instancing support
             #pragma multi_compile_instancing
-            #pragma instancing_options assumeuniformscaling nolightprobe nolightmap
+            #pragma instancing_options assumeuniformscaling nolightprobe nolightmap procedural:FishSwimSetup
 
             #pragma multi_compile _ DEBUG_DISPLAY
             #pragma multi_compile _ LIGHTMAP_ON
@@ -99,37 +91,10 @@ Shader "Tidewater/Boat"
             #pragma multi_compile_fragment _ DECAL_SURFACE_GRADIENT
             #pragma multi_compile_fragment _ RENDERING_LAYERS
 
+            #define FISH_SWIM 1
+
             #define SHADERPASS SHADERPASS_GBUFFER
-            #include_with_pragmas "BoatTemplate.hlsl"
-
-            ENDHLSL
-        }
-
-        Pass
-        {
-            Name "ShadowCaster"
-            Tags{ "LightMode" = "ShadowCaster" }
-
-            Cull[_CullMode]
-
-            ZClip [_ZClip]
-            ZWrite On
-            ZTest LEqual
-
-            ColorMask 0
-
-            HLSLPROGRAM
-            #pragma only_renderers d3d11 vulkan metal
-            // All our shaders use same name for entry point
-            #pragma vertex Vert
-            #pragma fragment Frag
-
-            //enable GPU instancing support
-            #pragma multi_compile_instancing
-            #pragma instancing_options assumeuniformscaling nolightprobe nolightmap
-
-            #define SHADERPASS SHADERPASS_SHADOWS
-            #include_with_pragmas "BoatTemplate.hlsl"
+            #include_with_pragmas "FishTemplate.hlsl"
 
             ENDHLSL
         }
@@ -160,7 +125,7 @@ Shader "Tidewater/Boat"
 
             //enable GPU instancing support
             #pragma multi_compile_instancing
-            #pragma instancing_options assumeuniformscaling nolightprobe nolightmap
+            #pragma instancing_options assumeuniformscaling nolightprobe nolightmap procedural:FishSwimSetup
 
             // In deferred, depth only pass don't output anything.
             // In forward it output the normal buffer
@@ -168,8 +133,10 @@ Shader "Tidewater/Boat"
             #pragma multi_compile _ WRITE_DECAL_BUFFER WRITE_RENDERING_LAYER
             #pragma multi_compile _ WRITE_MSAA_DEPTH
 
+            #define FISH_SWIM 1
+
             #define SHADERPASS SHADERPASS_DEPTH_ONLY
-            #include_with_pragmas "BoatTemplate.hlsl"
+            #include_with_pragmas "FishTemplate.hlsl"
 
             ENDHLSL
         }
@@ -199,7 +166,7 @@ Shader "Tidewater/Boat"
 
             //enable GPU instancing support
             #pragma multi_compile_instancing
-            #pragma instancing_options assumeuniformscaling nolightprobe nolightmap
+            #pragma instancing_options assumeuniformscaling nolightprobe nolightmap procedural:FishSwimSetup
 
             #pragma multi_compile _ DEBUG_DISPLAY
             #pragma multi_compile _ LIGHTMAP_ON
@@ -219,8 +186,10 @@ Shader "Tidewater/Boat"
 
             #pragma multi_compile USE_FPTL_LIGHTLIST USE_CLUSTERED_LIGHTLIST
 
+            #define FISH_SWIM 1
+
             #define SHADERPASS SHADERPASS_FORWARD
-            #include_with_pragmas "BoatTemplate.hlsl"
+            #include_with_pragmas "FishTemplate.hlsl"
 
             ENDHLSL
         }

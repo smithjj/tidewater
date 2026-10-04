@@ -32,6 +32,10 @@ namespace Tidewater.EditorTools
 			var ll = GameObject.Find( "Local Lights" ) ?? new GameObject( "Local Lights" );
 			if ( ll.GetComponent<Tidewater.World.LocalLightsView>() == null ) ll.AddComponent<Tidewater.World.LocalLightsView>();
 
+			// the swimming schools (the reef, bay and drop-off fish)
+			var sch = GameObject.Find( "Fish Schools" ) ?? new GameObject( "Fish Schools" );
+			if ( sch.GetComponent<Tidewater.World.Fish.FishSchoolsView>() == null ) sch.AddComponent<Tidewater.World.Fish.FishSchoolsView>();
+
 			// the sea (replaces the flat placeholder plane the scene had before the ocean was ported)
 			var old = GameObject.Find( "Sea (placeholder)" );
 			if ( old != null ) Object.DestroyImmediate( old );
@@ -56,6 +60,11 @@ namespace Tidewater.EditorTools
 			var boat = GameObject.Find( "Lobster Boat" ) ?? new GameObject( "Lobster Boat" );
 			if ( boat.GetComponent<Tidewater.World.Boat.BoatView>() == null ) boat.AddComponent<Tidewater.World.Boat.BoatView>();
 			if ( boat.GetComponent<Tidewater.Player.BoatDriver>() == null ) boat.AddComponent<Tidewater.Player.BoatDriver>();
+
+			// the mini fishing boat at its mooring (MiniBoatDriver hosts its controller; PlayerHost steps it and lets the player board it)
+			var mini = GameObject.Find( "Mini Fishing Boat" ) ?? new GameObject( "Mini Fishing Boat" );
+			if ( mini.GetComponent<Tidewater.World.Boat.MiniBoatView>() == null ) mini.AddComponent<Tidewater.World.Boat.MiniBoatView>();
+			if ( mini.GetComponent<Tidewater.Player.MiniBoatDriver>() == null ) mini.AddComponent<Tidewater.Player.MiniBoatDriver>();
 
 			// camera: off the beach, looking north at the island (Unity +z = north)
 			var cam = Camera.main;

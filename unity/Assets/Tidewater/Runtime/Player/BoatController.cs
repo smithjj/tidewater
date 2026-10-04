@@ -41,6 +41,7 @@ namespace Tidewater.Player
 		public BoatDock( Vector3 position, double heading ) { this.position = position; this.heading = heading; }
 		public static BoatDock Lobster => new BoatDock( new Vector3( 64.5, 0, 36.5 ), 0 );               // WORLD.boatDock
 		public static BoatDock Pelagic => new BoatDock( new Vector3( 43.5, 0, 38 ), -0.35 );            // WORLD.pelagicMooring
+		public static BoatDock Mini => new BoatDock( new Vector3( 55, 0, 44 ), 0.1 );                   // WORLD.miniMooring
 	}
 
 	// What the controller reads of a boat model (BoatModel.js / Pelagic30.js): the hydrostatics, the buoyancy samples, the anchor points and
@@ -60,6 +61,11 @@ namespace Tidewater.Player
 		public double[] reserveStations = { 0.2, 0.32, 0.44, 0.56, 0.68 };
 		public double[][] stations; public double? lateralY, hullLift, rudderLift, maxThrust, pitchSpeed, reverseFactor, bowZ, sternZ;
 		public Vector3[] contactPoints, outline;
+		// the damping, resistance and mooring constants are tuned on the 3.2 t lobster boat; a much lighter hull (the mini fishing boat) scales them
+		// down with forceScale (its mass ratio, about). reserveSamples (position, area) replace the topsides' reserve buoyancy computed from the hull
+		// lines; chockY is the bow chock's height where there are no lines.
+		public double forceScale = 1; public double? chockY;
+		public List<HullSample> reserveSamples;
 	}
 
 	// The model's visual: the controller hands it the pose and the control positions (BoatView)
@@ -113,7 +119,7 @@ namespace Tidewater.Player
 		public IBoatVisual view;
 		public BoatModel boatModel; // the model data of the boat (JS: `model`: helm / board / exit points, colliders, hull lines), for the player
 
-		public double mass;
+		public double mass, forceScale;
 		public Vector3 com, inertia;
 		public Vector3 addedMass = new Vector3( 0.6, 0.7, 0.05 );   // x (sway), y (heave), z (surge)
 		public Vector3 addedInertia = new Vector3( 1.0, 0.4, 0.2 ); // x (pitch), y (yaw), z (roll)
@@ -149,6 +155,7 @@ namespace Tidewater.Player
 
 			var hydro = model.hydro;
 			mass = hydro != null && hydro.suggestedMass != 0 ? hydro.suggestedMass : 3200;
+			forceScale = model.forceScale;
 			com = hydro != null && hydro.centerOfMass != null ? new Vector3().copy( hydro.centerOfMass ) : new Vector3( 0, 0.3, - 0.74 );
 			// principal inertia in the boat frame (+Z forward, +X port): x = pitch, y = yaw, z = roll. Gear high on deck (traps, hauler,
 			// wheelhouse) gives a larger roll radius than the bare hull.
@@ -243,6 +250,7 @@ namespace Tidewater.Player
 		List<Sample> reserveSamples()
 		{
 			var outS = new List<Sample>();
+			if ( model.reserveSamples != null ) { foreach ( var r in model.reserveSamples ) outS.Add( new Sample { p = r.position.clone(), area = r.area, bottom = r.position.y, reserve = true } ); return outS; }
 			if ( ! model.hasLines || model.halfBreadth == null || model.tAtSheerZ == null ) return outS;
 			double zA = model.zAft, zF = model.zFwd;
 			if ( ! double.IsFinite( zA ) || ! double.IsFinite( zF ) ) return outS;
@@ -259,7 +267,7 @@ namespace Tidewater.Player
 		}
 
 		// the bow chock the anchor line leads through (boat frame)
-		public Vector3 chock => _chock.set( 0, model.hasLines ? model.deckY : 0.9, model.bowZ ?? 3.9 );
+		public Vector3 chock => _chock.set( 0, model.chockY ?? ( model.hasLines ? model.deckY : 0.9 ), model.bowZ ?? 3.9 );
 
 		// Can the anchor go down here? { ok, rode } or { ok: false, reason } (the reason reads as a toast)
 		public AnchorResult canAnchor( double depth )
@@ -461,7 +469,7 @@ namespace Tidewater.Player
 				_vp.copy( angular ).cross( _r.copy( pw ).sub( comW ) ).add( velocity );
 				double vy = _vp.y - wv * 0.6;
 				double wetK = Math.Min( 1, sub / 0.25 ) * s.area;
-				_f.set( 0, RHO * GRAV * s.area * sub - ( 1800 * vy + 900 * vy * Math.Abs( vy ) ) * wetK, 0 );
+				_f.set( 0, RHO * GRAV * s.area * sub - ( 1800 * vy + 900 * vy * Math.Abs( vy ) ) * wetK * forceScale, 0 );
 				addForceAt( _f, pw );
 			}
 
@@ -496,12 +504,12 @@ namespace Tidewater.Player
 
 			// ---- calm-water resistance (friction + the wave-making hump past hull speed + planing)
 			double au = Math.Abs( u );
-			double R = ( 40 * au + 22 * au * au + 3000 * sstep( au, 2.8, 5.4 ) + 55 * au * au * sstep( au, 7, 11 ) ) * wetD;
+			double R = ( 40 * au + 22 * au * au + 3000 * sstep( au, 2.8, 5.4 ) + 55 * au * au * sstep( au, 7, 11 ) ) * wetD * forceScale;
 			_p.set( 0, - 0.2, com.z );
 			toWorld( _p, _p );
 			addForceAt( _f.copy( fwd ).multiplyScalar( - R * JS.Sign( u ) ), _p );
 			// air drag on hull + house (Cd ~0.9, ~6 m^2 frontal area)
-			F.addScaledVector( velocity, - 3.3 * speed );
+			F.addScaledVector( velocity, - 3.3 * speed * forceScale );
 
 			// ---- lateral hydrodynamics along the keel: hull lift ~ u * v and cross-flow drag ~ v|v| at each station (v includes the yaw
 			// rate): directional stability, the turning circle, speed lost to the drift angle in turns and the outward heel (lateral
@@ -563,20 +571,20 @@ namespace Tidewater.Player
 			// ---- small extra angular damping (appendages, bilge), scaled by wetness
 			double wd = 0.2 + wetD;
 			// the keel's lift resists roll in proportion to speed (a boat underway rolls much less)
-			_v.set( - aLoc.x * 50000, - aLoc.y * 2000, - aLoc.z * ( 4500 + 900 * au ) ).multiplyScalar( wd ).applyQuaternion( quaternion );
+			_v.set( - aLoc.x * 50000, - aLoc.y * 2000, - aLoc.z * ( 4500 + 900 * au ) ).multiplyScalar( wd * forceScale ).applyQuaternion( quaternion );
 			T.add( _v );
 
 			// ---- mooring lines when docked and not driven
 			if ( moored && ! driven )
 			{
 				var a = mooringAnchor;
-				double k = 5500, c = 4200;
+				double k = 5500 * forceScale, c = 4200 * forceScale;
 				double dx = a.x - position.x, dz = a.z - position.z;
 				F.x += dx * k - velocity.x * c;
 				F.z += dz * k - velocity.z * c;
 				double dy = mooringHeading - getYaw();
 				dy = Math.Atan2( Math.Sin( dy ), Math.Cos( dy ) );
-				T.y += dy * 60000 - angular.y * 30000;
+				T.y += ( dy * 60000 - angular.y * 30000 ) * forceScale;
 			}
 
 			// ---- the anchor line: slack inside the rode, a stiff damped spring at the chock past it

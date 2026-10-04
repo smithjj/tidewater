@@ -21,6 +21,7 @@ namespace Tidewater.Player
 		public FlyCamera fly { get; private set; }
 		public SimCamera simCamera { get; } = new SimCamera();
 		public BoatDriver driver { get; private set; }
+		public MiniBoatDriver miniDriver { get; private set; } // the third boat (null when the scene has none)
 		Colliders colliders;
 		TerrainRenderer terrain;
 		bool flashSeeded;
@@ -38,7 +39,11 @@ namespace Tidewater.Player
 			driver.external = true; // the player drives the boat now (Player.updateBoat)
 			input = new GameInput();
 			colliders = driver.colliders;
-			player = new Player( simCamera, input, terrain.data.HeightAt, colliders, ocean.query, driver.controller );
+			// the boats the player can board: the lobster boat and, when the scene has it, the mini fishing boat
+			var boats = new System.Collections.Generic.List<BoatController> { driver.controller };
+			miniDriver = FindAnyObjectByType<MiniBoatDriver>();
+			if ( miniDriver != null && miniDriver.Ensure() ) boats.Add( miniDriver.controller );
+			player = new Player( simCamera, input, terrain.data.HeightAt, colliders, ocean.query, driver.controller, boats );
 			fly = new FlyCamera( simCamera, input );
 			fly.setPose( new Engine3( 20, 6, - 20 ), System.Math.PI * 0.9, - 0.12 );
 			if ( startAboard ) { player.boardBoat( driver.controller ); }
@@ -71,6 +76,7 @@ namespace Tidewater.Player
 
 			// App.frame: the boats step, then the player (which sets the boat's controls) or the free camera
 			driver.Tick( dt );
+			if ( miniDriver != null ) miniDriver.Tick( dt );
 			if ( freeCam ) fly.update( dt );
 			else player.update( dt );
 			Apply();

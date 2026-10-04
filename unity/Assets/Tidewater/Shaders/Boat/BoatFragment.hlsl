@@ -13,7 +13,10 @@
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/AmbientProbe.hlsl"
 #include "BoatSurface.hlsl"
 
-float _BoatKind;              // 0 hull, 1 gelcoat, 2 wood, 3 fittings, 4 glass, 5 glow, 6 trap
+float _BoatKind;              // 0 hull, 1 gelcoat, 2 wood, 3 fittings, 4 glass, 5 glow, 6 trap, 7 glTF factors (the mini fishing boat)
+float4 _FacColor;             // kind 7: base colour (linear)
+float4 _FacPbr;               // kind 7: roughness, metalness, clear coat, clear coat roughness
+float4 _FacEmissive;          // kind 7: emissive colour (linear, emissive strength applied)
 float _AlphaCutoff;
 float4 _FlagPivot;            // the ensign's hoist (boat frame)
 float4 _FlagDir;              // streaming direction (boat frame, unit)
@@ -80,8 +83,8 @@ void GetSurfaceAndBuiltinData( inout FragInputs input, float3 V, inout PositionI
 
 	float3 posOS = TransformWorldToObject( input.positionRWS );
 	float3 normalWS = normalize( input.tangentToWorld[ 2 ] );
-	// double-sided materials (glass, traps): the normal faces the viewer
-	if ( kind == 4 || kind == 6 ) { normalWS = input.isFrontFace ? normalWS : -normalWS; }
+	// double-sided materials (glass, traps, the glTF boat): the normal faces the viewer
+	if ( kind == 4 || kind == 6 || kind == 7 ) { normalWS = input.isFrontFace ? normalWS : -normalWS; }
 
 	BoatIn bi;
 	bi.aux = float4( input.texCoord1.xy, input.texCoord2.xy );
@@ -98,6 +101,12 @@ void GetSurfaceAndBuiltinData( inout FragInputs input, float3 V, inout PositionI
 	bi.navOn = _NavOn;
 
 	BoatOut s = BoatSurface( kind, bi );
+	if ( kind == 7 )
+	{
+		// a factor-based glTF material (MiniFishingBoat.js _material): colour, roughness, metalness, emissive, clear coat
+		s = BoatDefaults( bi, _FacPbr.x );
+		s.albedo = _FacColor.rgb; s.metalness = _FacPbr.y; s.emissive = _FacEmissive.rgb; s.clearcoat = _FacPbr.z; s.coatRoughness = _FacPbr.w;
+	}
 
 #if defined(_ALPHATEST_ON)
 	clip( s.alpha - _AlphaCutoff );
@@ -117,8 +126,8 @@ void GetSurfaceAndBuiltinData( inout FragInputs input, float3 V, inout PositionI
 	surfaceData.thickness = 1;
 	surfaceData.diffusionProfileHash = 0;
 
-	// the hull is clear-coated
-	if ( kind == 0 )
+	// the hull (and a glTF material with a clear coat) is clear-coated
+	if ( kind == 0 || ( kind == 7 && _FacPbr.z > 0.0 ) )
 	{
 		surfaceData.materialFeatures = MATERIALFEATUREFLAGS_LIT_CLEAR_COAT;
 		surfaceData.coatMask = s.clearcoat;

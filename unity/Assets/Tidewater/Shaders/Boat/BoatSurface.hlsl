@@ -1,7 +1,7 @@
 // The procedural surfaces of the lobster boat: src/world/boat/BoatMaterials.js (WGSL snippets) as HLSL functions. Each takes the
 // model-space position the JS calls positionLocal ( p, the boat frame: +Z forward, +X port ), the vertex colour (linear albedo), aux =
 // ( rough, metal, pattern, anim ) and uv, and returns the surface parameters.
-//   kind: 0 hull, 1 gelcoat, 2 wood, 3 fittings, 4 glass, 5 glow, 6 trap
+//   kind: 0 hull, 1 gelcoat, 2 wood, 3 fittings, 4 glass, 5 glow, 6 trap (7, the glTF factors, is set in BoatFragment.hlsl)
 #ifndef TW_BOAT_SURFACE_INCLUDED
 #define TW_BOAT_SURFACE_INCLUDED
 

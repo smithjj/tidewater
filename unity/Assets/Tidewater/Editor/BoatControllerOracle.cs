@@ -71,7 +71,7 @@ namespace Tidewater.EditorTools
 
 		static double[] Arr( JToken t ) => t.Select( v => ( double ) v ).ToArray();
 
-		static BoatModel cachedModel;
+		static BoatModel cachedModel, cachedMini;
 		public static string Compare( string dir = null, string only = null )
 		{
 			dir = dir ?? DefaultDir;
@@ -93,7 +93,8 @@ namespace Tidewater.EditorTools
 				var dockPos = Arr( d[ "position" ] );
 				var dock = new BoatDock( new Tidewater.Engine.Vector3( dockPos[ 0 ], dockPos[ 1 ], dockPos[ 2 ] ), ( double ) d[ "heading" ] );
 				var query = new FakeQuery();
-				var c = new BoatController( model.dynamics(), query, groundAt, colliders, dock );
+				bool mini = prop.Name.StartsWith( "mini" );
+				var c = new BoatController( ( mini ? cachedMini ?? ( cachedMini = new MiniBoatModel() ) : model ).dynamics(), query, groundAt, colliders, dock );
 
 				var ctor = sc[ "ctor" ];
 				sb.Append( Cmp( "mass/BG/pitchK", new[] { c.mass, c.BG, c.pitchStiffness, c.nHull, c.samples.Count, c.slot - c.slot + ( int ) ctor[ "slot" ] }, new[] { ( double ) ctor[ "mass" ], ( double ) ctor[ "BG" ], ( double ) ctor[ "pitchStiffness" ], ( double ) ctor[ "nHull" ], ( double ) ctor[ "n" ], ( double ) ctor[ "slot" ] } ) );
@@ -108,7 +109,7 @@ namespace Tidewater.EditorTools
 				int evi = 0;
 				var rows = sc[ "rows" ].Select( r => Arr( r ) ).ToArray();
 				int ri = 0;
-				var worst = new double[ cols.Length ]; var firstBad = -1.0; double finalDiff = 0;
+				var worst = new double[ cols.Length ]; var firstBad = -1.0; double finalDiff = 0; var grow = new double[] { -1, -1, -1, -1 }; double[] levels = { 1e-6, 1e-4, 1e-2, 1e-1 };
 				for ( int f = 0; f < frames; f ++ )
 				{
 					double t = f * dt;
@@ -135,12 +136,14 @@ namespace Tidewater.EditorTools
 						double rowMax = 0;
 						for ( int k = 0; k < cs.Length; k ++ ) { double e = Math.Abs( cs[ k ] - jr[ k ] ); worst[ k ] = Math.Max( worst[ k ], e ); if ( k < 14 ) rowMax = Math.Max( rowMax, e ); }
 						if ( firstBad < 0 && rowMax > 1e-6 ) firstBad = t;
+						for ( int g = 0; g < grow.Length; g ++ ) if ( grow[ g ] < 0 && rowMax > levels[ g ] ) grow[ g ] = t;
 						finalDiff = rowMax;
 					}
 				}
 
 				sb.Append( "  worst abs error over the run: " + string.Join( " ", Enumerable.Range( 0, cols.Length ).Select( k => cols[ k ] + "=" + worst[ k ].ToString( "E1" ) ).Distinct() ) + "\n" );
 				sb.Append( $"  state error at the end {finalDiff:E2}; first row off by > 1e-6: " + ( firstBad < 0 ? "none" : firstBad.ToString( "F2" ) + " s" ) + "\n" );
+				sb.Append( "  growth of the state error (first time over 1e-6 / 1e-4 / 1e-2 / 1e-1): " + string.Join( " / ", grow.Select( g => g < 0 ? "-" : g.ToString( "F2" ) + " s" ) ) + "\n" );
 			}
 
 			return sb.ToString();

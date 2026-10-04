@@ -80,7 +80,9 @@ namespace Tidewater.Player
 		public readonly Colliders colliders;
 		public readonly IWaterQuery query;
 		public BoatController boat;
-		public readonly List<BoatController> boats;
+		public readonly List<BoatController> boats; // every boat at a mooring
+		public Func<BoatController, bool> owns;      // whether the player may board it (null: every boat); the game sets it from what has been bought
+		public BoatController lockedBoat;             // the nearest boat in reach that is not yours yet (the game says where to buy it)
 		public Func<double, double, double> reefFloorHeightAt; // Reef.floorHeightAt (not ported yet)
 		public IPlayerAudio audio;
 
@@ -153,16 +155,19 @@ namespace Tidewater.Player
 
 		public bool nearBoat()
 		{
-			// nearest boardable boat (there can be more than one in reach)
-			BoatController best = null; double bd = double.PositiveInfinity;
+			// nearest boardable boat (there can be more than one in reach); one you have not bought only makes `lockedBoat`
+			BoatController best = null, locked = null; double bd = double.PositiveInfinity, ld = double.PositiveInfinity;
 			foreach ( var b in boats )
 			{
 				var bp = b.toWorld( b.boatModel.boardPoint, _v );
 				double d = JS.Hypot( bp.x - position.x, bp.z - position.z );
-				if ( d < 4.2 && Math.Abs( bp.y - position.y ) < 3.2 && d < bd ) { bd = d; best = b; }
+				if ( ! ( d < 4.2 && Math.Abs( bp.y - position.y ) < 3.2 ) ) continue;
+				if ( owns != null && ! owns( b ) ) { if ( d < ld ) { ld = d; locked = b; } }
+				else if ( d < bd ) { bd = d; best = b; }
 			}
 
 			_boardable = best;
+			lockedBoat = locked;
 			return best != null;
 		}
 
@@ -175,6 +180,7 @@ namespace Tidewater.Player
 			waterH = waterHeight();
 			waterMean = waterMean == null ? waterH : waterMean + ( waterH - waterMean ) * ( 1 - Math.Exp( - dt / 4 ) );
 			prompt = null;
+			lockedBoat = null;
 
 			if ( mode == "boat" ) { updateBoat( dt ); return; }
 			if ( mode == "deck" ) { updateDeck( dt ); return; }

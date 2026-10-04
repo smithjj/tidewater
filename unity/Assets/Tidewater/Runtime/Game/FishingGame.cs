@@ -195,6 +195,9 @@ namespace Tidewater.Game
 		{
 			if ( ! lastCan ) return null;
 			var p = host.player; var inp = host.input;
+			// a boat in reach that is not yours yet: say where to buy it
+			if ( p.lockedBoat != null && ! rod.equipped )
+				return new Prompt { key = "$", text = $"{Gear.Boat( game.BoatId( p.lockedBoat ) ).name} · for sale at Marta's chandlery" };
 			if ( ! rod.equipped )
 			{
 				// by the water (boat deck, pier, the wet beach, wading): suggest the rod
@@ -380,7 +383,7 @@ namespace Tidewater.Game
 
 		void Styles()
 		{
-			if ( callStyle != null ) return;
+			if ( callStyle != null && callStyle.fontSize == 15 ) return; // (see GameHost.Styles: the Editor resets GUI styles between Play sessions)
 			callStyle = new GUIStyle( GUI.skin.label ) { fontSize = 15, fontStyle = FontStyle.Bold };
 			bigStyle = new GUIStyle( GUI.skin.label ) { fontSize = 92, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
 			cardTitle = new GUIStyle( GUI.skin.label ) { fontSize = 26, fontStyle = FontStyle.Bold }; cardTitle.normal.textColor = Color.white;

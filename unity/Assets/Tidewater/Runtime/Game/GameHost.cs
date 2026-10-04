@@ -59,6 +59,8 @@ namespace Tidewater.Game
 			// the rebuilt engine is the lobster boat's: always target it, not whichever boat is active
 			lobster = h.driver.controller;
 			baseMaxThrust = lobster.maxThrust; basePitchSpeed = lobster.pitchSpeed;
+			// only the boats you have bought can be boarded; the rest wait at their moorings
+			h.player.owns = c => state.ownsBoat( BoatId( c ) );
 			fishing?.Dispose();
 			fishing = new FishingGame( this, h, transform );
 			ApplyGear();
@@ -81,6 +83,20 @@ namespace Tidewater.Game
 		public void Toast( string text, float seconds = 2.6f ) { if ( host != null ) host.Toast( text, seconds ); else Debug.Log( "[game] " + text ); }
 
 		// ---- the actions the panels and the keys call (Game.buy / buyTraps / refuel / sellAll)
+
+		// which of the three boats a controller is (the ids of Gear.BOATS)
+		public string BoatId( Tidewater.Player.BoatController c )
+		{
+			if ( c == null || host == null ) return null;
+			return c == lobster ? "lobster" : host.pelagicDriver != null && c == host.pelagicDriver.controller ? "pelagic" : host.miniDriver != null && c == host.miniDriver.controller ? "mini" : null;
+		}
+
+		public BoatDef BuyBoat( string id )
+		{
+			var r = state.buyBoat( id );
+			if ( r != null ) Toast( $"{r.name} is yours · she's at her mooring by the pier" );
+			return r;
+		}
 
 		public GearLevel Buy( string key )
 		{
@@ -223,7 +239,8 @@ namespace Tidewater.Game
 
 		void Styles()
 		{
-			if ( label != null ) return;
+			// (the Editor resets GUI styles when a Play session ends, while this object lives on: fontSize 0 means they were reset)
+			if ( label != null && label.fontSize == 15 ) return;
 			label = new GUIStyle( GUI.skin.label ) { fontSize = 15, fontStyle = FontStyle.Bold }; label.normal.textColor = Color.white;
 			small = new GUIStyle( GUI.skin.label ) { fontSize = 12 }; small.normal.textColor = new Color( 1, 1, 1, 0.75f );
 			title = new GUIStyle( GUI.skin.label ) { fontSize = 20, fontStyle = FontStyle.Bold }; title.normal.textColor = Color.white;
@@ -334,20 +351,29 @@ namespace Tidewater.Game
 			GUILayout.Label( $"{v.greeting} · You have ${s.money:N0}", small );
 			scroll = GUILayout.BeginScrollView( scroll, GUILayout.Height( 340 ) );
 			double missing = s.stats.fuelL - s.fuelL;
+			// the boats: yours, or for sale (they wait at their moorings by the pier until bought)
+			foreach ( var b in Gear.BOATS )
+			{
+				bool own = s.ownsBoat( b.id ); string id = b.id;
+				ShopRow( b.name, own ? "Moored by the pier" : "Moored by the pier · yours to take out once bought", own ? null : $"${b.cost:N0}", b.cost <= s.money, "Yours", () => BuyBoat( id ) );
+			}
+
 			ShopRow( $"Diesel · ${Gear.FUEL_PRICE:F2} / L", $"Tank: {s.fuelL:F0} of {s.stats.fuelL} L",
 				missing > 0.5 ? $"Fill · ${s.refuelCost()}" : null, missing > 0.5 && s.money >= Gear.FUEL_PRICE, "Full", () => Refuel() );
 			bool licensed = s.mayTrap;
 			var lic = Gear.nextLevel( s.upgrades, "trapLicence" );
 			ShopRow( $"{Gear.Track( "trapLicence" ).name}: {( licensed ? "held" : "none" )}",
 				licensed ? $"{s.traps} aboard · {s.sets.Count} of {Gear.TRAP_LIMIT} in the water" : $"Set and haul lobster pots (max {Gear.TRAP_LIMIT} in the water)",
-				lic != null ? $"${lic.cost}" : null, lic != null && lic.cost <= s.money, "Held", () => Buy( "trapLicence" ) );
+				! s.ownsBoat( Gear.Track( "trapLicence" ).boat ) ? null : lic != null ? $"${lic.cost}" : null, lic != null && lic.cost <= s.money, ! s.ownsBoat( Gear.Track( "trapLicence" ).boat ) ? "Needs the lobster boat" : "Held", () => Buy( "trapLicence" ) );
 			ShopRow( $"Lobster traps · ${Gear.TRAP_PRICE} each", licensed ? $"{s.traps} aboard (max {Gear.TRAP_LIMIT})" : "Licence required",
 				licensed && s.traps < Gear.TRAP_LIMIT ? $"Buy 1 · ${Gear.TRAP_PRICE}" : null, s.money >= Gear.TRAP_PRICE, licensed ? "Full" : "Licence", () => BuyTraps( 1 ) );
 			foreach ( var t in Gear.UPGRADES_LIST.Where( t => t.key != "trapLicence" ) )
 			{
 				var cur = t.levels[ s.upgrades[ t.key ] ]; var next = Gear.nextLevel( s.upgrades, t.key );
 				string key = t.key;
-				ShopRow( $"{t.name}: {( next != null ? next.label : cur.label )}", $"Now: {cur.label}", next != null ? $"${next.cost}" : null, next != null && next.cost <= s.money, "Top of the line", () => Buy( key ) );
+				bool locked = t.boat != null && ! s.ownsBoat( t.boat );
+				ShopRow( $"{t.name}: {( next != null ? next.label : cur.label )}", $"Now: {cur.label}", locked ? null : next != null ? $"${next.cost}" : null, next != null && next.cost <= s.money,
+					locked ? $"Needs the {Gear.Boat( t.boat ).name.ToLowerInvariant()}" : "Top of the line", () => Buy( key ) );
 			}
 
 			GUILayout.EndScrollView();

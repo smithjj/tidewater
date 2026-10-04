@@ -69,6 +69,7 @@ namespace Tidewater.Game
 		public Dictionary<string, LogEntry> log = new Dictionary<string, LogEntry>();   // species -> LogEntry (see Codex.emptyEntry)
 		public LastCatch lastCatch;
 		public Dictionary<string, int> upgrades = Gear.defaultUpgrades();
+		public List<string> boats = new List<string>( Gear.START_BOATS ); // the boats you own (ids of Gear.BOATS), in BOAT_IDS order
 		public double? fuel;   // litres left (null = full tank)
 		// the world: which day it is, the time of day when the game was last saved, and the weather
 		public int day = 1;
@@ -252,10 +253,26 @@ namespace Tidewater.Game
 			return true;
 		}
 
+		public bool ownsBoat( string id ) => boats.Contains( id );
+
+		// buy a boat at the chandlery; returns its entry, or null (unknown, already yours, or not enough money)
+		public BoatDef buyBoat( string id )
+		{
+			var b = Gear.Boat( id );
+			if ( b == null || ownsBoat( id ) || b.cost > money ) return null;
+			money -= b.cost;
+			boats = Gear.BOAT_IDS.Where( k => k == id || ownsBoat( k ) ).ToList();
+			save();
+			emit();
+			return b;
+		}
+
 		// buy the next level of an upgrade track; returns the new level entry or null
 		public GearLevel buy( string key )
 		{
 			if ( ! Gear.IsTrack( key ) ) return null;
+			var boat = Gear.Track( key ).boat;
+			if ( boat != null && ! ownsBoat( boat ) ) return null; // the lobster boat's gear needs the lobster boat
 			var next = Gear.nextLevel( upgrades, key );
 			if ( next == null || next.cost > money ) return null;
 			money -= next.cost;
@@ -401,6 +418,7 @@ namespace Tidewater.Game
 				[ "sets" ] = new JArray( sets.Select( s => new JObject { [ "id" ] = s.id, [ "x" ] = s.x, [ "z" ] = s.z, [ "day" ] = s.day, [ "clock" ] = s.clock } ) ),
 				[ "market" ] = new JObject { [ "day" ] = marketDay, [ "mul" ] = JObject.FromObject( marketMul ) },
 				[ "order" ] = order == null ? JValue.CreateNull() : new JObject { [ "day" ] = order.day, [ "species" ] = order.species, [ "minKg" ] = order.minKg, [ "filled" ] = order.filled, [ "bonus" ] = order.bonus },
+				[ "boats" ] = new JArray( boats ),
 			};
 			return j;
 		}
@@ -496,6 +514,11 @@ namespace Tidewater.Game
 			order = null;
 			if ( d[ "order" ] is JObject o2 && Num( o2[ "day" ], out var od ) && FishTable.Has( o2[ "species" ]?.Type == JTokenType.String ? ( string ) o2[ "species" ] : null ) && Num( o2[ "minKg" ], out var omk ) )
 				order = new Order { day = ( int ) od, species = ( string ) o2[ "species" ], minKg = omk, filled = Num( o2[ "filled" ], out var of ) ? ( int ) of : 0, bonus = Num( o2[ "bonus" ], out var ob ) ? ob : 0 };
+			// the boats you own: a save from before boats were sold owns them all (nothing is taken away); an unknown id is dropped
+			var have = d[ "boats" ] is JArray ba
+				? Gear.BOAT_IDS.Where( k => ba.Any( t => t.Type == JTokenType.String && ( string ) t == k ) ).ToList()
+				: Gear.BOAT_IDS.ToList();
+			boats = have.Count > 0 ? have : new List<string>( Gear.START_BOATS );
 			int next = Math.Max( Num( d[ "nextId" ], out var ni ) ? ( int ) ni : 0, 1 );
 			foreach ( var f in inventory ) next = Math.Max( next, f.id + 1 );
 			foreach ( var s in sets ) next = Math.Max( next, s.id + 1 );
@@ -527,6 +550,7 @@ namespace Tidewater.Game
 			inventory = new List<InventoryFish>();
 			log = new Dictionary<string, LogEntry>();
 			upgrades = Gear.defaultUpgrades();
+			boats = new List<string>( Gear.START_BOATS );
 			fuel = null;
 			day = 1;
 			clock = null;

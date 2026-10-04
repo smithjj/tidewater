@@ -87,6 +87,21 @@ namespace Tidewater.EditorTools
 
 		public static string Give( string species, double kg, double hour = 12 ) { var f = Game().state.addFish( species, kg, hour ); return f == null ? "hold full" : $"#{f.id} {f.species} {f.kg} kg ${f.value}"; }
 		public static string Money( double v ) { Game().state.money = v; Game().state.emit(); return State(); }
+		// the boats you own; with ids ("all" or "pelagic,lobster") hand them over without paying (the browser's __tw.boats)
+		public static string Boats( string ids = null )
+		{
+			var st = Game().state;
+			if ( ! string.IsNullOrEmpty( ids ) )
+			{
+				var want = ids.Split( ',' ).Select( x => x.Trim() ).ToList();
+				if ( want.Contains( "all" ) ) want = Tidewater.Game.Gear.BOAT_IDS.ToList();
+				st.boats = Tidewater.Game.Gear.BOAT_IDS.Where( id => st.ownsBoat( id ) || want.Contains( id ) ).ToList();
+				st.save(); st.emit();
+			}
+
+			return string.Join( ",", st.boats );
+		}
+
 		public static string Hour( double h ) { Game().clock.Set( h ); return State(); }
 
 		public static string State()

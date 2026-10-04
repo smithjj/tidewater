@@ -18,9 +18,13 @@ namespace Tidewater.Game
 		public double value;  // the number (1 / 0 for the flags)
 	}
 
+	// one of the three boats; you start with the mini, the others are bought at the chandlery
+	public sealed class BoatDef { public string id, name; public double cost; }
+
 	public sealed class UpgradeTrack
 	{
 		public string key, name;
+		public string boat; // the boat this track is for (the lobster boat's diesel, floodlights and pot hauler): bought once you own it
 		public GearLevel[] levels;
 	}
 
@@ -65,7 +69,7 @@ namespace Tidewater.Game
 				L( 150, "80 L tank", "fuelL", 80 ),
 				L( 380, "150 L tank", "fuelL", 150 ),
 			} },
-			new UpgradeTrack { key = "engine", name = "Engine", levels = new[] {
+			new UpgradeTrack { key = "engine", name = "Engine", boat = "lobster", levels = new[] {
 				L( 0, "Tired diesel", "speedMul", 1 ),
 				L( 300, "Rebuilt diesel", "speedMul", 1.15 ),
 				L( 700, "Turbo diesel", "speedMul", 1.3 ),
@@ -74,12 +78,12 @@ namespace Tidewater.Game
 				L( 0, "None", "finder", 0 ),
 				L( 250, "Fish finder (depth and fish on the HUD)", "finder", 1 ),
 			} },
-			new UpgradeTrack { key = "lights", name = "Boat lights", levels = new[] {
+			new UpgradeTrack { key = "lights", name = "Boat lights", boat = "lobster", levels = new[] {
 				L( 0, "Nav lights only", "deckLights", 0 ),
 				L( 140, "Deck floodlights for night fishing", "deckLights", 1 ),
 			} },
 			// the trap line: the licence is the gate, the traps themselves are a consumable stock
-			new UpgradeTrack { key = "trapLicence", name = "Trap licence", levels = new[] {
+			new UpgradeTrack { key = "trapLicence", name = "Trap licence", boat = "lobster", levels = new[] {
 				L( 0, "None", "trapLicence", 0 ),
 				L( 450, "Commercial trap licence", "trapLicence", 1 ),
 			} },
@@ -89,6 +93,17 @@ namespace Tidewater.Game
 
 		public static UpgradeTrack Track( string key ) => UPGRADES_LIST.FirstOrDefault( t => t.key == key );
 		public static bool IsTrack( string key ) => Track( key ) != null;
+
+		// The three boats. Until bought, the others stay at their moorings but cannot be boarded (an older save owns all three).
+		public static readonly BoatDef[] BOATS =
+		{
+			new BoatDef { id = "mini", name = "Mini fishing boat", cost = 0 },
+			new BoatDef { id = "lobster", name = "Lobster boat", cost = 900 },
+			new BoatDef { id = "pelagic", name = "Pelagic 30", cost = 2500 },
+		};
+		public static readonly string[] BOAT_IDS = BOATS.Select( b => b.id ).ToArray();
+		public static readonly string[] START_BOATS = { "mini" };
+		public static BoatDef Boat( string id ) => BOATS.FirstOrDefault( b => b.id == id );
 
 		public const double FUEL_PRICE = 1.5; // $ per litre of diesel at the chandlery
 		public const double TRAP_PRICE = 90;  // $ per lobster trap (wooden, wire, ready to fish)

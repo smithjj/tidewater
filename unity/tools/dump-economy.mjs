@@ -9,7 +9,7 @@ import { GameState } from '../../src/game/GameState.js';
 import { FISH_IDS, fishValue, fishLengthCm } from '../../src/game/FishTable.js';
 import { orderFor, orderPool, fmtKg } from '../../src/game/Orders.js';
 import { knowledge, sizeText, priceText, mapBox, coarsen, habitatGrid, periodOf } from '../../src/game/Codex.js';
-import { UPGRADES } from '../../src/game/Gear.js';
+import { UPGRADES, BOAT_IDS } from '../../src/game/Gear.js';
 
 const out = process.argv[ 2 ] || 'unity/Temp/oracle/economy';
 fs.mkdirSync( out, { recursive: true } );
@@ -23,7 +23,7 @@ const s = new GameState( store );
 const keys = Object.keys( UPGRADES );
 const habs = [ 'shallows', 'reef', 'pier', 'bay', 'deep', null ];
 const ops = [], results = [], scalars = [], snaps = {};
-const sc = () => ( { money: s.money, fuelL: s.fuelL, holdKg: s.holdKg, holdValue: s.holdValue, day: s.day, traps: s.traps, sets: s.sets.length, mayTrap: s.mayTrap, inv: s.inventory.length } );
+const sc = () => ( { money: s.money, fuelL: s.fuelL, holdKg: s.holdKg, holdValue: s.holdValue, day: s.day, traps: s.traps, sets: s.sets.length, mayTrap: s.mayTrap, inv: s.inventory.length, boats: s.boats.join() } );
 const slim = ( f ) => f && { id: f.id, species: f.species, kg: f.kg, cm: f.cm, value: f.value, caughtAt: f.caughtAt, record: f.record };
 
 function run( o ) {
@@ -44,6 +44,7 @@ function run( o ) {
 		case 'burn': r = s.burn( o.v ); break;
 		case 'refuelCost': r = s.refuelCost(); break;
 		case 'spend': r = s.spend( o.v ); break;
+		case 'buyBoat': { const n = s.buyBoat( o.id ); r = n && { name: n.name, cost: n.cost }; break; }
 		case 'buyTraps': r = s.buyTraps( o.n ); break;
 		case 'setTrap': r = s.setTrap( o.x, o.z, o.hour ); break;
 		case 'haulTrap': r = s.haulTrap( o.id ); break;
@@ -81,7 +82,15 @@ for ( let i = 0; i < 700; i ++ ) {
 		run( { op: 'sell', ids } );
 
 	} else if ( r < 0.50 && s.inventory.length ) run( { op: 'release', id: pick( s.inventory ).id } );
-	else if ( r < 0.58 ) run( { op: 'buy', key: pick( keys ) } );
+	else if ( r < 0.56 ) run( { op: 'buy', key: pick( keys ) } );
+	else if ( r < 0.58 ) {
+
+		// a boat (now and then an unknown id, or a boat already owned); usually with the money to pay for it
+		const id = rnd() < 0.08 ? 'dinghy' : pick( BOAT_IDS );
+		if ( rnd() < 0.7 ) run( { op: 'money', v: Math.round( s.money + 900 + rnd() * 2000 ) } );
+		run( { op: 'buyBoat', id } );
+
+	}
 	else if ( r < 0.64 ) run( { op: 'burn', v: rnd() * 9 } );
 	else if ( r < 0.69 ) run( { op: 'refuel' } );
 	else if ( r < 0.71 ) run( { op: 'refuelCost' } );
@@ -137,5 +146,20 @@ const maps = { grid: Array.from( grid ), coarse: Array.from( coarsen( Float32Arr
 const values = [];
 for ( const id of FISH_IDS ) for ( const kg of [ 0.03, 0.5, 1, 2.2, 6.4, 13.9, 45 ] ) values.push( [ id, kg, fishValue( id, kg ), fishLengthCm( id, kg ) ] );
 
-fs.writeFileSync( path.join( out, 'economy.json' ), JSON.stringify( { ops, results, scalars, snaps, market, orders, pools, know, maps, values } ) );
+// boats in the save: an older save (no list) owns all three, a hand-edited list is cleaned up, an empty one falls back to the mini, a reset starts with the mini
+const rawSaves = [
+	{ v: 1, money: 5 }, { v: 1, boats: [ 'pelagic', 'dinghy', 'pelagic' ] }, { v: 1, boats: [] }, { v: 1, boats: [ 'lobster', 'mini' ] },
+	{ v: 1, boats: 'mini' }, { v: 1, boats: null }, { v: 1, boats: [ 'mini', 7, null, 'lobster' ] }, { v: 1, boats: [ 'pelagic' ] },
+];
+const boatLoads = rawSaves.map( ( raw ) => {
+
+	const t = new GameState( { getItem: () => JSON.stringify( raw ), setItem: () => {} } );
+	const loaded = t.load();
+	const boats = [ ...t.boats ];
+	t.reset();
+	return { raw, loaded, boats, afterReset: [ ...t.boats ] };
+
+} );
+
+fs.writeFileSync( path.join( out, 'economy.json' ), JSON.stringify( { ops, results, scalars, snaps, market, orders, pools, know, maps, values, boatLoads } ) );
 console.log( 'ops', ops.length, 'snaps', Object.keys( snaps ).length, 'know', Object.keys( know ).length, 'money', s.money, 'day', s.day, 'inv', s.inventory.length );

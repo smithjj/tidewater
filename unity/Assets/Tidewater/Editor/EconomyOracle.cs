@@ -121,6 +121,7 @@ namespace Tidewater.EditorTools
 				case "burn": return s.burn( ( double ) o[ "v" ] );
 				case "refuelCost": return s.refuelCost();
 				case "spend": return s.spend( ( double ) o[ "v" ] );
+				case "buyBoat": { var b = s.buyBoat( ( string ) o[ "id" ] ); return b == null ? null : new JObject { [ "name" ] = b.name, [ "cost" ] = b.cost }; }
 				case "buyTraps": return s.buyTraps( ( int ) o[ "n" ] );
 				case "setTrap": { var t = s.setTrap( ( double ) o[ "x" ], ( double ) o[ "z" ], ( double ) o[ "hour" ] ); return t == null ? null : new JObject { [ "id" ] = t.id, [ "x" ] = t.x, [ "z" ] = t.z, [ "day" ] = t.day, [ "clock" ] = t.clock }; }
 				case "haulTrap": { var t = s.haulTrap( ( int ) o[ "id" ] ); return t == null ? null : new JObject { [ "id" ] = t.id, [ "x" ] = t.x, [ "z" ] = t.z, [ "day" ] = t.day, [ "clock" ] = t.clock }; }
@@ -154,7 +155,7 @@ namespace Tidewater.EditorTools
 				opCount[ name ] = ( opCount.TryGetValue( name, out var c ) ? c : 0 ) + 1;
 				var r = Apply( s, store, o );
 				Diff( r, results[ i ], $"result[{i}:{name}]", dRes );
-				var sc = new JObject { [ "money" ] = s.money, [ "fuelL" ] = s.fuelL, [ "holdKg" ] = s.holdKg, [ "holdValue" ] = s.holdValue, [ "day" ] = s.day, [ "traps" ] = s.traps, [ "sets" ] = s.sets.Count, [ "mayTrap" ] = s.mayTrap, [ "inv" ] = s.inventory.Count };
+				var sc = new JObject { [ "money" ] = s.money, [ "fuelL" ] = s.fuelL, [ "holdKg" ] = s.holdKg, [ "holdValue" ] = s.holdValue, [ "day" ] = s.day, [ "traps" ] = s.traps, [ "sets" ] = s.sets.Count, [ "mayTrap" ] = s.mayTrap, [ "inv" ] = s.inventory.Count, [ "boats" ] = string.Join( ",", s.boats ) };
 				Diff( sc, scalars[ i ], $"scalars[{i}:{name}]", dSc );
 				if ( ( i + 1 ) % 25 == 0 ) Diff( s.toJSON(), snaps[ ( i + 1 ).ToString() ], $"snap[{i + 1}]", dSnap );
 			}
@@ -177,6 +178,21 @@ namespace Tidewater.EditorTools
 			}
 
 			Report( "load a JS save, save it back", dRt );
+
+			// ---- boats in a save: no list = all three, a cleaned-up list, an empty one = the mini, a reset = the mini
+			var dBt = new Diffs();
+			var bl = ( JArray ) js[ "boatLoads" ];
+			for ( int i = 0; i < bl.Count; i ++ )
+			{
+				var row = ( JObject ) bl[ i ];
+				var t = new GameState( null );
+				bool loaded = t.fromJSON( ( JObject ) row[ "raw" ] );
+				Diff( new JObject { [ "loaded" ] = loaded, [ "boats" ] = new JArray( t.boats ) }, new JObject { [ "loaded" ] = row[ "loaded" ], [ "boats" ] = row[ "boats" ] }, $"boatLoad[{i}]", dBt );
+				t.reset();
+				Diff( new JArray( t.boats ), row[ "afterReset" ], $"boatReset[{i}]", dBt );
+			}
+
+			Report( $"boats in a save ({bl.Count} saves, each loaded and reset)", dBt );
 
 			// ---- values, market, orders
 			var dVal = new Diffs();

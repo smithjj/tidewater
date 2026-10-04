@@ -26,6 +26,9 @@ export const WORLD = {
 	// A second boat (Pelagic 30) moored off the west side of the pier head.
 	pelagicMooring: { position: new THREE.Vector3( 43.5, 0, 38 ), heading: - 0.35 },
 
+	// A third boat (the mini fishing boat) moored off the end of the pier head, between the other two.
+	miniMooring: { position: new THREE.Vector3( 55, 0, 44 ), heading: 0.1 },
+
 	village: { center: new THREE.Vector3( 40, 0, - 118 ), radius: 95 },
 
 	reef: { center: new THREE.Vector3( - 78, 0, 58 ), radius: 58 },

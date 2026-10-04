@@ -11,6 +11,7 @@ import * as E from '../src/engine/index.js';
 import { BoatController, ANCHOR } from '../src/player/BoatController.js';
 import { HullLines, RHO_SEAWATER } from '../src/world/boat/HullLines.js';
 import { Pelagic30 } from '../src/world/boats/Pelagic30.js';
+import { MiniFishingBoat } from '../src/world/boats/MiniFishingBoat.js';
 import { MAX_QUERIES, QUERY_WORKGROUP, queryWorkgroups } from '../src/ocean/QueryLimits.js';
 
 let fails = 0;
@@ -145,7 +146,7 @@ function rollAccel( boat, phi ) {
 
 }
 
-const boats = { 'lobster boat': lobsterModel, 'Pelagic 30': () => new Pelagic30() };
+const boats = { 'lobster boat': lobsterModel, 'Pelagic 30': () => new Pelagic30(), 'mini fishing boat': () => new MiniFishingBoat() };
 
 for ( const [ name, build ] of Object.entries( boats ) ) {
 
@@ -173,7 +174,8 @@ for ( const [ name, build ] of Object.entries( boats ) ) {
 	}
 
 	// ---- 3. a heavy sea from every side, through idle, cruise, hard turns at both throttles: nobody rolls over
-	for ( const [ Hs, Tp ] of [ [ 2, 6.5 ], [ 3, 8 ] ] ) {
+	// (a 3 m punt is not out in a 3 m sea: its heavy weather is a metre of short chop)
+	for ( const [ Hs, Tp ] of name === 'mini fishing boat' ? [ [ 0.5, 3.5 ], [ 1, 4.5 ] ] : [ [ 2, 6.5 ], [ 3, 8 ] ] ) {
 
 		let worstRoll = 0, worstPitch = 0;
 		for ( const dir of [ Math.PI, Math.PI / 2, Math.PI / 4, 0 ] ) {
@@ -198,6 +200,33 @@ for ( const [ name, build ] of Object.entries( boats ) ) {
 		check( worstRoll < 45 && worstPitch < 30, `${ name }: Hs ${ Hs } m from every side: worst roll ${ worstRoll.toFixed( 0 ) }, pitch ${ worstPitch.toFixed( 0 ) } degrees (never over)` );
 
 	}
+
+}
+
+// ---- the mini fishing boat in calm water: it floats at its design draft, level, and drives like a light punt
+{
+
+	const b = makeBoat( new MiniFishingBoat(), { h: () => 0, grad: () => [ 0, 0 ] } );
+	for ( let i = 0; i < 600; i ++ ) frame( b, 0, 0 );
+	const a = attitude( b.boat );
+	// the hull bottom is 0.11 m below the origin (the design waterline): the boat sinks to about that
+	check( Math.abs( b.boat.position.y ) < 0.06, `mini boat floats with its waterline at the origin (heave ${ b.boat.position.y.toFixed( 3 ) } m, want |y| < 0.06)` );
+	check( Math.abs( a.roll ) < 0.5 && Math.abs( a.pitch ) < 1.5, `and level (roll ${ a.roll.toFixed( 2 ) }, pitch ${ a.pitch.toFixed( 2 ) } degrees)` );
+	let top = 0;
+	for ( let i = 0; i < 1500; i ++ ) { frame( b, 1, 0 ); top = Math.max( top, b.boat.forwardSpeed ); }
+	check( top > 3 && top < 6.5, `full ahead tops out at ${ top.toFixed( 1 ) } m/s (a light punt: 3 .. 6.5)` );
+	const h0 = Math.atan2( b.boat.forward( new E.Vector3() ).x, b.boat.forward( new E.Vector3() ).z );
+	let turned = 0, last = h0;
+	for ( let i = 0; i < 600; i ++ ) {
+
+		frame( b, 0.7, 1 );
+		const f = b.boat.forward( new E.Vector3() ), h = Math.atan2( f.x, f.z );
+		turned += Math.atan2( Math.sin( h - last ), Math.cos( h - last ) ); last = h;
+
+	}
+
+	const rate = Math.abs( turned ) / 10 * DEG;
+	check( rate > 15 && rate < 120 && Math.abs( attitude( b.boat ).roll ) < 20, `hard over at 70 % turns ${ rate.toFixed( 0 ) } degrees/s, heeling ${ attitude( b.boat ).roll.toFixed( 0 ) } degrees (15 .. 120 deg/s, under 20 deg heel)` );
 
 }
 

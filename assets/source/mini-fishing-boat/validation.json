@@ -1,0 +1,20 @@
+{
+  "blend": "C:\\Users\\smith\\OneDrive\\Documents\\codex-projects\\assets\\mini-fishing-boat\\mini_fishing_boat.blend",
+  "reference": "hidden-marsh-transp-background.webp",
+  "scene_objects": 410,
+  "hull_vertices": 2410,
+  "hull_faces": 2066,
+  "hull_boundary_edges": 0,
+  "hull_nonmanifold_edges": 0,
+  "non_finite_vertices": 0,
+  "packed_images": [
+    "hidden-marsh-transp-background.webp",
+    "Marsh reed upholstery | packed seamless textile"
+  ],
+  "dimensions_metres": [
+    3.2834362983703613,
+    1.390275478363037,
+    0.6360000371932983
+  ],
+  "note": "Proportions and details reconstructed from one image; unshown details are interpreted."
+}

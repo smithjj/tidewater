@@ -29,6 +29,7 @@ import { Village } from './world/Village.js';
 import { Reef } from './world/Reef.js';
 import { BoatModel } from './world/BoatModel.js';
 import { Pelagic30 } from './world/boats/Pelagic30.js';
+import { MiniFishingBoat } from './world/boats/MiniFishingBoat.js';
 import { Rocks } from './world/Rocks.js';
 import { Debris } from './world/Debris.js';
 import { Wildlife } from './world/wildlife/Wildlife.js';
@@ -198,6 +199,23 @@ export class App {
 
 		}
 
+		// a third, a one-man fishing punt (static glTF) off the end of the pier head
+		await progress( 0.26, 'Mooring a third boat…' );
+		this.mini = new MiniFishingBoat();
+		try {
+
+			await this.mini.load();
+			scene.add( this.mini.group );
+			this.mini.group.position.copy( WORLD.miniMooring.position );
+			this.mini.group.rotation.y = WORLD.miniMooring.heading;
+
+		} catch ( e ) {
+
+			console.warn( 'mini fishing boat model failed to load', e );
+			this.mini = null;
+
+		}
+
 		// ---------------------------------------------------------------- ocean
 		await progress( 0.3, 'Simulating the ocean…' );
 		this.fft = new OceanFFT( renderer );
@@ -246,6 +264,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		underwaterMode( this.village.group, 'lite' );
 		underwaterMode( this.boat.group, 'lite' );
 		if ( this.pelagic ) underwaterMode( this.pelagic.group, 'lite' );
+		if ( this.mini ) underwaterMode( this.mini.group, 'lite' );
 		if ( this.vegetation ) underwaterMode( this.vegetation.group, 'none' );
 
 		this.underwaterLighting = installUnderwaterLighting( {
@@ -278,6 +297,10 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		if ( pelagicMask ) this.sceneRenderer.addHullMask( pelagicMask, this.pelagic.group,
 			// only the below-waterline volume: standing at the helm / on the pier must not switch the mask off
 			new Box3( new Vector3( - 1.7, - 0.85, - 5.45 ), new Vector3( 1.7, 0.3, 5.4 ) ) );
+		const miniMask = this.mini && this.mini.createHullVolumeGeometry();
+		if ( miniMask ) this.sceneRenderer.addHullMask( miniMask, this.mini.group,
+			// only the below-waterline volume (the angler sits above it)
+			new Box3( new Vector3( - 0.8, - 0.6, - 1.9 ), new Vector3( 0.8, 0.1, 1.9 ) ) );
 		this.waterMaterial = new WaterMaterial( {
 			surface: this.surface, sky: this.sky, sceneCopy: this.sceneRenderer.opaqueCopy, sceneDepthHalf: this.sceneRenderer.opaqueDepthHalf.texture, refraction: this.refraction,
 			hullMask: this.sceneRenderer.hullMaskRT.texture, hullMaskActive: this.sceneRenderer.hullMaskActive,
@@ -327,6 +350,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		// the Pelagic 30 gets its own controller, so it rides its mooring on the same physics
 		// (its hull samples are allocated there; the single-slot bob stays as a fallback only)
 		if ( this.pelagic ) this.pelagicCtl = new BoatController( { model: this.pelagic, query: this.query, terrain: this.terrainData, colliders: this.colliders, dock: WORLD.pelagicMooring } );
+		if ( this.mini ) this.miniCtl = new BoatController( { model: this.mini, query: this.query, terrain: this.terrainData, colliders: this.colliders, dock: WORLD.miniMooring } );
 		this.boatSpray = new BoatSpray( { boat: this.boatCtl, spray: this.spray } );
 		// humpback cruising the deep water around the island (model fetched from public/models/whale)
 		this.whale = new Whale( { scene, terrain: this.terrainData, query: this.query, spray: this.spray } );
@@ -345,7 +369,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		// interactive wake around the boat (Kelvin pattern, bow/stern waves, prop wash foam)
 		this.wake = new WakeSim( renderer, { terrainGPU: this.terrainGPU, boat: this.boatCtl, colliders: this.colliders } );
 		this.surface.wake = this.wake;
-		this.player = new Player( { camera, input: this.input, terrain: this.terrainData, colliders: this.colliders, query: this.query, boat: this.lobsterCtl, boats: this.pelagicCtl ? [ this.lobsterCtl, this.pelagicCtl ] : null, reef: this.reef } );
+		this.player = new Player( { camera, input: this.input, terrain: this.terrainData, colliders: this.colliders, query: this.query, boat: this.lobsterCtl, boats: this.pelagicCtl || this.miniCtl ? [ this.lobsterCtl, this.pelagicCtl, this.miniCtl ].filter( Boolean ) : null, reef: this.reef } );
 		// birds, beach crabs, sanderlings (after spray / query / boat, which they use)
 		this.wildlife = new Wildlife( {
 			scene, renderer, terrain: this.terrainData, terrainGPU: this.terrainGPU, shore: this.shore,
@@ -709,6 +733,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		}
 		this.lobsterCtl.update( dt );
 		if ( this.pelagicCtl ) this.pelagicCtl.update( dt );
+		if ( this.miniCtl ) this.miniCtl.update( dt );
 		this.boatSpray.update( dt );
 		this.wake.update( dt );
 		if ( this.freeCam ) this.fly.update( dt );
@@ -727,6 +752,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.query.setCamera( this.camera.position.x, this.camera.position.z );
 		this.lobsterCtl.queueQueries();
 		if ( this.pelagicCtl ) this.pelagicCtl.queueQueries();
+		if ( this.miniCtl ) this.miniCtl.queueQueries();
 		this.query.update();
 		if ( this.query.cpuValid ) {
 
@@ -760,6 +786,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		if ( this.whale ) this.whale.update( dt, this.camera );
 		this.boat.update( dt );
 		if ( this.pelagic && ! this.pelagicCtl ) this.pelagic.update( dt ); // bob only while there is no controller
+		if ( this.mini && ! this.miniCtl ) this.mini.update( dt );
 		this.wildlife.update( dt, this.camera, this.freeCam ? null : this.player );
 		this.localLights.update( this.camera, dt );
 

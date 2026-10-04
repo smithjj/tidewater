@@ -1,0 +1,25 @@
+{
+  "body_vertices": 34706,
+  "body_faces": 34848,
+  "body_boundary_edges": 0,
+  "body_nonmanifold_edges": 0,
+  "wing_shape_keys": [
+    [
+      "Basis",
+      0.0
+    ],
+    [
+      "Wings | upward stroke",
+      0.0
+    ],
+    [
+      "Wings | downward stroke",
+      0.0
+    ]
+  ],
+  "scene_objects": 127,
+  "materials": 11,
+  "external_images": [],
+  "saved_file": "C:\\Users\\smith\\OneDrive\\Documents\\codex-projects\\assets\\eagle-ray\\spotted_eagle_ray.blend",
+  "all_previews_exist": true
+}

@@ -4,7 +4,7 @@ import { ReefBatch } from './reef/ReefBatch.js';
 import { WORLD } from './WorldLayout.js';
 import { SPECIES } from './fish/FishSpecies.js';
 import { fishGeometry } from './fish/FishGeometry.js';
-import { rayGeometry, turtleGeometry } from './fish/CreatureGeometry.js';
+import { rayGeometry, eagleRayGeometry, turtleGeometry } from './fish/CreatureGeometry.js';
 import { createSwimMaterial } from './fish/FishMaterial.js';
 import { bandFade } from '../materials/LODFade.js';
 import { WhaleWater } from '../ocean/WhaleWater.js';
@@ -96,7 +96,8 @@ function buildModels( names ) {
 
 			const eagle = name === 'eagleRay';
 			const g1 = rayGeometry( { lod: 1, eagle } );
-			geos = [ rayGeometry( { lod: 0, eagle } ), g1, g1, g1 ];
+			// the eagle ray is the modelled asset close up (two levels of detail), the procedural ray far off
+			geos = eagle ? [ eagleRayGeometry( { lod: 0 } ), eagleRayGeometry( { lod: 1 } ), g1, g1 ] : [ rayGeometry( { lod: 0, eagle } ), g1, g1, g1 ];
 
 		} else if ( name === 'turtle' ) {
 

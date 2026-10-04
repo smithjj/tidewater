@@ -44,8 +44,9 @@ rendering engine, no framework.
   every fish of it you sell that day, on top of the market rate. It is on his board, and a ★ marks the fish in
   your cooler that fill it.
 - Walk the deck and the wheelhouse while the boat drifts; the boat burns fuel.
-- Two boats, both drivable, with decks you can stand on and fish from: the lobster boat (which carries the
-  hauler and the pots) and the Pelagic 30 off the pier head.
+- Two boats with decks you can stand on and fish from: the lobster boat (which carries the
+  hauler and the pots) and the Pelagic 30 off the pier head; and a mini fishing boat off the end of the pier,
+  which you board straight to its seat.
 - A first-play guide, contextual tips and a minimap. Progress is saved in the browser.
 
 **The day**
@@ -75,10 +76,10 @@ rendering engine, no framework.
 **World**
 - An island with a beach, hills, headlands and rocks.
 - A fishing village, a pier, and the vendors' stalls built from Poly Haven scans.
-- Two workboats at the pier, both drivable: a lobster boat lofted from its own hull lines, and a Pelagic 30
-  centre console loaded from an authored model.
+- Three boats at the pier, all drivable: a lobster boat lofted from its own hull lines, a Pelagic 30
+  centre console, and a one-man mini fishing boat, the last two loaded from authored models.
 - Realistic vendor characters (Microsoft Rocketbox) with skinned animation.
-- A coral reef with fish.
+- A coral reef with fish, and a spotted eagle ray (a modelled asset, baked into the fish frame) over the drop-off.
 - Palms, bananas, monstera, elephant ear, heliconia, bird of paradise, broadleaf trees, shrubs and dune
   grass, with impostors and dithered LOD fades.
 - Beach debris.

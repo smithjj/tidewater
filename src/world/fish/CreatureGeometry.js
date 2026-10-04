@@ -1,5 +1,6 @@
 import * as THREE from '../../engine/index.js';
 import { PART } from './FishGeometry.js';
+import { EAGLE_RAY } from './EagleRayData.js';
 
 // Rays and the green sea turtle, in the fish frame (nose +z, back +y, total length 1 from the
 // snout at z = +0.5) so they share the fish batch, material and swimming data:
@@ -96,7 +97,8 @@ function tube( A, pts, sides, part, dataFn, caps = true ) {
 }
 
 // o: { lod, eagle } (southern stingray: rhombic disc that undulates; spotted eagle ray: pointed,
-// swept wings that flap, a protruding head and a very long tail)
+// swept wings that flap, a protruding head and a very long tail; the eagle's outline is the planform of the modelled
+// ray (eagleRayGeometry), which it replaces close up: this one is the far level of detail)
 export function rayGeometry( { lod = 0, eagle = false } = {} ) {
 
 	const A = new Acc();
@@ -104,7 +106,7 @@ export function rayGeometry( { lod = 0, eagle = false } = {} ) {
 	// disc outline (right half, x >= 0, from the snout clockwise to the tail), radius at angle a
 	// (0 = straight ahead, PI / 2 = the right wing tip) found by intersecting the polygon
 	const half = eagle ?
-		[ [ 0, 0.27 ], [ 0.05, 0.25 ], [ 0.07, 0.19 ], [ 0.2, 0.12 ], [ 0.36, 0.04 ], [ 0.5, - 0.07 ], [ 0.42, - 0.09 ], [ 0.26, - 0.11 ], [ 0.13, - 0.17 ], [ 0.04, - 0.2 ], [ 0, - 0.2 ] ] :
+		[ [ 0, 0.27 ], [ 0.06, 0.265 ], [ 0.078, 0.22 ], [ 0.094, 0.17 ], [ 0.151, 0.12 ], [ 0.238, 0.07 ], [ 0.308, 0.02 ], [ 0.371, - 0.03 ], [ 0.433, - 0.08 ], [ 0.487, - 0.13 ], [ 0.5, - 0.171 ], [ 0.475, - 0.23 ], [ 0.083, - 0.28 ], [ 0, - 0.29 ] ] :
 		[ [ 0, 0.43 ], [ 0.08, 0.37 ], [ 0.3, 0.17 ], [ 0.47, 0.02 ], [ 0.5, - 0.03 ], [ 0.44, - 0.12 ], [ 0.26, - 0.3 ], [ 0.12, - 0.4 ], [ 0, - 0.42 ] ];
 	const poly = [ ...half, ...half.slice( 1, - 1 ).reverse().map( ( p ) => [ - p[ 0 ], p[ 1 ] ] ) ];
 	const outline = ( a ) => {
@@ -185,7 +187,7 @@ export function rayGeometry( { lod = 0, eagle = false } = {} ) {
 
 	// tail: long whip (the eagle ray's is three times the disc length)
 	const tl = eagle ? 1.0 : 0.62;
-	const tz0 = cz - ( eagle ? 0.19 : 0.4 );
+	const tz0 = cz - ( eagle ? 0.29 : 0.4 );
 	const tp = [];
 	const nT = lod ? 4 : 10;
 	for ( let i = 0; i <= nT; i ++ ) {
@@ -198,6 +200,44 @@ export function rayGeometry( { lod = 0, eagle = false } = {} ) {
 	tube( A, tp, lod ? 3 : 5, PART.WHIP, () => [ 0, 1 ] );
 	const g = A.build();
 	return g;
+
+}
+
+// The spotted eagle ray from the modelled asset (assets/eagle-ray.glb baked by tools/creatures/bake-eagle-ray.mjs into
+// EagleRayData.js): the sculpted disc with its duckbill head (PART.DISC: the margins flap in the vertex shader), the
+// straightened whip, the dorsal and pelvic fins (PART.WHIP), with the game's own eyes at the model's eye positions.
+// Two levels of detail (0: 8,000 triangles in the disc, 1: 1,200); the procedural rayGeometry({ eagle: true }) is the
+// far level. Frame as the other rays: nose +z, snout at z = 0.5, span 1 (the wing tips at x = +-0.5), aData.x = 0.5 - z.
+export function eagleRayGeometry( { lod = 0 } = {} ) {
+
+	const raw = atob( EAGLE_RAY.lods[ Math.min( lod, EAGLE_RAY.lods.length - 1 ) ] );
+	const bytes = new Uint8Array( raw.length );
+	for ( let i = 0; i < raw.length; i ++ ) bytes[ i ] = raw.charCodeAt( i );
+	const view = new DataView( bytes.buffer );
+	const nV = view.getUint32( 0, true ), nT = view.getUint32( 4, true );
+	const A = new Acc();
+	let o = 8;
+	for ( let i = 0; i < nV; i ++ ) {
+
+		const x = view.getInt16( o, true ) / EAGLE_RAY.scale, y = view.getInt16( o + 2, true ) / EAGLE_RAY.scale, z = view.getInt16( o + 4, true ) / EAGLE_RAY.scale;
+		const part = view.getUint8( o + 6 ), w = view.getInt8( o + 7 );
+		o += 8;
+		// the disc: distance from the midline (the flap's reach); the whip and fins: no flap, w = 1
+		// the whip and fins: x measured from where they leave the disc (the wave's envelope grows with x: the root stays put)
+		const u = part === PART.DISC ? 0.5 - z : Math.max( 0, 0.5 - z - EAGLE_RAY.meta.whipU.root ) * EAGLE_RAY.meta.whipU.k;
+		A.v( x, y, z, u, part, part === PART.DISC ? Math.min( 1, Math.abs( x ) / 0.5 ) : 0, part === PART.DISC ? w : 1 );
+
+	}
+
+	for ( let i = 0; i < nT * 3; i ++ ) A.idx.push( view.getUint16( o + i * 2, true ) );
+	if ( lod === 0 ) {
+
+		const ez = EAGLE_RAY.meta.eyes;
+		for ( const [ ex, ey, eZ ] of ez ) tube( A, [ [ ex, ey + 0.012, eZ + 0.012, 0.004 ], [ ex, ey + 0.016, eZ, 0.013 ], [ ex, ey + 0.012, eZ - 0.012, 0.004 ] ], 6, PART.EYE, () => [ 0, 0 ] );
+
+	}
+
+	return A.build();
 
 }
 

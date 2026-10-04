@@ -77,6 +77,9 @@ export class BoatController {
 
 		const hydro = model.hydro || {};
 		this.mass = hydro.suggestedMass || 3200;
+		// the damping, resistance and mooring constants below are tuned on the 3.2 t lobster boat; a much lighter
+		// hull (the mini fishing boat) scales them down with `forceScale` (its mass ratio, about)
+		this.forceScale = model.forceScale ?? 1;
 		this.com = hydro.centerOfMass ? new THREE.Vector3().copy( hydro.centerOfMass ) : new THREE.Vector3( 0, 0.3, - 0.74 );
 		// principal inertia in the boat frame (+Z forward, +X port): x = pitch, y = yaw, z = roll. Gear
 		// high on deck (traps, hauler, wheelhouse) gives a larger roll radius than the bare hull.
@@ -197,6 +200,7 @@ export class BoatController {
 	// the sole, that only push once the water reaches them. A model without hull lines gets none.
 	_reserveSamples( model ) {
 
+		if ( model.reserveSamples ) return model.reserveSamples.map( ( r ) => ( { p: r.position.clone(), area: r.area, bottom: r.position.y, reserve: true } ) );
 		const L = model.lines;
 		const cfg = model.reserve || {};
 		if ( ! L || ! L.halfBreadth || ! L.tAtSheerZ ) return [];
@@ -221,7 +225,7 @@ export class BoatController {
 	// the bow chock the anchor line leads through (boat frame)
 	get chock() {
 
-		return _chock.set( 0, this.model.lines ? this.model.lines.deckY : 0.9, this.model.bowZ ?? 3.9 );
+		return _chock.set( 0, this.model.chockY ?? ( this.model.lines ? this.model.lines.deckY : 0.9 ), this.model.bowZ ?? 3.9 );
 
 	}
 
@@ -448,7 +452,7 @@ export class BoatController {
 			_vp.copy( this.angular ).cross( _r.copy( pw ).sub( comW ) ).add( this.velocity );
 			const vy = _vp.y - wv * 0.6;
 			const wetK = Math.min( 1, sub / 0.25 ) * s.area;
-			_f.set( 0, RHO * GRAV * s.area * sub - ( 1800 * vy + 900 * vy * Math.abs( vy ) ) * wetK, 0 );
+			_f.set( 0, RHO * GRAV * s.area * sub - ( 1800 * vy + 900 * vy * Math.abs( vy ) ) * wetK * this.forceScale, 0 );
 			addForceAt( _f, pw );
 
 		}
@@ -486,12 +490,12 @@ export class BoatController {
 
 		// ---- calm-water resistance (friction + the wave-making hump past hull speed + planing)
 		const au = Math.abs( u );
-		const R = ( 40 * au + 22 * au * au + 3000 * sstep( au, 2.8, 5.4 ) + 55 * au * au * sstep( au, 7, 11 ) ) * wetD;
+		const R = ( 40 * au + 22 * au * au + 3000 * sstep( au, 2.8, 5.4 ) + 55 * au * au * sstep( au, 7, 11 ) ) * wetD * this.forceScale;
 		_p.set( 0, - 0.2, this.com.z );
 		this.toWorld( _p, _p );
 		addForceAt( _f.copy( fwd ).multiplyScalar( - R * Math.sign( u ) ), _p );
 		// air drag on hull + house (Cd ~0.9, ~6 m^2 frontal area)
-		F.addScaledVector( this.velocity, - 3.3 * this.speed );
+		F.addScaledVector( this.velocity, - 3.3 * this.speed * this.forceScale );
 
 		// ---- lateral hydrodynamics along the keel: hull lift ~ u * v and cross-flow drag ~ v|v| at
 		// each station (v includes the yaw rate): directional stability, the turning circle, speed
@@ -555,20 +559,20 @@ export class BoatController {
 		// ---- small extra angular damping (appendages, bilge), scaled by wetness
 		const wd = 0.2 + wetD;
 		// the keel's lift resists roll in proportion to speed (a boat underway rolls much less)
-		_v.set( - aLoc.x * 50000, - aLoc.y * 2000, - aLoc.z * ( 4500 + 900 * au ) ).multiplyScalar( wd ).applyQuaternion( this.quaternion );
+		_v.set( - aLoc.x * 50000, - aLoc.y * 2000, - aLoc.z * ( 4500 + 900 * au ) ).multiplyScalar( wd * this.forceScale ).applyQuaternion( this.quaternion );
 		T.add( _v );
 
 		// ---- mooring lines when docked and not driven
 		if ( this.moored && ! this.driven ) {
 
 			const a = this.mooring.anchor;
-			const k = 5500, c = 4200;
+			const k = 5500 * this.forceScale, c = 4200 * this.forceScale;
 			const dx = a.x - this.position.x, dz = a.z - this.position.z;
 			F.x += dx * k - this.velocity.x * c;
 			F.z += dz * k - this.velocity.z * c;
 			let dy = this.mooring.heading - this.getYaw();
 			dy = Math.atan2( Math.sin( dy ), Math.cos( dy ) );
-			T.y += dy * 60000 - this.angular.y * 30000;
+			T.y += ( dy * 60000 - this.angular.y * 30000 ) * this.forceScale;
 
 		}
 

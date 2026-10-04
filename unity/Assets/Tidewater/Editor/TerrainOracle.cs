@@ -60,6 +60,15 @@ namespace Tidewater.EditorTools
 			sb.AppendLine( $"lace texture ms: {swl.ElapsedMilliseconds}" );
 			CompareB( sb, "lace", lace, dir + "/lace.u8" );
 
+			{
+				var sws = System.Diagnostics.Stopwatch.StartNew();
+				var nd = Tidewater.Ocean.SeaDetail.NoiseData( 256 );
+				sb.AppendLine( $"sea detail noise ms: {sws.ElapsedMilliseconds}" );
+				var bytes = new byte[ nd.Length * 2 ];
+				Buffer.BlockCopy( nd, 0, bytes, 0, bytes.Length );
+				CompareB( sb, "seadetail", bytes, dir + "/seadetail.u16" );
+			}
+
 			var file = JsonUtility.FromJson<SampleFile>( File.ReadAllText( dir + "/noise.json" ) );
 			var n = new Noise2D( 7 );
 			var worst = new Dictionary<string, double>();

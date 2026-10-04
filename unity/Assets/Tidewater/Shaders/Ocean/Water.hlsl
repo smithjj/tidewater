@@ -6,18 +6,21 @@
 // the sun is given as lux (_TWSunColor) and the shader applies the exposure itself, so the same white surface gets the
 // same colour here as in the lit terrain next to it.
 
+float4 _TWWind;               // sim wind direction xz, speed (m/s)
+float4 _TWSunDir;             // toward the sun, sim space
 #include "../Terrain/TerrainHeight.hlsl"
 #include "../Common/CDLOD.hlsl"
+#include "OceanCommon.hlsl"
 #include "../Common/Noise.hlsl"
 #include "ShoreWaves.hlsl"
 #include "ShoreSim.hlsl"
 #include "SurfFoam.hlsl"
+#include "SeaDetail.hlsl"
 
 TEXTURE2D_ARRAY(_TWOceanDisp);  SAMPLER(sampler_TWOceanDisp);    // (Dx, Dy, Dz, foam) per cascade, mipmapped
 TEXTURE2D_ARRAY(_TWOceanDeriv); SAMPLER(sampler_TWOceanDeriv);   // (dDy/dx, dDy/dz, dDx/dx, dDz/dz), aniso 4
 TEXTURE2D(_TWFoamTex); SAMPLER(sampler_TWFoamTex);               // the tileable foam pattern (aniso)
 
-float4 _TWOceanSizes[4];      // x = cascade tile size (m)
 float4 _TWOceanParams;        // choppiness, foamBias, cascades, 0
 float4 _TWOceanLodMorph[16];  // per LOD: morph start, 1 / morph range, grid spacing, 0
 float4 _TWViewPos;            // view camera, sim space (the morph centre)
@@ -30,9 +33,7 @@ float4 _TWWaterB;
 float4 _TWWaterC;
 float4 _TWWaterAbsorption;    // frame.waterAbsorption (1/m)
 float4 _TWWaterScattering;    // frame.waterScattering (1/m)
-float4 _TWSunDir;             // toward the sun, sim space
 float4 _TWSunColor;           // sun illuminance (lux) x colour
-float4 _TWWind;               // sim wind direction xz, speed (m/s)
 float4 _TWDebug;              // x = debug view (see the end of Frag)
 float4 _TWCamera;             // xyz = sim camera position
 StructuredBuffer<float4> _TWWaterQuery;   // WaterQuery results: slot 0 = the camera ( height, nx, nz, sea floor )
@@ -82,16 +83,6 @@ float WaterVSmithGGX( float NdL, float NdV, float a2 )
 	float gv = NdL * sqrt( NdV * NdV * ( 1.0 - a2 ) + a2 );
 	float gl = NdV * sqrt( NdL * NdL * ( 1.0 - a2 ) + a2 );
 	return 0.5 / max( gv + gl, 1e-5 );
-}
-
-// per-cascade amplitude attenuation in shallow water (long waves feel the bottom first): long cascades vanish in
-// shallow water, short ones persist until very shallow
-float WaterSurfaceCascadeAttenuation( int c, float depth )
-{
-	const float floorAmt[ 4 ] = { 0.0, 0.05, 0.25, 0.5 };
-	float d0 = min( 40.0, _TWOceanSizes[ c ].x * 0.08 );
-	float a = smoothstep( 0.0, d0, depth );
-	return lerp( floorAmt[ c ] * smoothstep( 0.0, 0.6, depth ), 1.0, a );
 }
 
 // the sky as the HDRP environment sees it; direction in sim space. The cubemap is in physical units: the exposure is
@@ -255,13 +246,16 @@ WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float dept
 	foamSum += simFoam;
 	// bubbles mixed into the water (milky, turquoise, hides the bottom): surf and wake
 	float aeration = 0.0;
-	// (sea detail: gusts / slicks modulate the short wind waves; not ported yet)
-	float rough = 1.0;
+	// world-space gusts / slicks modulate the short wind waves (non-repeating dark and bright patches)
+	SeaDetailSampleOut det = SeaDetailSampleAt( lagXZ );
+	float rough = det.rough;
 
 	[unroll]
 	for ( int c = 0; c < 4; c ++ )
 	{
 		float att = WaterSurfaceCascadeAttenuation( c, depth );
+		if ( c >= 2 ) att *= rough;
+		else if ( c == 1 ) att *= lerp( 1.0, rough, 0.4 );
 		d += SAMPLE_TEXTURE2D_ARRAY( _TWOceanDeriv, sampler_TWOceanDeriv, lagXZ / _TWOceanSizes[ c ].x, c ) * att;
 	}
 
@@ -314,6 +308,8 @@ WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float dept
 	// whitecaps: persistent (per vertex) + fresh where the surface is compressed right now
 	float fresh = TWSat( ( _TWOceanParams.y - 0.15 - jac ) * 2.0 );
 	float whitecaps = vertexFoam + fresh;
+	// more of them inside gusts, plus windrow lines in fresh wind
+	whitecaps = whitecaps * lerp( 0.5, 1.5, det.gust ) + det.streak * 0.5;
 	float coverage = TWSat( ( foamSum + whitecaps ) * _TWWaterA.z );
 
 	// foam pattern: an irregular bubbly mat thresholded by coverage, so foam grows, tears into lace and dissolves
@@ -348,8 +344,8 @@ WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float dept
 	o.jacobian = jac;
 	o.rough = rough;
 	o.aeration = TWSat( aeration );
-	o.gust = 0.5;
-	o.slick = 0.0;
+	o.gust = det.gust;
+	o.slick = det.slick;
 	return o;
 }
 

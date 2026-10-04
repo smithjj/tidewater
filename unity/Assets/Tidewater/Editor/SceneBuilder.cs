@@ -31,6 +31,13 @@ namespace Tidewater.EditorTools
 			var sea = GameObject.Find( "Ocean" ) ?? new GameObject( "Ocean" );
 			if ( sea.GetComponent<OceanRenderer>() == null ) sea.AddComponent<OceanRenderer>();
 
+			// the underwater lighting of lit surfaces: an HDRP custom pass after the opaque lighting
+			var passes = GameObject.Find( "Underwater Passes" ) ?? new GameObject( "Underwater Passes" );
+			var vol = passes.GetComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>() ?? passes.AddComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>();
+			vol.isGlobal = true;
+			vol.injectionPoint = UnityEngine.Rendering.HighDefinition.CustomPassInjectionPoint.BeforePreRefraction;
+			if ( vol.customPasses.Count == 0 ) vol.customPasses.Add( new UnderwaterLightingPass() );
+
 			// camera: off the beach, looking north at the island (Unity +z = north)
 			var cam = Camera.main;
 			cam.transform.SetPositionAndRotation( new Vector3( 60, 12, - 150 ), Quaternion.Euler( 3, 0, 0 ) );
@@ -130,6 +137,59 @@ namespace Tidewater.EditorTools
 			if ( t != null ) t.enabled = terrain;
 			if ( o != null ) o.enabled = ocean;
 			return $"terrain {terrain}, ocean {ocean}";
+		}
+	}
+}
+
+namespace Tidewater.EditorTools
+{
+	public static class PassDebug
+	{
+		// the debug view runs after the post-processing, so its colours are not tonemapped
+		public static string Debug( bool on )
+		{
+			UnderwaterLightingPass.debug = on;
+			var v = Object.FindAnyObjectByType<UnityEngine.Rendering.HighDefinition.CustomPassVolume>();
+			if ( v != null ) v.injectionPoint = on ? UnityEngine.Rendering.HighDefinition.CustomPassInjectionPoint.AfterPostProcess : UnityEngine.Rendering.HighDefinition.CustomPassInjectionPoint.BeforePreRefraction;
+			return "underwater debug " + on;
+		}
+
+		// the baked maps against the camera's own water query; the report is written to Temp/bakecheck.txt
+		public static string BakeCheck()
+		{
+			var o = Object.FindAnyObjectByType<Tidewater.Ocean.OceanRenderer>();
+			var ul = o.underwaterLighting;
+			if ( ul == null ) return "no underwater lighting";
+			var cam = Camera.main.transform.position;
+			float sx = cam.x, sz = -cam.z;
+			var q = o.query.Get( 0 );
+			var origin = ul.Origin( 0 ); float texel = ul.Texel( 0 );
+			var path = System.IO.Path.GetFullPath( System.IO.Path.Combine( Application.dataPath, "../Temp/bakecheck.txt" ) );
+			System.IO.File.WriteAllText( path, "pending" );
+			UnityEngine.Rendering.AsyncGPUReadback.Request( ul.WavesMap( 0 ), 0, UnityEngine.Experimental.Rendering.GraphicsFormat.R16G16B16A16_SFloat, ra =>
+			{
+				var d = ra.GetData<ushort>();
+				float H( int i ) => Mathf.HalfToFloat( d[ i ] );
+				int tx = Mathf.Clamp( Mathf.FloorToInt( ( sx - origin.x ) / texel ), 0, 511 ), tz = Mathf.Clamp( Mathf.FloorToInt( ( sz - origin.y ) / texel ), 0, 511 );
+				int i0 = ( tz * 512 + tx ) * 4;
+				double sum = 0, sum2 = 0, mn = 1e9, mx = -1e9, foam = 0; int land = 0;
+				for ( int i = 0; i < 512 * 512; i ++ )
+				{
+					float h = H( i * 4 );
+					if ( h < -5 ) { land ++; continue; }
+					sum += h; sum2 += h * h; mn = System.Math.Min( mn, h ); mx = System.Math.Max( mx, h ); foam += H( i * 4 + 3 );
+				}
+				int n = 512 * 512 - land;
+				System.IO.File.WriteAllText( path, $"camera sim ({sx:F2},{sz:F2}) texel ({tx},{tz})\nbaked height-sea at camera {H( i0 ):F4}  slope ({H( i0 + 1 ):F4},{H( i0 + 2 ):F4}) foam {H( i0 + 3 ):F4}\nquery height at camera {q.height:F4} (sea level {Tidewater.Core.G.seaLevel:F3}) nx {q.nx:F3} nz {q.nz:F3} floor {q.floor:F2}\nnear map: water texels {n}, land {land}, mean {sum / System.Math.Max( n, 1 ):F4} rms {System.Math.Sqrt( sum2 / System.Math.Max( n, 1 ) ):F4} min {mn:F3} max {mx:F3} foam mean {foam / System.Math.Max( n, 1 ):F4}" );
+			} );
+			return "scheduled";
+		}
+
+		public static string Underwater( bool on )
+		{
+			var v = Object.FindAnyObjectByType<UnityEngine.Rendering.HighDefinition.CustomPassVolume>();
+			if ( v != null ) v.enabled = on;
+			return "underwater pass " + on;
 		}
 	}
 }

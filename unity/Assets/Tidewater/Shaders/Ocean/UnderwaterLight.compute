@@ -1,0 +1,97 @@
+// Port of the bake kernels of installUnderwaterLighting in src/ocean/UnderwaterLighting.js. The wave terms the underwater lighting
+// needs at a point depend on its xz only (surface height, slope and foam of the long waves, the mean level, the gust / slick factor
+// of the caustics). They are baked once per frame into two camera-centred maps (0.25 m texels over 128 m, 2 m over 1 km, snapped to
+// their texels so they don't crawl) instead of being evaluated by every pixel that can be under water. Beyond the far map: a flat sea.
+//   A = ( height - sea level, slope.xy, foam ),  B = ( mean level - sea level, detail k )
+
+#pragma kernel BakeMaps
+
+#define TW_NO_NORMAL_ROCK
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+float4 _TWWind;
+float4 _TWSunDir;
+#include "../Terrain/TerrainHeight.hlsl"
+#include "../Common/Noise.hlsl"
+#include "OceanCommon.hlsl"
+#include "ShoreWaves.hlsl"
+#include "ShoreSim.hlsl"
+#include "SeaDetail.hlsl"
+
+Texture2DArray<float4> _TWOceanDisp;
+Texture2DArray<float4> _TWOceanDeriv;
+SamplerState sampler_LinearRepeat;
+
+float4 _UwBake;                 // origin.xz (of this level), texel (m), sea level
+RWTexture2D<float4> _UwOutA;
+RWTexture2D<float4> _UwOutB;
+
+#define MAP_N 512
+#define FFT_SIZE 256.0
+
+struct UnderwaterLongWaves { float height; float2 slope; float foam; };
+
+// long waves at xz: height, slope and foam from the coarse FFT cascades and the shore waves
+// texel: the bake's texel size (m); the cascades are read no finer than it (level >= 2)
+UnderwaterLongWaves UnderwaterLongWavesAt( float2 xz, float texel, float seaLevel )
+{
+	float seaDepth = seaLevel - TWHeightAt( xz );
+	float h = 0.0;
+	float2 slope = 0.0;
+	[unroll]
+	for ( int c = 0; c < 3; c ++ )
+	{
+		float2 uv = xz / _TWOceanSizes[ c ].x;
+		float att = WaterSurfaceCascadeAttenuation( c, seaDepth );
+		float lvl = max( 2.0, log2( texel * FFT_SIZE / _TWOceanSizes[ c ].x ) );
+		h += _TWOceanDisp.SampleLevel( sampler_LinearRepeat, float3( uv, c ), lvl ).y * att;
+		if ( c < 2 )
+		{
+			float4 d = _TWOceanDeriv.SampleLevel( sampler_LinearRepeat, float3( uv, c ), lvl );
+			slope += float2( d.x, d.y ) * att;
+		}
+	}
+
+	float foam = 0.0;
+	{
+		ShoreSample sw = ShoreEvaluate( xz, seaDepth, TWHeightAt( xz ) );
+		h += sw.disp.y;
+		float3 n = sw.nShore;
+		slope += -float2( n.x, n.z ) / max( n.y, 0.25 );
+		foam += sw.foam;
+	}
+	foam += ShoreSimSample( xz ).x * 0.8;
+	// waves only exist over water: none over dry land
+	h = h * smoothstep( 0.0, 1.0, seaDepth ) - smoothstep( 0.0, -0.4, seaDepth ) * 10.0;
+	UnderwaterLongWaves o;
+	o.height = seaLevel + h;
+	o.slope = slope;
+	o.foam = foam;
+	return o;
+}
+
+// mean water level from the two longest FFT cascades (one texture binding)
+float UnderwaterMeanLevel( float2 xz, float seaLevel )
+{
+	float h = 0.0;
+	[unroll]
+	for ( int c = 0; c < 2; c ++ )
+	{
+		h += _TWOceanDisp.SampleLevel( sampler_LinearRepeat, float3( xz / _TWOceanSizes[ c ].x, c ), 3.0 ).y;
+	}
+
+	h *= smoothstep( 0.0, 3.0, seaLevel - TWHeightAt( xz ) );
+	return seaLevel + h;
+}
+
+[numthreads( 8, 8, 1 )]
+void BakeMaps( uint3 gid : SV_DispatchThreadID )
+{
+	float texel = _UwBake.z, seaLevel = _UwBake.w;
+	float2 xz = ( float2( gid.xy ) + 0.5 ) * texel + _UwBake.xy;
+	UnderwaterLongWaves lw = UnderwaterLongWavesAt( xz, texel, seaLevel );
+	_UwOutA[ gid.xy ] = float4( lw.height - seaLevel, lw.slope, saturate( lw.foam ) );
+	// the caustics' gust / slick factor
+	SeaDetailSampleOut det = SeaDetailSampleAt( xz );
+	float dk = lerp( 0.55, 1.25, det.gust ) * ( 1.0 - det.slick * 0.6 );
+	_UwOutB[ gid.xy ] = float4( UnderwaterMeanLevel( xz, seaLevel ) - seaLevel, dk, 0.0, 1.0 );
+}

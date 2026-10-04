@@ -703,7 +703,7 @@ namespace Tidewater.World.Village
 		public readonly Dictionary<string, Batch> batches = new Dictionary<string, Batch>();
 		public Matrix4 frame = new Matrix4();
 		readonly List<Matrix4> stack = new List<Matrix4>();
-		public object fishProps; // not ported yet (fish/FishProps.js)
+		public Tidewater.World.Fish.FishProps fishProps; // fish, ice, leaves and lobsters placed by Props (drawn by FishPropsView)
 
 		public Batch batch( string key )
 		{

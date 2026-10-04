@@ -1114,7 +1114,7 @@ namespace Tidewater.World.Village
 			foreach ( double pz in new[] { - 2.4, - 0.6 } )
 				foreach ( double px in new[] { bx - 0.25, bx + 0.25 } ) B.box( "wood", px, gB + 0.43, pz, 0.07, 0.9, 0.07, new O { grain = 1, data = WOOD( rand.next(), 0.8 ) } );
 			bucket( B, bx, gB + 0.925, - 2.1, lin( 0xd8d8d0 ), rand.next() );
-			rand.next(); // fish( ..., { seed: rand.next() } ): the fish display is not part of this port step, its seed is still drawn
+			fish( B, bx, gB + 0.925, - 1.2, new FishO { species = "mullet", len = 0.4, ry = 1.9, sag = 0.15, jaw = 0.2, wet = 0.6, cloudy = 0.6, seed = rand.next() } );
 			addBoxL( bx, gB + 0.45, - 1.5, 0.35, 0.45, 1.0, "bench" );
 			// net hanging on the left wall
 			var netPart = gridPart( 10, 8, ( i, j ) =>
@@ -1239,15 +1239,18 @@ namespace Tidewater.World.Village
 					lift = floor + 0.02;
 				}
 
-				// fish in layers, heads alternating, bodies curved to the basin, tails over the rim (the fish are not part
-				// of this port step: their arguments are still drawn, to keep the display sequence in step)
+				// fish in layers, heads alternating, bodies curved to the basin, tails over the rim
 				for ( int i = 0; i < b.fish.Length; i ++ )
 				{
+					string species = ( string ) b.fish[ i ][ 0 ]; double len = ( double ) b.fish[ i ][ 1 ];
 					double aa = i * 2.4 + fr.range( - 0.4, 0.4 );
 					double r = fr.range( 0.0, 0.07 );
-					fr.range( - 0.3, 0.3 ); fr.range( - 0.12, 0.12 ); fr.range( - 0.1, 0.1 ); fr.chance( 0.3 );
-					fr.range( 0.35, 0.8 ); fr.chance( 0.5 ); fr.range( - 0.25, 0.15 );
-					fr.range( 0.15, 0.5 ); fr.range( 0.2, 0.6 ); fr.range( 0.3, 1 ); fr.next();
+					var fo = new FishO { species = species, len = len };
+					fo.ry = aa + ( i % 2 != 0 ? Math.PI : 0 ) + fr.range( - 0.3, 0.3 ); fo.rx = fr.range( - 0.12, 0.12 ); fo.rz = fr.range( - 0.1, 0.1 );
+					fo.flip = fr.chance( 0.3 );
+					double sagMag = fr.range( 0.35, 0.8 ); fo.sag = sagMag * ( fr.chance( 0.5 ) ? 1 : - 1 ); fo.curl = fr.range( - 0.25, 0.15 );
+					fo.jaw = fr.range( 0.15, 0.5 ); fo.cloudy = fr.range( 0.2, 0.6 ); fo.blood = fr.range( 0.3, 1 ); fo.seed = fr.next();
+					fish( B, bx + Math.Cos( aa ) * r, lift + Math.Floor( i / 2.0 ) * 0.04, bz + Math.Sin( aa ) * r, fo );
 				}
 
 				for ( int k = 0; k < b.lobsters; k ++ )
@@ -1264,9 +1267,11 @@ namespace Tidewater.World.Village
 				bananaLeaf( B, lx - 0.22, cy + 0.025, bz - 0.02, bly, 0.44, blSeed );
 				for ( int k = 0; k < 3; k ++ )
 				{
-					fr.range( - 0.04, 0.04 );
-					fr.pick( new[] { "grunt", "yellowtail", "mullet" } ); fr.range( 0.2, 0.26 ); fr.range( - 0.4, 0.4 );
-					fr.range( - 0.4, 0.4 ); fr.range( 0.1, 0.4 ); fr.next();
+					double fx = lx + fr.range( - 0.04, 0.04 );
+					var fo = new FishO();
+					fo.species = fr.pick( new[] { "grunt", "yellowtail", "mullet" } ); fo.len = fr.range( 0.2, 0.26 ); fo.ry = fr.range( - 0.4, 0.4 ) + ( k % 2 != 0 ? Math.PI : 0 );
+					fo.sag = fr.range( - 0.4, 0.4 ); fo.jaw = fr.range( 0.1, 0.4 ); fo.seed = fr.next();
+					fish( B, fx, cy + 0.035 + k * 0.012, bz - 0.06 + k * 0.05, fo );
 				}
 			}
 
@@ -1280,18 +1285,21 @@ namespace Tidewater.World.Village
 			foreach ( var h in hung )
 			{
 				double px = ( double ) h[ 0 ]; double len = ( double ) h[ 2 ]; string how = ( string ) h[ 3 ];
-				// the options object: ry, sag, curl, jaw, cloudy, blood, seed
-				fr.range( - 0.15, 0.15 ); fr.range( - 0.2, 0.2 ); fr.range( - 0.25, 0.25 );
-				if ( how == "tail" ) fr.range( 0.35, 0.6 ); else fr.range( 0.1, 0.3 );
-				fr.range( 0.2, 0.5 ); fr.range( 0.4, 1 ); fr.next();
+				string species = ( string ) h[ 1 ];
+				var opts = new FishO { species = species, len = len, pose = how };
+				opts.ry = fr.range( - 0.15, 0.15 ); opts.sag = fr.range( - 0.2, 0.2 ); opts.curl = fr.range( - 0.25, 0.25 );
+				opts.jaw = how == "tail" ? fr.range( 0.35, 0.6 ) : fr.range( 0.1, 0.3 );
+				opts.cloudy = fr.range( 0.2, 0.5 ); opts.blood = fr.range( 0.4, 1 ); opts.seed = fr.next();
 				if ( how == "tail" )
 				{
 					double y = top - 0.2 - fr.range( 0, 0.08 );
 					fishTwine( B, new[] { px, top - 0.05, d / 2 }, new[] { px, y, d / 2 }, fr.next(), 0.012 + len * 0.01 );
+					fish( B, px, y, d / 2, opts );
 				}
 				else
 				{
-					sHook( B, px, top, d / 2, 0.06, fr.next() );
+					double y = sHook( B, px, top, d / 2, 0.06, fr.next() );
+					fish( B, px, y, d / 2, opts );
 				}
 			}
 

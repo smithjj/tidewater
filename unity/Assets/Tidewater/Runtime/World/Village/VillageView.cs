@@ -28,6 +28,7 @@ namespace Tidewater.World.Village
 		readonly List<GameObject> built = new List<GameObject>();
 		readonly Dictionary<string, Material> materials = new Dictionary<string, Material>();
 		Transform signT;
+		Tidewater.World.Fish.FishPropsView fish; // fish, lobsters, ice and banana leaves of the stall, racks and tables
 		readonly List<Transform> lanternT = new List<Transform>();
 		public string stats = "";
 
@@ -65,6 +66,7 @@ namespace Tidewater.World.Village
 			}
 
 			built.Clear();
+			if ( fish != null ) { fish.Release(); fish = null; }
 			lanternT.Clear();
 			signT = null;
 			foreach ( var m in materials.Values ) if ( m != null ) DestroyImmediate( m );
@@ -146,7 +148,8 @@ namespace Tidewater.World.Village
 			// the swinging parts: geometry relative to the pivot, the pivot placed in the world
 			if ( v.sign != null ) signT = AddSwing( "village-sign", v.sign, true );
 			foreach ( var l in v.lanterns ) lanternT.Add( AddSwing( "village-lantern", l.part, false ) );
-			stats = $"village: {v.shared.vertexCount} vertices, {v.shared.index.Length / 3} triangles, meshes + textures ({VillageTextures.bytes / 1048576.0:0} MB, bake {VillageTextures.bakeMs:0} ms) in {sw.ElapsedMilliseconds} ms";
+			if ( v.fishProps != null && v.fishProps.items.Count > 0 ) fish = new Tidewater.World.Fish.FishPropsView( transform, v.fishProps );
+			stats = $"village: {v.shared.vertexCount} vertices, {v.shared.index.Length / 3} triangles, meshes + {( fish != null ? fish.count : 0 )} fish props + textures ({VillageTextures.bytes / 1048576.0:0} MB, bake {VillageTextures.bakeMs:0} ms) in {sw.ElapsedMilliseconds} ms";
 		}
 
 		Transform AddSwing( string name, SwingPart part, bool castShadows )

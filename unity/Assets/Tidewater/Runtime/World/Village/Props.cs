@@ -2,13 +2,14 @@ using System;
 using System.Collections.Generic;
 using Tidewater.Engine;
 using Tidewater.Util;
+using Tidewater.World.Fish;
 using static Tidewater.World.Village.GeoBuilder;
 
 // Port of src/world/Props.js: procedural harbour / village props. Every emitter writes into a Builder `B` (in B's current local
 // frame) using the shared material keys: wood, roofMetal, thatch, hard, glass, stone, rope, net, cloth, flag.
 //
-// Not ported yet: the fish, lobsters, ice and banana leaves (fish/FishProps.js draws them as one instanced GPU mesh). The calls stay
-// where the JS has them, as no-ops that touch no random sequence, so the rest of the village is built exactly as it is in the JS.
+// The fish, lobsters, ice and banana leaves (fish() / iceBed() / bananaLeaf() / lobster()) only record their placement in the builder's
+// FishProps (World/Fish/FishProps.cs; drawn by FishPropsView), they add no village geometry and touch no random sequence.
 namespace Tidewater.World.Village
 {
 	// the fish() options object
@@ -252,12 +253,68 @@ namespace Tidewater.World.Village
 		// ---------------------------------------------------------------------------
 		// Fish, lobsters and their displays: modelled and drawn by fish/FishProps.js (not ported yet). No-ops here.
 
-		public static void fish( Builder B, double x, double y, double z, FishO o = null ) { }
-		public static void iceBed( Builder B, double x, double y, double z, double r, double seed = 0.5 ) { }
-		public static void bananaLeaf( Builder B, double x, double y, double z, double ry = 0, double len = 0.9, double seed = 0.5, double tilt = 0 ) { }
-		public static void lobster( Builder B, double x, double y, double z, double ry = 0, double len = 0.3, double seed = 0.5, double rx = 0 ) { }
+		static readonly Matrix4 _fm = new Matrix4();
+		static FishProps fishProps( Builder B ) => B.fishProps ?? ( B.fishProps = new FishProps() );
 
-		// Twine from (a) down to a loop around a fish's tail stalk at (b).
+		// A fish in B's local frame. o.pose:
+		//   "side": lying on its side, nose toward local +x; (x, y, z) = the surface under its middle
+		//   "tail": hung by the tail, nose down, left flank toward local +z; (x, y, z) = the twine loop
+		//           ("split" fish: the flesh side faces +z)
+		//   "gill": hung from a hook through the gill cover and mouth, nose up; (x, y, z) = the hook
+		// o: species (fish/FishSpecies), len (m), ry / rx / rz (rotation of the placement, as for the other props), flip (the other flank up),
+		//   curl / sag (sideways / up-down bend, 1 / length), jaw (mouth opening, rad), kind ("whole", "split" (salted, butterflied),
+		//   "head" / "trunk" (cut behind the head)), seed, cloudy (eyes), wet, dried, blood (gills, cut faces)
+		public static void fish( Builder B, double x, double y, double z, FishO o = null )
+		{
+			o = o ?? new FishO();
+			string species = o.species ?? "redSnapper"; double len = JS.Or( o.len ?? 0, 0.4 ); string kind = o.kind ?? "whole";
+			string pose = o.pose ?? "side";
+			var anchor = new double[] { 0, 0, 0 };
+			double py = y;
+			if ( pose == "tail" )
+			{
+				anchor = FishProps.tailAnchor( species );
+				if ( kind == "split" ) pose = "tailFlat";
+			}
+			else if ( pose == "gill" ) anchor = FishProps.gillAnchor( species );
+			else
+			{
+				py += kind == "split" ? 0.012 : FishProps.restHeight( species, len );
+				if ( o.flip == true ) pose = "sideFlip";
+			}
+
+			GeoBuilder.mat4( x, py, z, o.ry ?? 0, o.rx ?? 0, o.rz ?? 0, _fm );
+			_fm.premultiply( B.frame );
+			fishProps( B ).add( kind, species, _fm, pose, len, new FishAddOpts
+			{
+				curl = o.curl, sag = o.sag, seed = o.seed, jaw = o.jaw, cloudy = o.cloudy, wet = o.wet, dried = o.dried, blood = o.blood, anchor = anchor,
+			} );
+		}
+
+		// Crushed ice heaped in a basin of inner radius r, on the basin floor at (x, y, z).
+		public static void iceBed( Builder B, double x, double y, double z, double r, double seed = 0.5 )
+		{
+			GeoBuilder.mat4( x, y, z, seed * 6.28, 0, 0, _fm );
+			_fm.premultiply( B.frame );
+			fishProps( B ).add( "ice", null, _fm, "flat", r, new FishAddOpts { seed = seed } );
+		}
+
+		// A torn banana leaf lying flat, from its stalk end at (x, y, z) toward local +x (rotated by ry), its tip raised by the angle tilt.
+		public static void bananaLeaf( Builder B, double x, double y, double z, double ry = 0, double len = 0.9, double seed = 0.5, double tilt = 0 )
+		{
+			GeoBuilder.mat4( x, y, z, ry, 0, tilt, _fm );
+			_fm.premultiply( B.frame );
+			fishProps( B ).add( "leaf", null, _fm, "flat", len, new FishAddOpts { seed = seed, anchor = new double[] { 0, 0, 0 } } );
+		}
+
+		// Caribbean spiny lobster (body length len without the antennae) resting on (x, y, z), head toward local +x.
+		public static void lobster( Builder B, double x, double y, double z, double ry = 0, double len = 0.3, double seed = 0.5, double rx = 0 )
+		{
+			GeoBuilder.mat4( x, y + len * 0.035, z, ry, rx, 0, _fm );
+			_fm.premultiply( B.frame );
+			fishProps( B ).add( "lobster", null, _fm, "flat", len, new FishAddOpts { seed = seed } );
+		}
+
 		public static void fishTwine( Builder B, double[] a, double[] b, double seed = 0.5, double loop = 0.018 )
 		{
 			B.tube( "rope", new[] { new Vector3( a[ 0 ], a[ 1 ], a[ 2 ] ), new Vector3( b[ 0 ], b[ 1 ] + loop * 0.5, b[ 2 ] ) }, 0.0035, new O { radial = 3, tint = C.rope, data = new[] { seed, 0, 0, 0 } } );
@@ -295,8 +352,9 @@ namespace Tidewater.World.Village
 			// cutting board with a snapper cut behind the head, the knife beside it
 			B.box( "wood", 0.2, 0.915, 0.02, 0.56, 0.025, 0.34, new O { grain = 0, tint = new[] { 1.25, 1.2, 1.1 }, data = WOOD( seed + 0.2, 0.25, 0, 0 ) } );
 			double board = 0.928;
-			fish( B, 0.17, board, 0.02 );
-			fish( B, 0.21, board, 0.035 );
+			var cut = new FishO { species = "redSnapper", len = 0.44, ry = 0.12, sag = 0.08, blood = 1, cloudy = 0.5, seed = seed, jaw = 0.25 };
+			fish( B, 0.17, board, 0.02, new FishO { species = cut.species, len = cut.len, ry = cut.ry, sag = cut.sag, blood = cut.blood, cloudy = cut.cloudy, seed = cut.seed, jaw = cut.jaw, kind = "trunk" } );
+			fish( B, 0.21, board, 0.035, new FishO { species = cut.species, len = cut.len, ry = 0.4, sag = cut.sag, blood = cut.blood, cloudy = cut.cloudy, seed = cut.seed, jaw = cut.jaw, kind = "head" } );
 			// fillet knife: steel blade, dark wooden handle with brass rivets
 			B.pushAt( 0.26, board + 0.002, 0.13, -0.45 );
 			var blade = new[] { new[] { 0, 0.011 }, new[] { 0.13, 0.009 }, new[] { 0.175, 0.002 }, new[] { 0.19, -0.004 }, new[] { 0.12, -0.009 }, new[] { 0, -0.01 } };
@@ -316,7 +374,7 @@ namespace Tidewater.World.Village
 
 			B.slab( "hard", smear, 0.0008, new O { up = new Vector3( 0, 1, 0 ), tint = lin( 0x4a0808 ), data = HARD( seed, 0, 0, 0.15 ) } );
 			// a blackfin tuna waiting its turn
-			fish( B, -0.33, 0.9025, -0.06 );
+			fish( B, -0.33, 0.9025, -0.06, new FishO { species = "tuna", len = 0.52, ry = 2.75, sag = -0.12, curl = 0.05, jaw = 0.3, seed = seed + 0.3 } );
 			bucket( B, -0.3, 0.265, 0.05, C.white, seed );
 			B.pop();
 		}
@@ -631,6 +689,7 @@ namespace Tidewater.World.Village
 				B.rod( "wood", P( sx, -0.2, 0.7 ), P( sx, 2.05, -0.05 ), 0.035, 0.03, new O { segs = 5, data = wd } );
 			}
 
+			var kinds = new[] { "jack", "mullet", "redSnapper", "mullet" };
 			var fr = new Rand( new Mulberry32( ToUint32( Math.Floor( seed * 4294967296 ) ) ) ); // the caller's sequence stays as it was
 			foreach ( var pp in new[] { new[] { 1.95, 0 }, new[] { 1.25, -0.36 }, new[] { 1.25, 0.36 } } )
 			{
@@ -645,9 +704,14 @@ namespace Tidewater.World.Village
 					double drop = fr.range( 0.05, 0.1 );
 					double s = seed + i * 0.07 + py;
 					fishTwine( B, P( xx, py - 0.02, pz ), P( xx, py - drop, pz ), s, 0.012 );
-					// the fish itself (not ported): its options draw from the fish sequence
-					fr.range( -0.25, 0.25 ); fr.range( -0.25, 0.25 ); fr.range( -0.35, 0.1 );
-					fish( B, xx, py - drop, pz );
+					// flesh side out, toward whoever looks at this side of the rack
+					double outA = pz < 0 || ( pz == 0 && i % 2 != 0 ) ? Math.PI : 0;
+					double fry = outA + fr.range( -0.25, 0.25 ), fsag = fr.range( -0.25, 0.25 ), fcurl = fr.range( -0.35, 0.1 );
+					fish( B, xx, py - drop, pz, new FishO
+					{
+						species = kinds[ ( i + ( int ) JS.Round( py * 3 ) ) % kinds.Length ], kind = "split", pose = "tail", len = l, ry = fry,
+						sag = fsag, curl = fcurl, dried = 1, wet = 0, seed = s % 1,
+					} );
 				}
 			}
 

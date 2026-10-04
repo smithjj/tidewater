@@ -74,7 +74,7 @@ namespace Tidewater.World.Village
 		public int shadowTriangles;
 		public SwingPart sign;
 		public readonly List<LanternState> lanterns = new List<LanternState>();
-		public int fishDisplays; // fish / ice / leaf / lobster displays the JS village adds (FishProps is not part of the port yet)
+		public Tidewater.World.Fish.FishProps fishProps; // fish, lobsters, ice and banana leaves (market stall, drying racks, cleaning tables)
 
 		Builder B, harbor, town, signB;
 		InstancedProps inst;
@@ -529,6 +529,9 @@ namespace Tidewater.World.Village
 			shadowTriangles = shared.index.Length / 3;
 			if ( fab.vcount > 0 ) fabric = fab.build();
 			if ( netBatch.vcount > 0 ) nets = netBatch.build();
+
+			// the fish props are drawn by FishPropsView (the JS adds B.fishProps.build() as one more mesh of the village)
+			fishProps = B.fishProps;
 
 			// release the CPU-side builders
 			B = harbor = town = null;

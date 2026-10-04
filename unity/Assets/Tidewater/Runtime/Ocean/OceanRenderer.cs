@@ -76,8 +76,20 @@ namespace Tidewater.Ocean
 #endif
 		}
 
+		// the active ocean, for the passes that read its state
+		public static OceanRenderer instance { get; private set; }
+
+		// can this camera see anything below the water? The water height at the camera is the query's (a frame or two old, and only
+		// the game camera has a query), so a margin covers the waves: above it the underwater composite has nothing to do
+		public bool MayBeUnderwater( Camera cam )
+		{
+			if ( cam.cameraType != CameraType.Game || query == null ) return false;
+			return cam.transform.position.y < G.cameraWaterHeight + 2f;
+		}
+
 		void OnEnable()
 		{
+			instance = this;
 			FillDefaults();
 			if ( fftShader == null || foamShader == null || queryShader == null || shoreSimShader == null || underwaterLightShader == null ) { enabled = false; Debug.LogError( "OceanRenderer: compute shaders not assigned" ); return; }
 			Build();
@@ -86,6 +98,7 @@ namespace Tidewater.Ocean
 
 		void OnDisable()
 		{
+			if ( instance == this ) instance = null;
 			RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
 			Release();
 		}

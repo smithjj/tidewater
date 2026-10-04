@@ -31,12 +31,18 @@ namespace Tidewater.EditorTools
 			var sea = GameObject.Find( "Ocean" ) ?? new GameObject( "Ocean" );
 			if ( sea.GetComponent<OceanRenderer>() == null ) sea.AddComponent<OceanRenderer>();
 
-			// the underwater lighting of lit surfaces: an HDRP custom pass after the opaque lighting
+			// the underwater lighting of lit surfaces (after the opaque lighting) and the underwater composite (before the
+			// post-processing): HDRP custom passes
 			var passes = GameObject.Find( "Underwater Passes" ) ?? new GameObject( "Underwater Passes" );
 			var vol = passes.GetComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>() ?? passes.AddComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>();
 			vol.isGlobal = true;
 			vol.injectionPoint = UnityEngine.Rendering.HighDefinition.CustomPassInjectionPoint.BeforePreRefraction;
 			if ( vol.customPasses.Count == 0 ) vol.customPasses.Add( new UnderwaterLightingPass() );
+			var comp = GameObject.Find( "Underwater Composite" ) ?? new GameObject( "Underwater Composite" );
+			var cvol = comp.GetComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>() ?? comp.AddComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>();
+			cvol.isGlobal = true;
+			cvol.injectionPoint = UnityEngine.Rendering.HighDefinition.CustomPassInjectionPoint.BeforePostProcess;
+			if ( cvol.customPasses.Count == 0 ) cvol.customPasses.Add( new UnderwaterCompositePass() );
 
 			// camera: off the beach, looking north at the island (Unity +z = north)
 			var cam = Camera.main;
@@ -149,7 +155,7 @@ namespace Tidewater.EditorTools
 		public static string Debug( bool on )
 		{
 			UnderwaterLightingPass.debug = on;
-			var v = Object.FindAnyObjectByType<UnityEngine.Rendering.HighDefinition.CustomPassVolume>();
+			var v = GameObject.Find( "Underwater Passes" ).GetComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>();
 			if ( v != null ) v.injectionPoint = on ? UnityEngine.Rendering.HighDefinition.CustomPassInjectionPoint.AfterPostProcess : UnityEngine.Rendering.HighDefinition.CustomPassInjectionPoint.BeforePreRefraction;
 			return "underwater debug " + on;
 		}
@@ -185,9 +191,35 @@ namespace Tidewater.EditorTools
 			return "scheduled";
 		}
 
+		// adds the pass volumes to the open scene without rebuilding it (what Build does for them)
+		public static string AddPasses()
+		{
+			var passes = GameObject.Find( "Underwater Passes" ) ?? new GameObject( "Underwater Passes" );
+			var vol = passes.GetComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>() ?? passes.AddComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>();
+			vol.isGlobal = true;
+			vol.injectionPoint = UnityEngine.Rendering.HighDefinition.CustomPassInjectionPoint.BeforePreRefraction;
+			if ( vol.customPasses.Count == 0 ) vol.customPasses.Add( new UnderwaterLightingPass() );
+			var comp = GameObject.Find( "Underwater Composite" ) ?? new GameObject( "Underwater Composite" );
+			var cvol = comp.GetComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>() ?? comp.AddComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>();
+			cvol.isGlobal = true;
+			cvol.injectionPoint = UnityEngine.Rendering.HighDefinition.CustomPassInjectionPoint.BeforePostProcess;
+			if ( cvol.customPasses.Count == 0 ) cvol.customPasses.Add( new UnderwaterCompositePass() );
+			UnityEditor.SceneManagement.EditorSceneManager.MarkSceneDirty( comp.scene );
+			UnityEditor.SceneManagement.EditorSceneManager.SaveScene( comp.scene );
+			return "passes added, scene saved";
+		}
+
+		// the composite pass on / off
+		public static string Composite( bool on )
+		{
+			var g = GameObject.Find( "Underwater Composite" );
+			if ( g != null ) g.GetComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>().enabled = on;
+			return "underwater composite " + on;
+		}
+
 		public static string Underwater( bool on )
 		{
-			var v = Object.FindAnyObjectByType<UnityEngine.Rendering.HighDefinition.CustomPassVolume>();
+			var v = GameObject.Find( "Underwater Passes" ).GetComponent<UnityEngine.Rendering.HighDefinition.CustomPassVolume>();
 			if ( v != null ) v.enabled = on;
 			return "underwater pass " + on;
 		}

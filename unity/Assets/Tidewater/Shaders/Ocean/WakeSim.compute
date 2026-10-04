@@ -1,0 +1,449 @@
+// Port of the kernels of src/ocean/WakeSim.js: an interactive boat wake, a linear free-surface wave simulation with exact dispersion.
+//
+// Height h and vertical velocity w on a 512^2 grid (0.4 m cells, 205 m) in a window that follows the boat. The window is addressed
+// toroidally (world cell I lives in texel I mod N): it scrolls by whole cells without moving any data, and the FFT's periodicity is
+// the addressing itself. Each step is 3 dispatches:
+//   1. rows (WakeRows): per-cell physics (hull pressure, dissipation, breaking, foam, obstacles), display texture, forward FFT along x
+//   2. columns (WakeColumns): forward FFT along z, spectral operators, inverse FFT along z (spare workgroups update the boat's
+//      near-field template)
+//   3. rows (WakeInverse): inverse FFT along x, symplectic Euler step, absorbing sponge at the window edges
+//
+// Waves: dw/dt = -g L[h + P], dh/dt = w. L = |k| tanh(|k| d) is the Dirichlet-to-Neumann operator of linear water waves; P is the
+// pressure head of the hull (the boat is a moving pressure distribution, after Havelock). Four spectral operators (d = inf, 6, 1.8,
+// 0.6 m) are blended per cell in the symmetric form sum_i s_i L_i[s_i u]. Dissipation is a turbulent eddy viscosity in flux form.
+// See the JS header for the physics; the reader side is Wake.hlsl.
+//
+// Parameters (float4s, packed): _WKA = ( origin, prev ) window min corners in cells, _WKC = ( dt, reset, sea level, time ),
+// _WKD = ( source, wash, bow, speed ), _WKE = ( washW, boil, visc, dyn ), _WKF = ( hollow, hollowK, foamGain, aerGain ),
+// _WKG = ( nearRate, trim c, a, b ), _WKH = pile box, _WKI = ( hull map X1, Z0, Z1 - Z0, zAft ), _WKJ = ( aft + 0.25 hollow z, 0, 0, 0 );
+// the boat (position, yaw) and the window centre are the reader's _TWWakeA / _TWWakeB.
+
+#pragma kernel WakeRows
+#pragma kernel WakeColumns
+#pragma kernel WakeInverse
+
+#define TW_NO_NORMAL_ROCK
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "../Terrain/TerrainHeight.hlsl"
+#include "Wake.hlsl"
+
+float4 _WKA, _WKC, _WKD, _WKE, _WKF, _WKG, _WKH, _WKI, _WKJ;
+
+RWStructuredBuffer<float4> _WakeState;     // h, w, foam, turbulence
+RWStructuredBuffer<float4> _WakeScratch;   // h, w', foam', turb'
+RWStructuredBuffer<float4> _WakeSpec;      // two packed complex fields
+RWStructuredBuffer<float> _WakeAerA;
+RWStructuredBuffer<float> _WakeAerB;
+RWStructuredBuffer<float> _WakeNearBuf;
+Texture2D<float> _WakeHull;                // hull immersion (linear, clamp)
+Texture2D<float> _WakePile;                // blocked fraction by the pier piles (linear, clamp)
+SamplerState sampler_LinearClamp;
+RWTexture2D<float4> _WakeDisplayOut;
+RWTexture2D<float4> _WakeAerOut;
+RWTexture2D<float4> _WakeNearOut;
+
+#define WK_ORIGIN _WKA.xy
+#define WK_PREV _WKA.zw
+#define WK_DT _WKC.x
+#define WK_RESET _WKC.y
+#define WK_SEA _WKC.z
+#define WK_TIME _WKC.w
+
+uint WakeBrev( uint v ) { return reversebits( v ) >> ( 32u - WAKE_LOG2N ); }
+
+// toroidal texel -> world cell index in the window starting at o
+int WakeWorldIndex( int i, int o ) { return o + ( ( i - o ) & ( int ) WAKE_MASK ); }
+bool WakeInWindow( int I, int J, float2 o )
+{
+	return I >= ( int ) o.x && I < ( int ) o.x + ( int ) WAKE_N && J >= ( int ) o.y && J < ( int ) o.y + ( int ) WAKE_N;
+}
+
+// state of texel (c, r) if it held the same world cell last step, else zero
+float4 WakeLoadState( uint c, uint r )
+{
+	int I = WakeWorldIndex( ( int ) c, ( int ) WK_ORIGIN.x );
+	int J = WakeWorldIndex( ( int ) r, ( int ) WK_ORIGIN.y );
+	bool keep = WakeInWindow( I, J, WK_PREV ) && WK_RESET < 0.5;
+	return keep ? _WakeState[ r * WAKE_N + c ] : 0.0;
+}
+
+float WakeLoadAer( uint c, uint r )
+{
+	int I = WakeWorldIndex( ( int ) c, ( int ) WK_ORIGIN.x );
+	int J = WakeWorldIndex( ( int ) r, ( int ) WK_ORIGIN.y );
+	bool keep = WakeInWindow( I, J, WK_PREV ) && WK_RESET < 0.5;
+	return keep ? _WakeAerA[ r * WAKE_N + c ] : 0.0;
+}
+
+float2 WakeCellPos( uint c, uint r )
+{
+	int I = WakeWorldIndex( ( int ) c, ( int ) WK_ORIGIN.x );
+	int J = WakeWorldIndex( ( int ) r, ( int ) WK_ORIGIN.y );
+	return float2( ( float ) I + 0.5, ( float ) J + 0.5 ) * WAKE_CELL;
+}
+
+// sqrt of the blend weights of the four operators (deep, 6, 1.8, 0.6 m) for local depth d: the two levels bracketing d share the
+// weight (fitted for <= 5 % phase-speed error over 1-100 m wavelengths down to 0.5 m depth); below 0.6 m the shallowest fades out
+float4 WakeDepthWeights( float d )
+{
+	float t0 = 1.0 - exp( ( d - 6.0 ) / -9.0 );
+	float t1 = pow( saturate( ( d - 1.8 ) / 4.2 ), 0.8 );
+	float t2 = pow( saturate( ( d - 0.6 ) / 1.2 ), 0.85 );
+	float w0 = d > 6.0 ? t0 : 0.0;
+	float w1 = d > 6.0 ? 1.0 - t0 : ( d > 1.8 ? t1 : 0.0 );
+	float w2 = d > 6.0 ? 0.0 : ( d > 1.8 ? 1.0 - t1 : ( d > 0.6 ? t2 : 0.0 ) );
+	float w3 = d > 1.8 ? 0.0 : ( d > 0.6 ? 1.0 - t2 : saturate( d / 0.6 ) );
+	return sqrt( float4( w0, w1, w2, w3 ) );
+}
+
+// hull immersion (m) at boat-frame (x, z): design immersion + scheduled heave / trim
+float WakeImmersionAt( float x, float z )
+{
+	float2 huv = float2( abs( x ) / _WKI.x, ( z - _WKI.y ) / _WKI.z );
+	float D = _WakeHull.SampleLevel( sampler_LinearClamp, huv, 0.0 );
+	return max( D + _WKG.y + _WKG.z * x + _WKG.w * z, 0.0 ) * smoothstep( 0.0, 0.04, D );
+}
+
+// radix-2 DIT butterflies (bit-reversed in, natural order out); dir = -1 forward, +1 inverse (unnormalized): twiddle and pair index
+// of thread t in stage s
+float2 WakeTwiddle( uint t, uint s, float dir )
+{
+	uint hf = 1u << s;
+	uint pos = t & ( hf - 1u );
+	float ang = ( float ) pos * ( dir * PI / ( float ) hf );
+	return float2( cos( ang ), sin( ang ) );
+}
+uint WakeStageIndex( uint t, uint s )
+{
+	uint hf = 1u << s;
+	return ( ( t >> s ) << ( s + 1u ) ) | ( t & ( hf - 1u ) );
+}
+float4 WakeCmul( float4 b, float2 w )
+{
+	return float4( b.x * w.x - b.y * w.y, b.x * w.y + b.y * w.x, b.z * w.x - b.w * w.y, b.z * w.y + b.w * w.x );
+}
+
+groupshared float4 shRow[ 512 ];
+groupshared float4 shCol[ 1024 ];
+
+// FFT stages over one N-point sequence of complex pairs (float4) in shRow / over two in shCol
+void WakeFFTRow( uint t, float dir )
+{
+	for ( uint s = 0u; s < WAKE_LOG2N; s ++ )
+	{
+		uint hf = 1u << s;
+		uint i = WakeStageIndex( t, s );
+		float2 w = WakeTwiddle( t, s, dir );
+		uint j = i + hf;
+		float4 a = shRow[ i ];
+		float4 bw = WakeCmul( shRow[ j ], w );
+		shRow[ i ] = a + bw;
+		shRow[ j ] = a - bw;
+		GroupMemoryBarrierWithGroupSync();
+	}
+}
+
+void WakeFFTCol( uint t, float dir )
+{
+	for ( uint s = 0u; s < WAKE_LOG2N; s ++ )
+	{
+		uint hf = 1u << s;
+		uint i0 = WakeStageIndex( t, s );
+		float2 w = WakeTwiddle( t, s, dir );
+		[unroll]
+		for ( uint k = 0u; k < 2u; k ++ )
+		{
+			uint i = i0 + k * WAKE_N;
+			uint j = i + hf;
+			float4 a = shCol[ i ];
+			float4 bw = WakeCmul( shCol[ j ], w );
+			shCol[ i ] = a + bw;
+			shCol[ j ] = a - bw;
+		}
+
+		GroupMemoryBarrierWithGroupSync();
+	}
+}
+
+// ---- pass 1: per-cell physics + forward FFT along rows
+float4 WakeCell( uint col, uint row )
+{
+	float dt = WK_DT;
+	uint idx = row * WAKE_N + col;
+	float2 p = WakeCellPos( col, row );
+	float4 s = WakeLoadState( col, row );
+	uint cL = ( col + WAKE_MASK ) & WAKE_MASK; uint cR = ( col + 1u ) & WAKE_MASK;
+	uint rD = ( row + WAKE_MASK ) & WAKE_MASK; uint rU = ( row + 1u ) & WAKE_MASK;
+	float4 sL = WakeLoadState( cL, row ); float4 sR = WakeLoadState( cR, row );
+	float4 sD = WakeLoadState( col, rD ); float4 sU = WakeLoadState( col, rU );
+
+	float d = WK_SEA - TWHeightAt( p );
+
+	// boat frame of the cell
+	float2 rel = p - _TWWakeA.zw;
+	float cs = _TWWakeB.x; float sn = _TWWakeB.y;
+	float bx = rel.x * cs - rel.y * sn;
+	float bz = rel.x * sn + rel.y * cs;
+	// hull pressure head (m): hydrostatic (immersion, with the speed-scheduled trim) and a dynamic part where the hull enters the
+	// water: ~ K U^2/2g times the rise of the bottom
+	float e = 0.7;
+	float Ph = WakeImmersionAt( bx, bz );
+	float entry = max( ( WakeImmersionAt( bx, bz - e ) - WakeImmersionAt( bx, bz + e ) ) / ( 2.0 * e ), 0.0 );
+	// transom stern at speed: the flow separates at the transom and leaves a hollow behind it (then the rooster tail and the
+	// quarter waves)
+	float aft = _WKI.w - bz;
+	float hollow = WakeImmersionAt( bx, _WKJ.x ) * exp( - max( aft, 0.0 ) / _WKF.x ) * smoothstep( -0.3, 0.3, aft );
+	float P = ( max( Ph, hollow * _WKF.y ) + entry * _WKE.w ) * _WKD.x;
+
+	// on a (re)start the water under the hull is already displaced: no transient
+	float h = WK_RESET > 0.5 ? -P : s.x;
+	float w = s.y;
+
+	float gx = ( sR.x - sL.x ) / ( 2.0 * WAKE_CELL ); float gz = ( sU.x - sD.x ) / ( 2.0 * WAKE_CELL );
+	float slope = length( float2( gx, gz ) );
+
+	// obstacles: dry land, pier piles
+	float2 puv = ( p - _WKH.xy ) / _WKH.zw;
+	float pileIn = ( puv.x > 0.0 && puv.x < 1.0 && puv.y > 0.0 && puv.y < 1.0 ) ? 1.0 : 0.0;
+	float pile = _WakePile.SampleLevel( sampler_LinearClamp, puv, 0.0 ) * pileIn;
+	float wet = smoothstep( 0.0, 0.05, d );
+	float keep = wet * saturate( 1.0 - pile * 2.5 );
+
+	// breaking: steep crests (deep water) and depth-limited (surf zone); free waves only, the forced depression under the hull is
+	// steep but does not break
+	float brk = saturate( ( slope - 0.2 ) / 0.2 ) * ( 1.0 - smoothstep( 0.0, 0.03, P ) );
+	float surf = saturate( ( h - d * 0.42 ) / max( d * 0.3, 0.03 ) ) * wet;
+	float turb = s.w;
+
+	// propeller wash / transom wake (boat frame): widens behind the transom, streaky (lateral noise that changes as the boat moves
+	// on) and patchy
+	float time = WK_TIME;
+	float behind = _WKI.w - bz;
+	float washW = max( behind, 0.0 ) * 0.1 + _WKE.x;
+	float inWash = smoothstep( -0.6, 0.3, behind ) * smoothstep( 7.0, 1.5, behind ) * smoothstep( washW, washW * 0.3, abs( bx ) );
+	float streak = WakeNoise( float2( bx * 1.7, time * 0.9 ) );
+	float patchN = WakeNoise( p * 0.45 + time * 0.13 );
+	// churning white right behind the transom (the propeller race), streaks and patches further aft
+	float race = smoothstep( 7.0, 0.0, behind ) * 0.9;
+	// streaks: noise stretched along the track (fixed in the water), deposited with the wash so the band is laid down as long
+	// ragged streaks, not a uniform ribbon
+	float along = p.x * sn + p.y * cs; float across = p.x * cs - p.y * sn;
+	float streaks = WakeNoise( float2( along * 0.12, across * 0.9 ) ) * 0.7 + WakeNoise( float2( along * 0.3, across * 1.9 ) + 5.3 ) * 0.3;
+	float mottle = clamp( ( streaks - 0.5 ) * 3.2, -0.85, 0.85 ) + 1.0;
+	float washGen = inWash * _WKD.y * ( _WKD.w + 1.5 ) * ( streak * patchN * 0.6 + race + 0.08 ) * lerp( mottle, 1.0, smoothstep( 3.0, 0.0, behind ) * 0.7 );
+
+	// bow: the spray thrown off the forward hull falls back in a band just outside the waterline (up to ~1.3 m out), where the bow
+	// wave rolls away from the hull
+	float outside = 1.0 - smoothstep( 0.0, 0.03, Ph );
+	float nearHull = smoothstep( 0.0, 0.03, WakeImmersionAt( max( abs( bx ) - 0.9, 0.0 ), bz ) );
+	float bowBand = outside * nearHull * smoothstep( -0.5, 1.2, bz ) * smoothstep( 4.2, 3.2, bz );
+	float bowGen = bowBand * _WKD.z * ( _WKD.w + 1.0 ) * ( WakeNoise( float2( bz * 1.5, time * 3.0 ) ) * 1.4 + 0.1 ) * 0.35;
+
+	// Dissipation is a turbulent eddy viscosity acting on w in flux form: it conserves mass exactly, damps short (breaking, choppy)
+	// waves ~k^2 and leaves the refilling flow behind the hull alone. Breaking crests and the surf feed the turbulence; the turbulent
+	// wash also stirs the surface (boils).
+	float visc = _WKE.z;
+	float nuC = min( turb * 0.6, 1.0 ) + visc;
+	float flux = ( ( nuC + min( sL.w * 0.6, 1.0 ) + visc ) * ( sL.y - w )
+		+ ( nuC + min( sR.w * 0.6, 1.0 ) + visc ) * ( sR.y - w )
+		+ ( nuC + min( sD.w * 0.6, 1.0 ) + visc ) * ( sD.y - w )
+		+ ( nuC + min( sU.w * 0.6, 1.0 ) + visc ) * ( sU.y - w ) ) * ( 0.5 / ( WAKE_CELL * WAKE_CELL ) );
+	// boils: Laplacian of (turbulence x noise), so the stirring sums to zero (conserves mass)
+	float boil = 0.0;
+	if ( turb + sL.w + sR.w + sD.w + sU.w > 0.02 )
+	{
+		float2 drift = float2( time * 0.5, time * -0.35 );
+		float c0 = ( WakeNoise( p * 0.45 + drift ) - 0.5 ) * min( turb, 1.5 );
+		boil = ( WakeNoise( ( p - float2( WAKE_CELL, 0.0 ) ) * 0.45 + drift ) - 0.5 ) * min( sL.w, 1.5 )
+			+ ( WakeNoise( ( p + float2( WAKE_CELL, 0.0 ) ) * 0.45 + drift ) - 0.5 ) * min( sR.w, 1.5 )
+			+ ( WakeNoise( ( p - float2( 0.0, WAKE_CELL ) ) * 0.45 + drift ) - 0.5 ) * min( sD.w, 1.5 )
+			+ ( WakeNoise( ( p + float2( 0.0, WAKE_CELL ) ) * 0.45 + drift ) - 0.5 ) * min( sU.w, 1.5 )
+			- c0 * 4.0;
+	}
+
+	float w1 = ( w + flux * dt + boil * ( dt * _WKE.y ) ) * exp( dt * -0.006 ) * keep;
+
+	// foam: thick foam thins quickly (bubbles rise and burst), the lace lingers
+	float lapF = ( sL.z + sR.z + sD.z + sU.z - s.z * 4.0 ) / ( WAKE_CELL * WAKE_CELL );
+	// foam streaks widen: molecular-ish spreading plus turbulent mixing in the wash
+	float f0 = max( s.z + lapF * min( dt * ( turb * 0.3 + 0.04 ), 0.03 ), 0.0 );
+	float gen = ( washGen + bowGen + brk * 3.0 + surf * 4.0 ) * _WKF.z;
+	// the lace breaks up as it ages: it lingers in some patches and streaks and clears fast in others (a fixed noise in the water:
+	// the pattern stays put while the foam thins)
+	float breakup = WakeNoise( p * 0.17 + float2( 13.1, 7.3 ) ) * 0.65 + WakeNoise( p * 0.55 + float2( 3.7, 1.9 ) ) * 0.35;
+	float clr = smoothstep( 0.3, 0.72, breakup ) * 2.6 + 0.2;
+	float foam = min( f0 * exp( - dt * ( f0 * f0 * 0.6 + clr / 35.0 ) ) + gen * dt, 3.0 );
+	float turb1 = min( turb * exp( dt * ( -1.0 / 6.0 ) ) + ( inWash * _WKD.y * ( _WKD.w + 1.5 ) * 0.5 + brk * 4.0 + surf * 6.0 ) * dt, 3.0 );
+
+	// aeration (0..~3): injected broadly by the race (not only where the surface foam is), by breaking and the surf; mixed sideways
+	// by the turbulence; the bubbles rise out over ~25 s
+	float aC = WakeLoadAer( col, row );
+	float lapA = WakeLoadAer( cL, row ) + WakeLoadAer( cR, row ) + WakeLoadAer( col, rD ) + WakeLoadAer( col, rU ) - aC * 4.0;
+	float a0 = max( aC + lapA * min( ( turb * 0.35 + 0.07 ) * dt / ( WAKE_CELL * WAKE_CELL ), 0.2 ), 0.0 );
+	// the bubble cloud is wider than the white race and its edge wanders (soft, irregular)
+	float wA = washW * ( WakeNoise( p * 0.22 + time * 0.05 ) * 0.8 + 0.8 );
+	float aerBand = smoothstep( -0.6, 0.3, behind ) * smoothstep( 9.0, 2.0, behind ) * smoothstep( wA, wA * 0.2, abs( bx ) );
+	float aerGen = ( aerBand * _WKD.y * ( _WKD.w + 1.5 ) * ( ( race * 1.2 + 0.15 ) * ( patchN * 1.3 + streak * 0.5 + 0.1 ) )
+		* ( mottle * mottle * 0.55 ) + bowGen * 0.6 + brk * 1.5 + surf * 2.0 ) * _WKF.w;
+	// bubbles rise out over ~25 s, faster in some patches (mottled as it ages)
+	float rise = smoothstep( 0.25, 0.75, breakup * 0.6 + patchN * 0.4 ) * 1.3 + 0.45;
+	float aer = min( a0 * exp( - dt * ( a0 * 0.06 + rise / 25.0 ) ) + aerGen * dt, 3.0 ) * wet;
+	_WakeAerB[ idx ] = aer;
+	_WakeAerOut[ uint2( col, row ) ] = float4( aer, 0.0, 0.0, 0.0 );
+
+	_WakeScratch[ idx ] = float4( h, w1, foam, turb1 );
+	// the free surface is h (pushed down under the hull, the hollow behind the transom)
+	_WakeDisplayOut[ uint2( col, row ) ] = float4( h, gx, gz, foam );
+
+	return WakeDepthWeights( d ) * ( h + P );
+}
+
+[numthreads( 256, 1, 1 )]
+void WakeRows( uint3 lid : SV_GroupThreadID, uint3 wid : SV_GroupID )
+{
+	uint t = lid.x;
+	uint row = wid.x;
+	for ( uint e = 0u; e < 2u; e ++ )
+	{
+		uint col = t + e * WAKE_HALF;
+		shRow[ WakeBrev( col ) ] = WakeCell( col, row );
+	}
+
+	GroupMemoryBarrierWithGroupSync();
+	WakeFFTRow( t, -1.0 );
+	for ( uint e2 = 0u; e2 < 2u; e2 ++ )
+	{
+		uint col = t + e2 * WAKE_HALF;
+		_WakeSpec[ row * WAKE_N + col ] = shRow[ col ];
+	}
+}
+
+// ---- pass 2: columns kx and -kx together (separates the two packed real fields)
+// Z = FFT(a) + i FFT(b) for each packed pair of real fields (a, b) = (s_i u, s_j u);
+// Y = L_i FFT(a) + i L_j FFT(b) = Z (L_i + L_j) / 2 + conj( Z(-k) ) (L_i - L_j) / 2
+float4 WakeApply( float4 Z, float4 Zm, float2 p, float2 m )
+{
+	return float4( Z.x * p.x + Zm.x * m.x, Z.y * p.x - Zm.y * m.x, Z.z * p.y + Zm.z * m.y, Z.w * p.y - Zm.w * m.y );
+}
+
+// the operator of depth D at |k|, folded with the 1 / N^2 of the unnormalised inverse FFTs (D < 0: deep water)
+float WakeL( float k, float D )
+{
+	const float norm = 1.0 / ( 512.0 * 512.0 );
+	return ( D < 0.0 ? k : k * tanh( min( k * D, 12.0 ) ) ) * norm;
+}
+
+[numthreads( 256, 1, 1 )]
+void WakeColumns( uint3 lid : SV_GroupThreadID, uint3 wid : SV_GroupID )
+{
+	uint t = lid.x;
+	uint wg = wid.x;
+	if ( wg <= WAKE_HALF )
+	{
+		uint cA = wg;
+		uint cB = ( WAKE_N - wg ) & WAKE_MASK;
+		for ( uint e = 0u; e < 2u; e ++ )
+		{
+			uint r = t + e * WAKE_HALF;
+			uint rb = WakeBrev( r );
+			shCol[ rb ] = _WakeSpec[ r * WAKE_N + cA ];
+			shCol[ rb + WAKE_N ] = _WakeSpec[ r * WAKE_N + cB ];
+		}
+
+		GroupMemoryBarrierWithGroupSync();
+		WakeFFTCol( t, -1.0 );
+		const float dk = 2.0 * PI / WAKE_SIZE;
+		float fx = ( float ) ( cA < WAKE_HALF ? ( int ) cA : ( int ) cA - ( int ) WAKE_N ) * dk;
+		float4 outs[ 4 ];
+		for ( uint e2 = 0u; e2 < 2u; e2 ++ )
+		{
+			uint r = t + e2 * WAKE_HALF;
+			uint rm = ( WAKE_N - r ) & WAKE_MASK;
+			float fz = ( float ) ( r < WAKE_HALF ? ( int ) r : ( int ) r - ( int ) WAKE_N ) * dk;
+			float k = length( float2( fx, fz ) );
+			float L0 = WakeL( k, -1.0 ); float L1 = WakeL( k, 6.0 ); float L2 = WakeL( k, 1.8 ); float L3 = WakeL( k, 0.6 );
+			float2 p = float2( L0 + L1, L2 + L3 ) * 0.5;
+			float2 m = float2( L0 - L1, L2 - L3 ) * 0.5;
+			outs[ e2 * 2u ] = WakeApply( shCol[ r ], shCol[ rm + WAKE_N ], p, m );
+			outs[ e2 * 2u + 1u ] = WakeApply( shCol[ r + WAKE_N ], shCol[ rm ], p, m );
+		}
+
+		GroupMemoryBarrierWithGroupSync();
+		for ( uint e3 = 0u; e3 < 2u; e3 ++ )
+		{
+			uint rb = WakeBrev( t + e3 * WAKE_HALF );
+			shCol[ rb ] = outs[ e3 * 2u ];
+			shCol[ rb + WAKE_N ] = outs[ e3 * 2u + 1u ];
+		}
+
+		GroupMemoryBarrierWithGroupSync();
+		WakeFFTCol( t, 1.0 );
+		for ( uint e4 = 0u; e4 < 2u; e4 ++ )
+		{
+			uint r = t + e4 * WAKE_HALF;
+			_WakeSpec[ r * WAKE_N + cA ] = shCol[ r ];
+			if ( cB != cA )
+			{
+				_WakeSpec[ r * WAKE_N + cB ] = shCol[ r + WAKE_N ];
+			}
+		}
+	}
+	else if ( wg <= WAKE_HALF + ( WAKE_TW * WAKE_TH + WAKE_HALF - 1u ) / WAKE_HALF )
+	{
+		// near-field template (spare workgroups): running mean of the wake height at boat-frame points
+		uint k = ( wg - ( WAKE_HALF + 1u ) ) * WAKE_HALF + t;
+		if ( k < WAKE_TW * WAKE_TH )
+		{
+			uint tx = k % WAKE_TW; uint tz = k / WAKE_TW;
+			float bx = ( ( float ) tx + 0.5 ) * ( ( WAKE_TX1 - WAKE_TX0 ) / WAKE_TW ) + WAKE_TX0;
+			float bz = ( ( float ) tz + 0.5 ) * ( ( WAKE_TZ1 - WAKE_TZ0 ) / WAKE_TH ) + WAKE_TZ0;
+			float cs = _TWWakeB.x; float sn = _TWWakeB.y;
+			float2 pw = _TWWakeA.zw + float2( bx * cs + bz * sn, bz * cs - bx * sn );
+			float eta = _TWWakeDisplay.SampleLevel( sampler_TWWakeLinearRepeat, pw / WAKE_SIZE, 0.0 ).x;
+			float prev = _WakeNearBuf[ k ];
+			float mean = prev + ( eta - prev ) * _WKG.x;
+			_WakeNearBuf[ k ] = mean;
+			bool border = tx == 0u || tx == WAKE_TW - 1u || tz == 0u || tz == WAKE_TH - 1u;
+			float D = _WakeHull.SampleLevel( sampler_LinearClamp, float2( abs( bx ) / _WKI.x, ( bz - _WKI.y ) / _WKI.z ), 0.0 );
+			float m = border ? 0.0 : smoothstep( 0.0, 0.03, D );
+			_WakeNearOut[ uint2( tx, tz ) ] = float4( mean, m, 0.0, 0.0 );
+		}
+	}
+}
+
+// ---- pass 3: inverse FFT along rows, time step, sponge
+[numthreads( 256, 1, 1 )]
+void WakeInverse( uint3 lid : SV_GroupThreadID, uint3 wid : SV_GroupID )
+{
+	uint t = lid.x;
+	uint row = wid.x;
+	float dt = WK_DT;
+	for ( uint e = 0u; e < 2u; e ++ )
+	{
+		uint col = t + e * WAKE_HALF;
+		shRow[ WakeBrev( col ) ] = _WakeSpec[ row * WAKE_N + col ];
+	}
+
+	GroupMemoryBarrierWithGroupSync();
+	WakeFFTRow( t, 1.0 );
+	float rl = ( float ) ( ( ( int ) row - ( int ) WK_ORIGIN.y ) & ( int ) WAKE_MASK ) + 0.5;
+	float ez = min( rl, ( float ) WAKE_N - rl );
+	for ( uint e2 = 0u; e2 < 2u; e2 ++ )
+	{
+		uint col = t + e2 * WAKE_HALF;
+		uint idx = row * WAKE_N + col;
+		float4 Y = shRow[ col ];
+		float4 sc = _WakeScratch[ idx ];
+		float2 p = WakeCellPos( col, row );
+		float d = WK_SEA - TWHeightAt( p );
+		float Lu = dot( WakeDepthWeights( d ), Y );
+		float w1 = sc.y - Lu * ( dt * 9.81 );
+		float h1 = sc.x + w1 * dt;
+		float cl = ( float ) ( ( ( int ) col - ( int ) WK_ORIGIN.x ) & ( int ) WAKE_MASK ) + 0.5;
+		float edge = min( min( cl, ( float ) WAKE_N - cl ), ez );
+		float sig = smoothstep( 22.0, 0.0, edge );
+		float k = exp( dt * ( sig * sig * -6.0 ) );
+		_WakeState[ idx ] = float4( h1 * k, w1 * k, sc.z, sc.w );
+		_WakeAerA[ idx ] = _WakeAerB[ idx ];
+	}
+}

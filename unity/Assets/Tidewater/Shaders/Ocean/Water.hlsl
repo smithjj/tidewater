@@ -15,6 +15,9 @@ float4 _TWSunDir;             // toward the sun, sim space
 #include "ShoreWaves.hlsl"
 #include "ShoreSim.hlsl"
 #include "SurfFoam.hlsl"
+#include "Wake.hlsl"
+
+float4 _TWFrame;   // time, wind speed, night, 0 (OceanRenderer.PublishSun)
 #include "SeaDetail.hlsl"
 
 TEXTURE2D_ARRAY(_TWOceanDisp);  SAMPLER(sampler_TWOceanDisp);    // (Dx, Dy, Dz, foam) per cascade, mipmapped
@@ -170,7 +173,7 @@ Varyings Vert( Attributes input )
 		surfMask = float2( sw.face, sw.roller );
 		swashLevel = sw.swashLevel;
 	}
-	// (the wake adds to `extra` here once ported)
+	extra += WakeDisplacement( worldXZ );
 
 	float3 total = disp + extra;
 	float y = seaLevel + total.y;
@@ -279,7 +282,12 @@ WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float dept
 	}
 
 	float jac = ( d.z + 1.0 ) * ( d.w + 1.0 );
-	// (the wake adds its slopes / foam / aeration here once ported)
+	{
+		WakeFrag w = WakeFragment( lagXZ, _TWFrame.x );
+		slopes += w.slopes;
+		foamSum += w.foam;
+		aeration += w.aeration;
+	}
 
 	// base normal: large shoreline waves (per-vertex, can overhang) perturbed by FFT detail
 	float3 normal;

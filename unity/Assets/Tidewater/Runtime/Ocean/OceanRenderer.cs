@@ -19,7 +19,7 @@ namespace Tidewater.Ocean
 	[ExecuteAlways]
 	public sealed class OceanRenderer : MonoBehaviour
 	{
-		public ComputeShader fftShader, foamShader, queryShader, shoreSimShader, underwaterLightShader, sprayShader, breakersShader;
+		public ComputeShader fftShader, foamShader, queryShader, shoreSimShader, underwaterLightShader, sprayShader, breakersShader, wakeShader;
 		public Material material;
 		public Light sun;
 		public int gridSize = 32;
@@ -80,6 +80,7 @@ namespace Tidewater.Ocean
 			if ( underwaterLightShader == null ) underwaterLightShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/UnderwaterLight.compute" );
 			if ( sprayShader == null ) sprayShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Fx/Spray.compute" );
 			if ( breakersShader == null ) breakersShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/Breakers.compute" );
+			if ( wakeShader == null ) wakeShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/WakeSim.compute" );
 #endif
 		}
 
@@ -125,6 +126,7 @@ namespace Tidewater.Ocean
 			var morph = new Vector4[ 16 ];
 			Array.Copy( lod.morph, morph, lod.morph.Length );
 			Shader.SetGlobalVectorArray( "_TWOceanLodMorph", morph );
+			WakeSim.SetDisabledGlobals(); // (the boat's wake publishes its own once it exists)
 			ApplySeaState( true );
 			// the first spectrum is installed and one frame run, so the maps exist before the first camera renders
 			fft.Update( 1f / 60f );

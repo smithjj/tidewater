@@ -4,6 +4,8 @@
 #ifndef TW_WATER_QUERY_HEIGHT_INCLUDED
 #define TW_WATER_QUERY_HEIGHT_INCLUDED
 
+#include "Wake.hlsl"
+
 Texture2DArray<float4> _TWOceanDisp;
 SamplerState sampler_LinearRepeat;
 float4 _TWOceanSizes[4];
@@ -29,7 +31,7 @@ float3 WaterQueryDispAt( float2 x0, float depth )
 
 	d *= _QAmp.x;
 	if ( _QAmp.w > 0.5 ) { d += ShoreEvaluateNoNormal( x0, depth, TWHeightAt( x0 ) ).disp; }
-	// (wakeDisplacement( x0 ) is added here once ported)
+	d += WakeDisplacement( x0 );
 	return d;
 }
 

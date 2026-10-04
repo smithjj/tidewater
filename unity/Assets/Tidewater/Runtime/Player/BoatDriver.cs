@@ -17,7 +17,11 @@ namespace Tidewater.Player
 		public BoatController controller { get; private set; }
 		public Colliders colliders = new Colliders();
 		public bool keyboard = true;
+		public bool followCamera = true; // tools turn this off to place the camera themselves
+		public Engine.Vector3 debugEye, debugTarget; // tools: a camera fixed in the boat frame (with followCamera off)
 		public BoatCamera cam = new BoatCamera();
+		public BoatSpray spray { get; private set; }
+		public Tidewater.Ocean.WakeSim wake { get; private set; }
 		double throttleIn, steerIn;
 		BoatView view;
 		Engine.Vector2 look = new Engine.Vector2();
@@ -33,6 +37,8 @@ namespace Tidewater.Player
 			view = GetComponent<BoatView>();
 			if ( ocean == null || ocean.query == null || terrain == null || terrain.data == null || view == null || view.model == null ) return false;
 			controller = new BoatController( view.model.dynamics(), ocean.query, terrain.data.HeightAt, colliders, BoatDock.Lobster ) { view = view };
+			if ( ocean.spray != null ) spray = new BoatSpray( controller, view.model, ocean.spray );
+			if ( ocean.wakeShader != null ) wake = new Tidewater.Ocean.WakeSim( ocean.wakeShader, terrain.gpu, controller, view.model.lines, colliders );
 			return true;
 		}
 
@@ -50,6 +56,8 @@ namespace Tidewater.Player
 			controller.queueQueries();
 			controller.update( dt );
 			view.Tick( dt );
+			if ( spray != null ) spray.update( dt );
+			if ( wake != null ) wake.Update( dt );
 		}
 
 		void Update()
@@ -75,6 +83,8 @@ namespace Tidewater.Player
 			Tick( Mathf.Min( Time.deltaTime, 0.1f ) );
 		}
 
+		void OnDestroy() { if ( wake != null ) wake.Dispose(); }
+
 		// the camera follows the boat once it has moved this frame
 		void LateUpdate()
 		{
@@ -89,7 +99,14 @@ namespace Tidewater.Player
 				if ( wasDriven ) cam.takeHelm( controller );
 			}
 
-			if ( ! controller.driven ) return;
+			if ( debugEye != null && debugTarget != null )
+			{
+				var e = controller.toWorld( debugEye, new Engine.Vector3() ); var t = controller.toWorld( debugTarget, new Engine.Vector3() );
+				BoatCamera.Apply( main.transform, e, t.sub( e ).normalize(), new Engine.Vector3( 0, 1, 0 ) );
+				return;
+			}
+
+			if ( ! controller.driven || ! followCamera ) return;
 			cam.update( controller, view.model.helmEye, look, wheel, Mathf.Min( Time.deltaTime, 0.1f ), out var eye, out var fwdV, out var up );
 			BoatCamera.Apply( main.transform, eye, fwdV, up );
 		}

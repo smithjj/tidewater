@@ -61,6 +61,9 @@ namespace Tidewater.Fx
 		Vector4 bodyHull = new Vector4( 0, 0, 1, 0 ), bodyHullWL = new Vector4( 0, 1, 0, 0 ), bodySheer = new Vector4( 0, 0, -1, 0 );
 		Vector3 bodyBoxMin, bodyBoxMax;
 
+		// emit requests made so far this frame (of 32)
+		public int RequestCount => nReq;
+
 		public ComputeBuffer positionBuffer => pos;
 		// the GPU head of the ring (particles emitted so far, wraps): Breakers steers its emission by how fast it grows
 		public ComputeBuffer headBuffer => head;

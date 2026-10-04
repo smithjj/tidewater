@@ -128,6 +128,7 @@ namespace Tidewater.Ocean
 				cs.SetTexture( kernel, "_TWShoreTex", Texture2D.blackTexture );
 			}
 
+			WakeSim.SetCompute( cs, kernel );
 			if ( hasShore ) shore.SetCompute( cs, kernel, G.time, G.seaLevel );
 			else cs.SetTexture( kernel, "_TWShoreDirTex", Texture2D.blackTexture );
 		}

@@ -424,6 +424,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.Player.BoatDriver
   keyboard: 1
+  followCamera: 1
 --- !u!1 &419152032
 GameObject:
   m_ObjectHideFlags: 0
@@ -719,6 +720,7 @@ MonoBehaviour:
   underwaterLightShader: {fileID: 7200000, guid: 1743a2ed8e0f82147bb8b7cdd9952b5e, type: 3}
   sprayShader: {fileID: 7200000, guid: a69f0bf9d9c75ff4a8601fec02df6788, type: 3}
   breakersShader: {fileID: 7200000, guid: a42a11fa72c5f8642a41ea72ef5c1b5d, type: 3}
+  wakeShader: {fileID: 7200000, guid: 0c5d3285d446c4c4997b1f475ea07f03, type: 3}
   material: {fileID: 1199730781}
   sun: {fileID: 157207113}
   gridSize: 32
@@ -786,7 +788,7 @@ MonoBehaviour:
   rangeFactor: 2
   seed: 7
   material: {fileID: 747400206}
-  stats: 'terrain: generate 2216 ms, textures 328 ms, total 2774 ms'
+  stats: 'terrain: generate 2512 ms, textures 363 ms, total 3140 ms'
 --- !u!4 &1790201658
 Transform:
   m_ObjectHideFlags: 0

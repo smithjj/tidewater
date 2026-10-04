@@ -16,6 +16,7 @@ namespace Tidewater.Player
 		public bool freeCam;                 // start in the free camera (the JS ?fly)
 		public bool startAboard;             // start on the boat's deck instead of on the beach (until the pier is ported, the boat is a swim away)
 		public bool showPrompts = true;
+		public bool noAudio;                 // the JS ?noAudio: no sound
 		public GameInput input { get; private set; }
 		public Player player { get; private set; }
 		public FlyCamera fly { get; private set; }
@@ -27,6 +28,7 @@ namespace Tidewater.Player
 		TerrainRenderer terrain;
 		public Tidewater.World.TerrainData terrainData => terrain != null ? terrain.data : null; // the island's heights (the traders stand on it)
 		public Tidewater.Game.GameHost game { get; private set; } // the economy (null when the scene has none)
+		public Tidewater.Audio.SoundHost sound { get; private set; } // the island's sound (null with noAudio)
 		bool flashSeeded;
 		string toast; float toastUntil;
 
@@ -53,8 +55,28 @@ namespace Tidewater.Player
 			fly = new FlyCamera( simCamera, input );
 			fly.setPose( new Engine3( 20, 6, - 20 ), System.Math.PI * 0.9, - 0.12 );
 			if ( startAboard ) { player.boardBoat( driver.controller ); }
+			allBoats = boats;
+			if ( ! noAudio ) BuildSound();
 			return true;
 		}
+
+		// the sound (App.js: new SoundScape, player.audio, the boat's onSlam)
+		System.Collections.Generic.List<BoatController> allBoats;
+
+		void BuildSound()
+		{
+			sound = Tidewater.Audio.SoundHost.Create( this );
+			player.audio = sound.scape;
+			// a slam is heard from the boat you are on (the JS hooks the lobster boat's only)
+			foreach ( var b in allBoats )
+			{
+				var ctl = b;
+				ctl.onSlam = s => { if ( sound != null && sound.Alive && ActiveBoat() == ctl ) sound.scape.hullSlap( s ); };
+			}
+		}
+
+		// the boat everything player-facing follows: the one you are aboard, else the lobster boat (App.boatCtl)
+		public BoatController ActiveBoat() => player != null && ( player.mode == "boat" || player.mode == "deck" ) && player.boat != null ? player.boat : driver.controller;
 
 		void Update()
 		{
@@ -94,6 +116,18 @@ namespace Tidewater.Player
 			// Game.update: the world clock, the traders, the fuel (after the player, which sets the boat's controls and the prompt)
 			if ( game != null && game.Ensure( this ) ) game.Tick( dt );
 			Apply();
+			// App.updateAudio, and the mute action
+			if ( ! noAudio )
+			{
+				// (the Editor destroys DontSave objects when a Play session starts while this object lives on: build the sound again)
+				if ( sound == null || ! sound.Alive ) BuildSound();
+				else
+				{
+					if ( input.actHit( "mute" ) ) sound.ToggleMute( this );
+					sound.Tick( dt, this );
+				}
+			}
+
 			input.endFrame();
 		}
 

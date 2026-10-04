@@ -1,0 +1,217 @@
+{
+"bail_click": {
+"ch": 1,
+"dur": 1.0860208333333334,
+"file": "bail_click"
+},
+"big_splash": {
+"ch": 1,
+"dur": 4.165354166666667,
+"file": "big_splash"
+},
+"bird_dove": {
+"ch": 1,
+"dur": 16.579958333333334,
+"file": "bird_dove"
+},
+"bird_forest": {
+"ch": 1,
+"dur": 19.069958333333332,
+"file": "bird_forest"
+},
+"birds_dawn": {
+"ch": 2,
+"dur": 44.0,
+"file": "birds_dawn"
+},
+"boat_engine": {
+"ch": 1,
+"dur": 45.0,
+"file": "boat_engine"
+},
+"boat_lap": {
+"ch": 1,
+"dur": 38.0,
+"file": "boat_lap"
+},
+"boat_rush": {
+"ch": 1,
+"dur": 45.0,
+"file": "boat_rush"
+},
+"coins": {
+"ch": 1,
+"dur": 1.7840208333333334,
+"file": "coins"
+},
+"crickets": {
+"ch": 2,
+"dur": 45.0,
+"file": "crickets"
+},
+"emerge": {
+"ch": 1,
+"dur": 1.084,
+"file": "emerge"
+},
+"fish_flop": {
+"ch": 1,
+"dur": 2.706,
+"file": "fish_flop"
+},
+"fish_splash": {
+"ch": 1,
+"dur": 4.3,
+"file": "fish_splash"
+},
+"gull": {
+"ch": 1,
+"dur": 6.5736875,
+"file": "gull"
+},
+"hull_slap": {
+"ch": 1,
+"dur": 3.1266666666666665,
+"file": "hull_slap"
+},
+"line_out": {
+"ch": 1,
+"dur": 0.8305,
+"file": "line_out"
+},
+"line_snap": {
+"ch": 1,
+"dur": 2.4860208333333333,
+"file": "line_snap"
+},
+"line_strain": {
+"ch": 1,
+"dur": 0.9535,
+"file": "line_strain"
+},
+"palms": {
+"ch": 2,
+"dur": 50.0,
+"file": "palms"
+},
+"pier_lap": {
+"ch": 1,
+"dur": 38.0,
+"file": "pier_lap"
+},
+"plop": {
+"ch": 1,
+"dur": 1.148,
+"file": "plop"
+},
+"reel_drag": {
+"ch": 1,
+"dur": 3.2,
+"file": "reel_drag"
+},
+"reel_wind": {
+"ch": 1,
+"dur": 6.2,
+"file": "reel_wind"
+},
+"rod_swish": {
+"ch": 1,
+"dur": 2.981333333333333,
+"file": "rod_swish"
+},
+"splash": {
+"ch": 1,
+"dur": 8.35,
+"file": "splash"
+},
+"step_grass": {
+"ch": 1,
+"dur": 1.9446666666666668,
+"file": "step_grass"
+},
+"step_rock": {
+"ch": 1,
+"dur": 3.02,
+"file": "step_rock"
+},
+"step_sand": {
+"ch": 1,
+"dur": 2.182,
+"file": "step_sand"
+},
+"step_water": {
+"ch": 1,
+"dur": 4.16,
+"file": "step_water"
+},
+"step_wetsand": {
+"ch": 1,
+"dur": 1.74,
+"file": "step_wetsand"
+},
+"step_wood": {
+"ch": 1,
+"dur": 2.6242916666666667,
+"file": "step_wood"
+},
+"submerge": {
+"ch": 1,
+"dur": 1.818,
+"file": "submerge"
+},
+"surf_backwash": {
+"ch": 1,
+"dur": 15.144,
+"file": "surf_backwash"
+},
+"surf_crash": {
+"ch": 1,
+"dur": 18.033354166666665,
+"file": "surf_crash"
+},
+"surf_far": {
+"ch": 1,
+"dur": 52.0,
+"file": "surf_far"
+},
+"surf_wash": {
+"ch": 1,
+"dur": 9.954,
+"file": "surf_wash"
+},
+"swim": {
+"ch": 1,
+"dur": 3.1366666666666667,
+"file": "swim"
+},
+"tern": {
+"ch": 1,
+"dur": 11.305083333333334,
+"file": "tern"
+},
+"under_reef": {
+"ch": 2,
+"dur": 50.0,
+"file": "under_reef"
+},
+"uw_swim": {
+"ch": 1,
+"dur": 3.7733333333333334,
+"file": "uw_swim"
+},
+"whale_blow": {
+"ch": 1,
+"dur": 5.172583333333334,
+"file": "whale_blow"
+},
+"whale_song": {
+"ch": 1,
+"dur": 50.0,
+"file": "whale_song"
+},
+"wind": {
+"ch": 2,
+"dur": 60.0,
+"file": "wind"
+}
+}

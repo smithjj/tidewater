@@ -63,12 +63,16 @@ namespace Tidewater.Game
 		public bool catchOpen { get; private set; }
 		bool lastCan;
 
+		// the sound hooks (forwarded to the current SoundScape, if any)
+		IGameAudio Audio => audio ?? ( audio = new Tidewater.Audio.GameAudioProxy( host ) );
+		IGameAudio audio;
+
 		public FishingGame( GameHost game, PlayerHost host, Transform parent )
 		{
 			this.game = game; this.host = host; this.parent = parent;
 			rng = () => random.NextDouble();
 			var ocean = OceanRenderer.instance;
-			rod = new FishingRod( host.simCamera, ocean.query, host.terrainData.HeightAt );
+			rod = new FishingRod( host.simCamera, ocean.query, host.terrainData.HeightAt, Audio );
 			rod.onLand = where => OnBobberLanded( where );
 			view = FishingRodView.Create( parent );
 			display = new CatchDisplay( parent );
@@ -304,6 +308,7 @@ namespace Tidewater.Game
 					b.phase = "take";
 					// big, strong fish give a (slightly) shorter window
 					b.t = 2.4 - FishTable.Get( b.species ).fight * 0.5;
+					Audio?.fishSplash( rod.bobber, 0.35 );
 				}
 			}
 			else if ( b.phase == "take" )
@@ -324,16 +329,22 @@ namespace Tidewater.Game
 			}
 
 			var g = game.state.stats;
+			_splashed = false;
 			fight = new CatchMinigame( b.species, b.kg, g.lineKg, g.reelSpeed, Math.Max( 3, rod.lineOut ), rng );
 			bite = null;
 			rod.hook();
 			game.Toast( "Fish on!", 1.2f );
 		}
 
+		bool _splashed; // the surge has already splashed (Game.updateFight's fight._splashed)
+
 		void UpdateFight( double dt, bool reeling )
 		{
 			var f = fight;
 			string st = f.update( dt, reeling );
+			// the fish thrashes at the surface as each run starts
+			if ( f.surge > 0.6 && ! _splashed ) Audio?.fishSplash( rod.bobber, 0.3 + 0.5 * Math.Min( 1, f.kg / 8 ) );
+			_splashed = f.surge > 0.6 ? true : f.surge < 0.3 ? false : _splashed;
 			if ( st == "fighting" ) return;
 			fight = null;
 			rod.dip = 0;
@@ -344,6 +355,8 @@ namespace Tidewater.Game
 				var entry = s.addFish( f.species, f.kg, hour, new CatchSpot { x = rod.bobber.x, z = rod.bobber.z, hab = Codex.dominantHabitat( HabitatHere() ) } );
 				var info = s.lastCatch;
 				// the catch card while the fish hangs on the line
+				Audio?.fishSplash( rod.bobber, 0.8 );
+				Audio?.fishFlop();
 				landing = new Landing { species = f.species, kg = f.kg, card = info };
 				rod.land();
 			}

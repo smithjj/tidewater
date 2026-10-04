@@ -119,7 +119,7 @@ namespace Tidewater.Game
 			return l;
 		}
 
-		public SaleResult SellAll() => Sell( null );
+		public SaleResult SellAll() { var r = Sell( null ); if ( host != null && host.sound != null && host.sound.Alive ) host.sound.scape.coin(); return r; } // (Game.sellAll: the coins)
 
 		public SaleResult Sell( ICollection<int> ids )
 		{

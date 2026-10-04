@@ -1,7 +1,7 @@
 // The procedural surfaces of the lobster boat: src/world/boat/BoatMaterials.js (WGSL snippets) as HLSL functions. Each takes the
 // model-space position the JS calls positionLocal ( p, the boat frame: +Z forward, +X port ), the vertex colour (linear albedo), aux =
 // ( rough, metal, pattern, anim ) and uv, and returns the surface parameters.
-//   kind: 0 hull, 1 gelcoat, 2 wood, 3 fittings, 4 glass, 5 glow, 6 trap (7, the glTF factors, is set in BoatFragment.hlsl)
+//   kind: 0 hull, 1 gelcoat, 2 wood, 3 fittings, 4 glass, 5 glow, 6 trap (7, the glTF factors, is set in BoatFragment.hlsl), 8 game props (the rod)
 #ifndef TW_BOAT_SURFACE_INCLUDED
 #define TW_BOAT_SURFACE_INCLUDED
 
@@ -15,6 +15,7 @@ struct BoatIn
 	float3 color;      // vertex colour, linear
 	float2 uv;
 	float3 p;          // positionLocal (boat frame, JS handedness)
+	float3 rest;       // kind 8: the rest position of the part (JS handedness), before the vertex bend: the patterns stay on parts that move
 	float3 P;          // world position (derivatives only)
 	float3 N;          // world normal, facing the viewer
 	float time;
@@ -513,6 +514,102 @@ BoatOut BoatTrap( BoatIn i )
 	return s;
 }
 
+// ------------------------------------------------------------------ game props (src/game/GameMaterials.js createPropMaterial)
+// aux = ( roughness, metalness, pattern, anim ). Only the fishing tackle patterns are ported so far (the rod and reel): 8 carbon blank under
+// clear coat, 9 epoxy-coated thread wraps, 10 EVA foam grip, 11 braided line on the spool, 12 machined / anodised metal, 13 knurled metal,
+// 14 rubber. The pattern coordinates are the rest position, in the part's local frame (+Y along the rod / reel axis).
+float BoatGpHash( float3 p ) { return frac( sin( dot( p, float3( 127.1, 311.7, 74.7 ) ) ) * 43758.5453 ); }
+float BoatGpNoise( float3 p )
+{
+	float3 ip = floor( p ); float3 f = frac( p ); float3 u = f * f * ( 3.0 - 2.0 * f );
+	float a = lerp( lerp( BoatGpHash( ip ), BoatGpHash( ip + float3( 1, 0, 0 ) ), u.x ), lerp( BoatGpHash( ip + float3( 0, 1, 0 ) ), BoatGpHash( ip + float3( 1, 1, 0 ) ), u.x ), u.y );
+	float b = lerp( lerp( BoatGpHash( ip + float3( 0, 0, 1 ) ), BoatGpHash( ip + float3( 1, 0, 1 ) ), u.x ), lerp( BoatGpHash( ip + float3( 0, 1, 1 ) ), BoatGpHash( ip + float3( 1, 1, 1 ) ), u.x ), u.y );
+	return lerp( a, b, u.z );
+}
+float BoatGpFbm( float3 p ) { return BoatGpNoise( p ) * 0.55 + BoatGpNoise( p * 2.13 + 7.1 ) * 0.3 + BoatGpNoise( p * 4.7 + 3.3 ) * 0.15; }
+
+BoatOut BoatProps( BoatIn i )
+{
+	BoatOut s = BoatDefaults( i, i.aux.x );
+	float pat = i.aux.z;
+	float3 lp = i.rest;
+	float3 col = i.color;
+	float rough = i.aux.x;
+	float h = 0.0;
+	if ( pat > 7.5 )
+	{
+		float ang = atan2( lp.x, lp.z );
+		if ( pat < 8.5 )
+		{
+			// carbon blank: fine woven / wrapped scrim under a glossy clear coat, faded out where the weave is below a pixel
+			float u = ang * 18.0; float w = lp.y * 700.0;
+			float aa = 1.0 - smoothstep( 0.3, 1.2, fwidth( w ) );
+			float weave = sin( u + w ) * sin( u - w );
+			col = col * ( 1.0 + weave * 0.09 * aa ) * lerp( 0.94, 1.04, BoatGpNoise( float3( 0.0, lp.y * 3.0, 0.0 ) ) );
+			h = weave * 0.00004 * aa;
+			s.clearcoat = 1.0; s.coatRoughness = 0.05;
+		}
+		else if ( pat < 9.5 )
+		{
+			// nylon thread wraps sealed in epoxy: tight turns around the blank, a little uneven
+			float w = lp.y * 3200.0;
+			float aa = 1.0 - smoothstep( 0.3, 1.2, fwidth( w ) );
+			float turns = sin( w + ang * 0.16 ) * aa;
+			col = col * ( 1.0 + turns * 0.12 ) * lerp( 0.92, 1.06, BoatGpNoise( lp * 300.0 ) );
+			h = turns * 0.00003;
+			s.clearcoat = 1.0; s.coatRoughness = 0.04;
+		}
+		else if ( pat < 10.5 )
+		{
+			// EVA foam: closed-cell pores, darker and smoother where the hand holds it, grime
+			float pore = smoothstep( 0.72, 0.9, BoatGpNoise( lp * 2600.0 ) );
+			float grime = BoatGpFbm( lp * 60.0 );
+			col = col * ( 1.0 - pore * 0.35 ) * lerp( 0.85, 1.08, grime );
+			rough = clamp( rough - grime * 0.12, 0.55, 1.0 );
+			h = -pore * 0.0002;
+		}
+		else if ( pat < 11.5 )
+		{
+			// braided line wound on the spool: fine crossing turns
+			float w = lp.y * 1500.0; float u = ang * 60.0;
+			float aa = 1.0 - smoothstep( 0.3, 1.2, fwidth( w ) );
+			float b = sin( u + w ) * 0.5 + 0.5;
+			col = col * lerp( 0.8, 1.08, b * aa + 0.5 * ( 1.0 - aa ) );
+			h = b * 0.00006 * aa;
+		}
+		else if ( pat < 12.5 )
+		{
+			// machined / anodised metal: circumferential lathe marks, slightly uneven sheen
+			float w = length( lp.xz ) * 5000.0 + lp.y * 800.0;
+			float aa = 1.0 - smoothstep( 0.3, 1.2, fwidth( w ) );
+			float m = sin( w ) * aa;
+			col = col * ( 1.0 + m * 0.03 );
+			rough = clamp( rough + m * 0.05 + ( BoatGpNoise( lp * 150.0 ) - 0.5 ) * 0.06, 0.12, 0.9 );
+		}
+		else if ( pat < 13.5 )
+		{
+			// knurled metal (lock nut): a diamond grip pattern in the relief
+			float u = ang * 24.0; float w = lp.y * 900.0;
+			float aa = 1.0 - smoothstep( 0.3, 1.2, fwidth( w ) );
+			float k = abs( sin( u + w ) ) * abs( sin( u - w ) );
+			col = col * ( 0.85 + k * 0.25 * aa );
+			h = k * 0.00012 * aa;
+		}
+		else
+		{
+			// rubber: matte, a few scuffs
+			float sc = BoatGpFbm( lp * 250.0 );
+			col = col * lerp( 0.9, 1.15, sc );
+			rough = clamp( rough + ( sc - 0.5 ) * 0.2, 0.6, 1.0 );
+		}
+	}
+	s.albedo = col;
+	s.roughness = rough;
+	s.metalness = i.aux.y;
+	if ( h != 0.0 ) s.normal = BoatBumpNormal( i.P, s.normal, h );
+	return s;
+}
+
 BoatOut BoatSurface( int kind, BoatIn i )
 {
 	if ( kind == 0 ) return BoatHull( i );
@@ -521,6 +618,7 @@ BoatOut BoatSurface( int kind, BoatIn i )
 	if ( kind == 3 ) return BoatFittings( i );
 	if ( kind == 4 ) return BoatGlass( i );
 	if ( kind == 5 ) return BoatGlow( i );
+	if ( kind == 8 ) return BoatProps( i );
 	return BoatTrap( i );
 }
 

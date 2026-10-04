@@ -158,7 +158,7 @@ namespace Tidewater.Player
 			style.normal.textColor = Color.white;
 			float w = Screen.width, h = Screen.height;
 			if ( ! freeCam && player.prompt != null )
-				GUI.Label( new Rect( 0, h * 0.72f, w, 30 ), "[" + input.label( player.prompt.action ) + "]  " + player.prompt.text, style );
+				GUI.Label( new Rect( 0, h * 0.72f, w, 30 ), "[" + ( player.prompt.key ?? input.label( player.prompt.action ) ) + "]  " + player.prompt.text, style );
 			if ( toast != null && Time.unscaledTime < toastUntil ) GUI.Label( new Rect( 0, h * 0.08f, w, 30 ), toast, style );
 			var small = new GUIStyle( GUI.skin.label ) { alignment = TextAnchor.LowerLeft, fontSize = 12 };
 			small.normal.textColor = new Color( 1, 1, 1, 0.7f );

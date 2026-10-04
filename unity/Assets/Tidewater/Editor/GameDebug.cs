@@ -45,6 +45,34 @@ namespace Tidewater.EditorTools
 
 		public static string Tap( string code ) { var h = Host(); if ( h == null || h.input == null ) return "not built yet (Run first)"; h.input.Tap( code ); return "tapped " + code; }
 
+		public static string Mouse( int button, bool down ) { var h = Host(); if ( h == null || h.input == null ) return "not built yet (Run first)"; h.input.Press( button, down ); return ( down ? "down " : "up " ) + button; }
+
+		public static string Rod()
+		{
+			var f = Game().fishing; var r = f.rod;
+			return $"rod {r.state} equipped {r.equipped} power {r.power:F2} lineOut {r.lineOut:F1} depth {r.depth:F1} bobber ({r.bobber.x:F1},{r.bobber.y:F2},{r.bobber.z:F1}) bite {( f.bite != null ? f.bite.phase + " " + f.bite.species + " " + f.bite.kg.ToString( "F2" ) + " t=" + f.bite.t.ToString( "F1" ) : "-" )} fight {( f.fight != null ? f.fight.state + " tension " + f.fight.tension.ToString( "F2" ) + " dist " + f.fight.distance.ToString( "F1" ) + " stamina " + f.fight.stamina.ToString( "F2" ) : "-" )} landing {f.landing != null}";
+		}
+
+		// a player stand-in for real-time runs: strikes on the take, holds the reel while the line is slack enough, lets go when it is tight
+		static bool auto;
+		public static string AutoFish( bool on )
+		{
+			if ( on && ! auto ) EditorApplication.update += AutoStep;
+			if ( ! on && auto ) EditorApplication.update -= AutoStep;
+			auto = on;
+			return "autofish " + on;
+		}
+
+		static void AutoStep()
+		{
+			var g = Game(); var h = Host();
+			if ( g == null || g.fishing == null || h == null || h.input == null ) return;
+			var f = g.fishing;
+			if ( f.fight != null ) h.input.Press( 0, f.fight.tension < 0.62 );
+			else if ( f.bite != null && f.bite.phase == "take" && f.rod.state == "floating" ) { h.input.Press( 0, false ); h.input.Press( 0, true ); }
+			else if ( f.rod.state != "idle" && f.rod.state != "windup" ) h.input.Press( 0, false );
+		}
+
 		// stand the player on foot at a sim point, facing yaw (radians, 0 = north... the Player's own yaw)
 		public static string At( double x, double z, double yaw = 0 )
 		{

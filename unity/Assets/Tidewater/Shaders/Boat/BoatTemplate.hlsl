@@ -1,6 +1,6 @@
 // The pass template of HDRP's LitTemplate.hlsl with the surface replaced by the boat's procedural materials (BoatFragment.hlsl).
 // Mesh data: position, normal, uv0 (meters where it matters), uv1 = ( aux.x, aux.y ), uv2 = ( aux.z, aux.w ) with aux = ( rough, metal, pattern,
-// anim ), vertex colour = linear albedo.
+// anim ), vertex colour = linear albedo. Kind 8 (the rod) also keeps the rest position of a vertex in uv0 = ( x, y ) and uv3 = ( z, 0 ).
 #define HAVE_MESH_MODIFICATION
 
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
@@ -46,17 +46,22 @@ float _BlendMode;
     #define ATTRIBUTES_NEED_TEXCOORD0
     #define ATTRIBUTES_NEED_TEXCOORD1
     #define ATTRIBUTES_NEED_TEXCOORD2
+    #define ATTRIBUTES_NEED_TEXCOORD3
     #define ATTRIBUTES_NEED_COLOR
     #define VARYINGS_NEED_POSITION_WS
     #define VARYINGS_NEED_TANGENT_TO_WORLD
     #define VARYINGS_NEED_TEXCOORD0
     #define VARYINGS_NEED_TEXCOORD1
     #define VARYINGS_NEED_TEXCOORD2
+    #define VARYINGS_NEED_TEXCOORD3
     #define VARYINGS_NEED_COLOR
     #define VARYINGS_NEED_CULLFACE
 #endif
 
-// the vertex animation reads uv1 / uv2 (aux) in every pass, shadows and depth included
+// the vertex animation reads uv1 / uv2 (aux) and, for the rod, the normal in every pass, shadows and depth included
+#ifndef ATTRIBUTES_NEED_NORMAL
+    #define ATTRIBUTES_NEED_NORMAL
+#endif
 #ifndef ATTRIBUTES_NEED_TEXCOORD1
     #define ATTRIBUTES_NEED_TEXCOORD1
 #endif

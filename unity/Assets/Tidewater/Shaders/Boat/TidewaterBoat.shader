@@ -1,5 +1,5 @@
 // The lobster boat's materials: HDRP deferred Lit with the procedural surfaces of src/world/boat/BoatMaterials.js (BoatSurface.hlsl).
-// One shader, one material per kind (_BoatKind: 0 hull, 1 gelcoat, 2 wood, 3 fittings, 5 glow, 6 trap). Pass structure as the terrain's.
+// One shader, one material per kind (_BoatKind: 0 hull, 1 gelcoat, 2 wood, 3 fittings, 5 glow, 6 trap, 7 glTF factors, 8 game props). Pass structure as the terrain's.
 Shader "Tidewater/Boat"
 {
     Properties
@@ -32,6 +32,10 @@ Shader "Tidewater/Boat"
         [HideInInspector] _FlagDir("Flag direction", Vector) = (0,0,-1,0)
         [HideInInspector] _FlagWind("Flag wind", Float) = 0.5
         [HideInInspector] _NavOn("Nav lights", Float) = 1
+        [HideInInspector] _RodBend("Rod bend (dir xyz, bend w)", Vector) = (0,0,-1,0)
+        [HideInInspector] _RodShape("Rod shape (bend exponent)", Vector) = (3,0,0,0)
+        [HideInInspector] _ReelAnim("Reel rotor, bail, crank, spool", Vector) = (0,0,0,0)
+        [HideInInspector] _ReelAnim2("Reel spool oscillation, line fill", Vector) = (0,1,0,0)
         [HideInInspector] _EmissionColor("Color", Color) = (1, 1, 1)
         [HideInInspector] _MainTex("Albedo", 2D) = "white" {}
         [HideInInspector] _Color("Color", Color) = (1,1,1,1)

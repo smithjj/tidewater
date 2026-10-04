@@ -121,7 +121,7 @@ namespace Tidewater.Core
 
 			if ( mouse != null )
 			{
-				SetMouse( 0, mouse.leftButton.isPressed ); SetMouse( 2, mouse.rightButton.isPressed ); SetMouse( 1, mouse.middleButton.isPressed );
+				SetMouse( 0, mouse.leftButton.isPressed || fakeL ); SetMouse( 2, mouse.rightButton.isPressed || fakeR ); SetMouse( 1, mouse.middleButton.isPressed );
 				if ( locked || mouseDown || rightDown )
 				{
 					var d = mouse.delta.ReadValue();
@@ -136,6 +136,10 @@ namespace Tidewater.Core
 
 			PollPad();
 		}
+
+		// scripted presses (GameDebug): 0 = left, 2 = right
+		bool fakeL, fakeR;
+		public void Press( int button, bool down ) { if ( button == 0 ) fakeL = down; else if ( button == 2 ) fakeR = down; SetMouse( button, down ); }
 
 		void SetMouse( int button, bool down )
 		{

@@ -45,7 +45,7 @@ namespace Tidewater.Player
 		void engineStop();
 	}
 
-	public sealed class Prompt { public string action, text; }
+	public sealed class Prompt { public string action, text, key; } // key: a literal key cap instead of the action's binding
 
 	public sealed class Player
 	{

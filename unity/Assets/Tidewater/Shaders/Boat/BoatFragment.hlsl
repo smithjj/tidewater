@@ -13,7 +13,7 @@
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/AmbientProbe.hlsl"
 #include "BoatSurface.hlsl"
 
-float _BoatKind;              // 0 hull, 1 gelcoat, 2 wood, 3 fittings, 4 glass, 5 glow, 6 trap, 7 glTF factors (the mini fishing boat, the Pelagic 30)
+float _BoatKind;              // 0 hull, 1 gelcoat, 2 wood, 3 fittings, 4 glass, 5 glow, 6 trap, 7 glTF factors (the mini fishing boat, the Pelagic 30), 8 game props (the rod)
 float4 _FacColor;             // kind 7: base colour (linear)
 float4 _FacPbr;               // kind 7: roughness, metalness, clear coat, clear coat roughness
 float4 _FacEmissive;          // kind 7: emissive colour (linear, emissive strength applied)
@@ -22,6 +22,10 @@ float4 _FlagPivot;            // the ensign's hoist (boat frame)
 float4 _FlagDir;              // streaming direction (boat frame, unit)
 float _FlagWind;              // 0 limp .. 1 stiff
 float _NavOn;
+float4 _RodBend;              // kind 8: xyz bend direction (rod space), w bend (FishingRod.js rodBend)
+float4 _RodShape;             // x: bend exponent (fast action)
+float4 _ReelAnim;             // rotor angle, bail open 0..1, crank angle, spool angle
+float4 _ReelAnim2;            // spool oscillation (m), line fill
 float4 _TWFrame;              // time, wind speed, night, 0
 float4 _TWSunDir;
 float4 _TWSunColor;
@@ -55,6 +59,75 @@ AttributesMesh ApplyMeshModification( AttributesMesh input, float3 timeParameter
 
 		float3 np = lerp( p + sway * BoatIsPattern( aux.z, 3.0 ), flagPos, BoatIsPattern( aux.z, 2.0 ) );
 		input.positionOS = float3( -np.x, np.y, np.z );
+	}
+
+	// the fishing rod (FishingRod.js vertex snippet): moving parts tagged in aux.w ( 1 rotor, 2 bail, 3 crank, 4 spool, 5 braid ), then the blank
+	// bends toward the line. Rod space is the JS frame ( +Y along the blank, the reel toward -Z, +X right ): the mesh is mirrored in x.
+	if ( ( int ) _BoatKind == 8 )
+	{
+		const float ROD_L = 2.13, BLANK_START = 0.535, REEL_Z = -0.092, BODY_Y = 0.327, PIVOT_Y = 0.403;
+		float part = input.uv2.y;
+		float3 P = float3( -input.positionOS.x, input.positionOS.y, input.positionOS.z );
+		float3 Nn = float3( -input.normalOS.x, input.normalOS.y, input.normalOS.z );
+		float3 axisC = float3( 0.0, 0.0, REEL_Z );
+		if ( part > 0.5 )
+		{
+			if ( part < 2.5 )
+			{
+				if ( part > 1.5 )
+				{
+					// the bail flips back about the line through its two pivots
+					float a = -_ReelAnim.y * 1.95;
+					float3 c = float3( 0.0, PIVOT_Y, REEL_Z );
+					float ca = cos( a ); float sa = sin( a );
+					float3 q = P - c;
+					P = c + float3( q.x, q.y * ca - q.z * sa, q.y * sa + q.z * ca );
+					Nn = float3( Nn.x, Nn.y * ca - Nn.z * sa, Nn.y * sa + Nn.z * ca );
+				}
+				// rotor (and the bail on it) turn about the reel axis
+				float a = _ReelAnim.x;
+				float ca = cos( a ); float sa = sin( a );
+				float3 q = P - axisC;
+				P = float3( q.x * ca + q.z * sa, P.y, -q.x * sa + q.z * ca ) + float3( 0.0, 0.0, axisC.z );
+				Nn = float3( Nn.x * ca + Nn.z * sa, Nn.y, -Nn.x * sa + Nn.z * ca );
+			}
+			else if ( part < 3.5 )
+			{
+				// crank handle about its shaft (along x)
+				float a = _ReelAnim.z;
+				float3 c = float3( 0.0, BODY_Y, REEL_Z );
+				float ca = cos( a ); float sa = sin( a );
+				float3 q = P - c;
+				P = c + float3( q.x, q.y * ca - q.z * sa, q.y * sa + q.z * ca );
+				Nn = float3( Nn.x, Nn.y * ca - Nn.z * sa, Nn.y * sa + Nn.z * ca );
+			}
+			else
+			{
+				// spool: in and out with the crank, turning back when the drag slips; the braid on it shrinks as line goes out
+				float3 q = P - axisC;
+				if ( part > 4.5 )
+				{
+					float r = length( q.xz );
+					float r2 = lerp( 0.0205, r, _ReelAnim2.y );
+					q = float3( q.x * r2 / max( r, 1e-5 ), q.y, q.z * r2 / max( r, 1e-5 ) );
+				}
+				float a = _ReelAnim.w;
+				float ca = cos( a ); float sa = sin( a );
+				P = float3( q.x * ca + q.z * sa, P.y + _ReelAnim2.x, -q.x * sa + q.z * ca ) + float3( 0.0, 0.0, axisC.z );
+				Nn = float3( Nn.x * ca + Nn.z * sa, Nn.y, -Nn.x * sa + Nn.z * ca );
+			}
+		}
+		// the blank bends toward the line (fast action: _RodShape.x = exponent of the deflection)
+		float span = ROD_L - BLANK_START;
+		float s = clamp( ( P.y - BLANK_START ) / span, 0.0, 1.0 );
+		float pw = _RodShape.x;
+		float lat = _RodBend.w * ROD_L * pow( s, pw );
+		float slope = _RodBend.w * ROD_L * pw * pow( max( s, 1e-4 ), pw - 1.0 ) / span;
+		float drop = 0.5 * lat * lat / ( max( P.y - BLANK_START, 0.0 ) + 0.06 );
+		P = P + _RodBend.xyz * lat - float3( 0.0, drop, 0.0 );
+		Nn = normalize( Nn - float3( 0.0, slope * dot( Nn, _RodBend.xyz ), 0.0 ) );
+		input.positionOS = float3( -P.x, P.y, P.z );
+		input.normalOS = float3( -Nn.x, Nn.y, Nn.z );
 	}
 
 	return input;
@@ -91,6 +164,7 @@ void GetSurfaceAndBuiltinData( inout FragInputs input, float3 V, inout PositionI
 	bi.color = input.color.rgb;
 	bi.uv = input.texCoord0.xy;
 	bi.p = float3( -posOS.x, posOS.y, posOS.z );
+	bi.rest = float3( input.texCoord0.xy, input.texCoord3.x );
 	bi.P = input.positionRWS;
 	bi.N = normalWS;
 	bi.time = _TWFrame.x;
@@ -128,7 +202,7 @@ void GetSurfaceAndBuiltinData( inout FragInputs input, float3 V, inout PositionI
 	surfaceData.diffusionProfileHash = 0;
 
 	// the hull (and a glTF material with a clear coat) is clear-coated
-	if ( kind == 0 || ( kind == 7 && _FacPbr.z > 0.0 ) )
+	if ( kind == 0 || kind == 8 || ( kind == 7 && _FacPbr.z > 0.0 ) )
 	{
 		surfaceData.materialFeatures = MATERIALFEATUREFLAGS_LIT_CLEAR_COAT;
 		surfaceData.coatMask = s.clearcoat;

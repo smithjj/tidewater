@@ -20,10 +20,10 @@ namespace Tidewater.EditorTools
 		static string DefaultDir => Path.GetFullPath( Path.Combine( Application.dataPath, "../Temp/oracle/boatctl" ) );
 
 		static double tri( double p ) { double q = p - Math.Floor( p ); double k = q < 0.5 ? 2 * q : 2 - 2 * q; return k * k * ( 3 - 2 * k ); }
-		static double waterAt( double x, double z, double t ) => 0.55 * ( tri( x * 0.11 + z * 0.07 - 0.45 * t ) - 0.5 ) * 2 + 0.22 * ( tri( - x * 0.2 + z * 0.17 - 0.7 * t ) - 0.5 ) * 2;
-		static double groundAt( double x, double z ) => - 6 + 0.05 * ( 60 - z ) + 9.5 * ( 1 - Tidewater.Engine.MathUtils.smoothstep( JS.Hypot( x - 70, z - 95 ), 0, 25 ) );
+		internal static double waterAt( double x, double z, double t ) => 0.55 * ( tri( x * 0.11 + z * 0.07 - 0.45 * t ) - 0.5 ) * 2 + 0.22 * ( tri( - x * 0.2 + z * 0.17 - 0.7 * t ) - 0.5 ) * 2;
+		internal static double groundAt( double x, double z ) => - 6 + 0.05 * ( 60 - z ) + 9.5 * ( 1 - Tidewater.Engine.MathUtils.smoothstep( JS.Hypot( x - 70, z - 95 ), 0, 25 ) );
 
-		sealed class FakeQuery : IWaterQuery
+		internal sealed class FakeQuery : IWaterQuery
 		{
 			public int count = 1;
 			public float latency { get; set; } = 0.05f;

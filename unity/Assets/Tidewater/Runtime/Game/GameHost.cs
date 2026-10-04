@@ -27,6 +27,7 @@ namespace Tidewater.Game
 		public bool showHud = true;
 		public Vendor openVendor { get; private set; }   // the trader whose panel is open (JS hud.standOpen / hud.vendor)
 		public bool inventoryOpen { get; private set; }  // the cooler panel (I)
+		public FishingGame fishing { get; private set; } // the rod, the bite, the fight and the catch card (null until the world is built)
 
 		readonly List<Vendor> _vendors = new List<Vendor>();
 		PlayerHost host;
@@ -38,7 +39,7 @@ namespace Tidewater.Game
 		bool built => state != null && lobster != null;
 
 		void Awake() { instance = this; }
-		void OnDestroy() { if ( instance == this ) instance = null; }
+		void OnDestroy() { if ( instance == this ) instance = null; if ( fishing != null ) fishing.Dispose(); }
 
 		// builds the state and the world half once the player's world exists (PlayerHost.Build): false until then
 		public bool Ensure( PlayerHost h )
@@ -58,6 +59,8 @@ namespace Tidewater.Game
 			// the rebuilt engine is the lobster boat's: always target it, not whichever boat is active
 			lobster = h.driver.controller;
 			baseMaxThrust = lobster.maxThrust; basePitchSpeed = lobster.pitchSpeed;
+			fishing?.Dispose();
+			fishing = new FishingGame( this, h, transform );
 			ApplyGear();
 			state.onChange( _ => ApplyGear() );
 			return true;
@@ -72,6 +75,7 @@ namespace Tidewater.Game
 			var g = state.stats;
 			lobster.maxThrust = baseMaxThrust * g.speedMul * g.speedMul;
 			lobster.pitchSpeed = basePitchSpeed * g.speedMul;
+			if ( fishing != null ) fishing.ApplyGear();
 		}
 
 		public void Toast( string text, float seconds = 2.6f ) { if ( host != null ) host.Toast( text, seconds ); else Debug.Log( "[game] " + text ); }
@@ -152,6 +156,9 @@ namespace Tidewater.Game
 			if ( inp.actHit( "cooler" ) ) ToggleInventory();
 			if ( inp.actHit( "cancel" ) ) { ToggleInventory( false ); CloseStand(); }
 
+			// the rod, the bite, the fight and the landed fish
+			fishing.Update( dt );
+
 			UpdateBoat( dt, p );
 
 			// the world clock rides along in the save (every 20 s, and at midnight)
@@ -161,6 +168,9 @@ namespace Tidewater.Game
 			// the traders
 			foreach ( var v in _vendors ) v.update( dt, p.mode == "walk" ? p.position : null );
 			UpdateVendors( inp, p );
+
+			// prompts when the player has nothing to say
+			if ( p.prompt == null ) p.prompt = fishing.Prompt();
 		}
 
 		// fuel burn at the helm (the engine stops when the tank is dry); the fish finder comes with the HUD
@@ -197,7 +207,7 @@ namespace Tidewater.Game
 			if ( shut != null ) Toast( $"{shut.shortName} is shut — back at {GameText.hourLabel( shut.hours[ 0 ] )}", 3.2f );
 			foreach ( var v in _vendors ) v.talking = openVendor == v;
 			if ( openVendor != null && ( near == null || near != openVendor ) ) CloseStand();
-			if ( near == null ) return;
+			if ( near == null || fishing.blocksVendors ) return;
 			if ( p.prompt == null ) p.prompt = new Prompt { action = "interact", text = openVendor != null ? "Leave" : $"Talk to {near.shortName}" };
 			if ( inp.actHit( "interact" ) )
 			{
@@ -236,6 +246,7 @@ namespace Tidewater.Game
 				if ( s.mayTrap || s.sets.Count > 0 ) GUI.Label( new Rect( 12, aboard ? 66 : 48, 420, 20 ), $"Traps {s.sets.Count} set · {s.traps} aboard", small );
 			}
 
+			if ( showHud && fishing != null ) fishing.OnGUI();
 			if ( openVendor != null ) DrawVendor( openVendor );
 			else if ( inventoryOpen ) DrawInventory();
 		}

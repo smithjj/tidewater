@@ -17,6 +17,7 @@ namespace Tidewater.Player
 		public BoatController controller { get; private set; }
 		public Colliders colliders = new Colliders();
 		public bool keyboard = true;
+		public bool external;            // the Player (PlayerHost) drives the boat's controls and the camera: no keyboard, no follow camera here
 		public bool followCamera = true; // tools turn this off to place the camera themselves
 		public Engine.Vector3 debugEye, debugTarget; // tools: a camera fixed in the boat frame (with followCamera off)
 		public BoatCamera cam = new BoatCamera();
@@ -36,7 +37,7 @@ namespace Tidewater.Player
 			var terrain = FindAnyObjectByType<TerrainRenderer>();
 			view = GetComponent<BoatView>();
 			if ( ocean == null || ocean.query == null || terrain == null || terrain.data == null || view == null || view.model == null ) return false;
-			controller = new BoatController( view.model.dynamics(), ocean.query, terrain.data.HeightAt, colliders, BoatDock.Lobster ) { view = view };
+			controller = new BoatController( view.model.dynamics(), ocean.query, terrain.data.HeightAt, colliders, BoatDock.Lobster ) { view = view, boatModel = view.model };
 			// the sea is not drawn inside the boat (its hull volume masks the surface)
 			ocean.hullMask.Add( Tidewater.Engine.UnityMesh.Create( view.model.createHullVolumeGeometry(), "boat-hullmask" ), view.transform );
 			if ( ocean.spray != null ) spray = new BoatSpray( controller, view.model, ocean.spray );
@@ -54,7 +55,7 @@ namespace Tidewater.Player
 		public void Tick( double dt )
 		{
 			if ( ! Ensure() ) return;
-			controller.setInput( throttleIn, steerIn, dt );
+			if ( ! external ) controller.setInput( throttleIn, steerIn, dt ); // (external: Player.updateBoat has set the controls)
 			controller.queueQueries();
 			controller.update( dt );
 			view.Tick( dt );
@@ -64,7 +65,7 @@ namespace Tidewater.Player
 
 		void Update()
 		{
-			if ( ! Application.isPlaying ) return;
+			if ( ! Application.isPlaying || external ) return;
 			look.set( 0, 0 ); wheel = 0;
 			if ( Ensure() && keyboard && Keyboard.current != null )
 			{
@@ -98,11 +99,9 @@ namespace Tidewater.Player
 			if ( ! Application.isPlaying || controller == null ) return;
 			var main = Camera.main;
 			if ( main == null ) return;
-			if ( controller.driven != wasDriven )
+			if ( ! external && controller.driven != wasDriven )
 			{
 				wasDriven = controller.driven;
-				var fly = main.GetComponent<DebugFlyCamera>();
-				if ( fly != null ) fly.enabled = ! wasDriven;
 				if ( wasDriven ) cam.takeHelm( controller );
 			}
 
@@ -113,7 +112,7 @@ namespace Tidewater.Player
 				return;
 			}
 
-			if ( ! controller.driven || ! followCamera ) return;
+			if ( external || ! controller.driven || ! followCamera ) return;
 			cam.update( controller, view.model.helmEye, look, wheel, Mathf.Min( Time.deltaTime, 0.1f ), out var eye, out var fwdV, out var up );
 			BoatCamera.Apply( main.transform, eye, fwdV, up );
 		}

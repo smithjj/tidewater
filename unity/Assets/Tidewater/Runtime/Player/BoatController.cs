@@ -111,6 +111,7 @@ namespace Tidewater.Player
 		readonly Func<double, double, double> terrainHeightAt;
 		public readonly Colliders colliders;
 		public IBoatVisual view;
+		public BoatModel boatModel; // the model data of the boat (JS: `model`: helm / board / exit points, colliders, hull lines), for the player
 
 		public double mass;
 		public Vector3 com, inertia;

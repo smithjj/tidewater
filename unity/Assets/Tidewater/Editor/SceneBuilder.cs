@@ -44,7 +44,7 @@ namespace Tidewater.EditorTools
 			cvol.injectionPoint = UnityEngine.Rendering.HighDefinition.CustomPassInjectionPoint.BeforePostProcess;
 			if ( cvol.customPasses.Count == 0 ) cvol.customPasses.Add( new UnderwaterCompositePass() );
 
-			// the lobster boat at its berth, moored (BoatDriver hosts the controller until the player is ported)
+			// the lobster boat at its berth, moored (BoatDriver hosts its controller; PlayerHost drives it)
 			var boat = GameObject.Find( "Lobster Boat" ) ?? new GameObject( "Lobster Boat" );
 			if ( boat.GetComponent<Tidewater.World.Boat.BoatView>() == null ) boat.AddComponent<Tidewater.World.Boat.BoatView>();
 			if ( boat.GetComponent<Tidewater.Player.BoatDriver>() == null ) boat.AddComponent<Tidewater.Player.BoatDriver>();
@@ -53,7 +53,11 @@ namespace Tidewater.EditorTools
 			var cam = Camera.main;
 			cam.transform.SetPositionAndRotation( new Vector3( 60, 12, - 150 ), Quaternion.Euler( 3, 0, 0 ) );
 			cam.farClipPlane = 6000;
-			if ( cam.GetComponent<DebugFlyCamera>() == null ) cam.gameObject.AddComponent<DebugFlyCamera>();
+			GameObjectUtility.RemoveMonoBehavioursWithMissingScript( cam.gameObject ); // (the old throwaway fly camera)
+
+			// the player (Player.js + the free camera on F) drives the camera in play mode
+			var player = GameObject.Find( "Player" ) ?? new GameObject( "Player" );
+			if ( player.GetComponent<Tidewater.Player.PlayerHost>() == null ) player.AddComponent<Tidewater.Player.PlayerHost>();
 
 			// sun: from the south-west, low in the afternoon
 			var sun = GameObject.Find( "Sun" );

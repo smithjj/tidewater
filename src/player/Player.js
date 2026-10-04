@@ -41,7 +41,9 @@ export class Player {
 		this.colliders = colliders;
 		this.query = query;
 		this.boat = boat;
-		this.boats = boats || [ boat ]; // every boardable boat; `boat` is the one we're aboard
+		this.boats = boats || [ boat ]; // every boat at a mooring; `boat` is the one we're aboard
+		this.owns = null; // ( boat ) => whether the player may board it (null: every boat); the Game sets it from what has been bought
+		this.lockedBoat = null; // the nearest boat in reach that is not yours yet (the Game says where to buy it)
 		this.reef = reef;
 		this.audio = audio;
 
@@ -122,17 +124,20 @@ export class Player {
 
 	nearBoat() {
 
-		// nearest boardable boat (there can be more than one in reach)
-		let best = null, bd = Infinity;
+		// nearest boardable boat (there can be more than one in reach); one you have not bought only makes `lockedBoat`
+		let best = null, bd = Infinity, locked = null, ld = Infinity;
 		for ( const b of this.boats ) {
 
 			const bp = b.toWorld( b.model.boardPoint, _v );
 			const d = Math.hypot( bp.x - this.position.x, bp.z - this.position.z );
-			if ( d < 4.2 && Math.abs( bp.y - this.position.y ) < 3.2 && d < bd ) { bd = d; best = b; }
+			if ( ! ( d < 4.2 && Math.abs( bp.y - this.position.y ) < 3.2 ) ) continue;
+			if ( this.owns && ! this.owns( b ) ) { if ( d < ld ) { ld = d; locked = b; } }
+			else if ( d < bd ) { bd = d; best = b; }
 
 		}
 
 		this._boardable = best;
+		this.lockedBoat = locked;
 		return !! best;
 
 	}
@@ -146,6 +151,7 @@ export class Player {
 		this.waterH = this.waterHeight();
 		this.waterMean = this.waterMean === null ? this.waterH : this.waterMean + ( this.waterH - this.waterMean ) * ( 1 - Math.exp( - dt / 4 ) );
 		this.prompt = null;
+		this.lockedBoat = null;
 
 		if ( this.mode === 'boat' ) {
 

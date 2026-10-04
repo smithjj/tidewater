@@ -166,9 +166,10 @@ Walk the deck of the boat while it drifts, or fish from the pier and the beach. 
 to dip and strike when it's pulled under, then play the fish: keep the line tension in the green band,
 ease off when it runs. Different water holds different fish (the shallows, the pier, the reef, the bay and
 deep water offshore), and some bite best at dawn, dusk or night. Sell your catch to Joe at the fish stand
-on the beach by the pier, and spend it at Marta's chandlery by the boathouse: stronger line, a faster reel,
+on the beach by the pier, and spend it at Marta's chandlery by the boathouse. You start with the mini fishing boat; the lobster boat
+($900) and the Pelagic 30 ($2,500) wait at their moorings until you buy them there. The chandlery also sells upgrades: stronger line, a faster reel,
 a longer rod, a bigger fish hold, a larger fuel tank, a rebuilt engine, a fish finder and deck floodlights for
-night fishing. The boat burns diesel at the helm; fill up at the chandlery. Progress is saved in the browser.
+night fishing (the engine, the floodlights and the trap licence are the lobster boat's, so they wait until you own it). The boats burn diesel at the helm; fill up at the chandlery. Progress is saved in the browser.
 
 ### Lobstering
 

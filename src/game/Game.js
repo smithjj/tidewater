@@ -8,7 +8,7 @@ import { FishingRod } from './FishingRod.js';
 import { FishStand } from './FishStand.js';
 import { Chandlery } from './Chandlery.js';
 import { CatchDisplay } from './CatchDisplay.js';
-import { UPGRADES, fuelBurn, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
+import { UPGRADES, BOATS, fuelBurn, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
 import { AnchorGear } from './AnchorGear.js';
 import { Traps, soakHours, haulYield, SOAK_MIN, TRAP_MAX_SPEED, SET_ASTERN, trapTriggered } from './Traps.js';
 import { GameHUD } from './GameHUD.js';
@@ -43,6 +43,8 @@ export class Game {
 		this.app = app;
 		this.state = new GameState();
 		this.state.load();
+		// only the boats you have bought can be boarded; the rest wait at their moorings
+		app.player.owns = ( b ) => this.state.ownsBoat( this.boatId( b ) );
 		this.rod = new FishingRod( { scene: app.scene, camera: app.camera, query: app.query, terrain: app.terrainData, audio: app.audio } );
 		this.rod.onLand = ( where ) => this.onBobberLanded( where );
 		this.stand = new FishStand( { scene: app.scene, terrain: app.terrainData, colliders: app.colliders } );
@@ -117,6 +119,22 @@ export class Game {
 			lights.add( src );
 
 		}
+
+	}
+
+	// which of the three boats a controller is (the ids of Gear.BOATS)
+	boatId( ctl ) {
+
+		const app = this.app;
+		return ctl === app.lobsterCtl ? 'lobster' : ctl === app.pelagicCtl ? 'pelagic' : ctl === app.miniCtl ? 'mini' : null;
+
+	}
+
+	buyBoat( id ) {
+
+		const r = this.state.buyBoat( id );
+		if ( r ) this.toast( `${ r.name } is yours · she's at her mooring by the pier` );
+		return r;
 
 	}
 
@@ -396,6 +414,8 @@ export class Game {
 	prompt() {
 
 		const rod = this.rod, p = this.app.player;
+		// a boat in reach that is not yours yet: say where to buy it
+		if ( p.lockedBoat && ! rod.equipped ) return { key: '$', text: `${ BOATS[ this.boatId( p.lockedBoat ) ].name } · for sale at Marta's chandlery` };
 		if ( ! rod.equipped ) {
 
 			// by the water (boat deck, pier, the wet beach, wading): suggest the rod

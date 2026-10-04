@@ -8,6 +8,7 @@
 //   __tw.money()               what you have
 //   __tw.money( 5000 )         set it (saves, and the purse updates)
 //   __tw.add( 250 )            add to it (negative takes away)
+//   __tw.boats() / __tw.boats( 'all' ) / __tw.boats( 'pelagic' )   the boats you own; give all, or one, without paying
 //   __tw.day() / __tw.day( 3 ) the day (re-rolls the market for that day)
 //   __tw.hour() / __tw.hour( 7.5 )   the clock, 0..24
 //   __tw.weather( 'Storm' )    jump the sea state to a rung of the ladder (or null for the name)
@@ -27,7 +28,7 @@
 // The objects themselves are here too: __tw.state, __tw.game, __tw.app, __tw.trapLine.
 import { CONDITIONS, SEA, writeConditions } from '../ocean/Conditions.js';
 import { FISH } from './FishTable.js';
-import { TRAP_LIMIT } from './Gear.js';
+import { TRAP_LIMIT, BOAT_IDS } from './Gear.js';
 import { orderFor } from './Orders.js';
 import { dominantHabitat } from './Codex.js';
 
@@ -54,6 +55,23 @@ export function installDebugGame( app ) {
 			st.save();
 			st.emit();
 			return st.money;
+
+		},
+
+		// the boats you own; with ids (or 'all'), hand them over without paying
+		boats( ...ids ) {
+
+			const st = s();
+			if ( ids.length ) {
+
+				const want = ids.includes( 'all' ) ? BOAT_IDS : ids.filter( ( id ) => BOAT_IDS.includes( id ) );
+				st.boats = BOAT_IDS.filter( ( id ) => st.ownsBoat( id ) || want.includes( id ) );
+				st.save();
+				st.emit();
+
+			}
+
+			return [ ...st.boats ];
 
 		},
 
@@ -274,6 +292,7 @@ export function installDebugGame( app ) {
 			const out = [
 				'__tw.money( [n] )        wallet (set / read)',
 				'__tw.add( n )            add to it',
+				`__tw.boats( [ids] )      the boats you own; give ${ BOAT_IDS.join( ' | ' ) } | all`,
 				'__tw.day( [n] )          day (re-rolls the market)',
 				'__tw.hour( [h] )         clock 0..24',
 				`__tw.weather( [name] )   ${ CONDITIONS.join( ' | ' ) }`,

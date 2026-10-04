@@ -1,7 +1,7 @@
 import { FISH, FISH_IDS, fishValue, fishLengthCm } from './FishTable.js';
 import { orderFor, orderMul } from './Orders.js';
 import { emptyEntry, periodOf, CATCH_CAP } from './Codex.js';
-import { defaultUpgrades, gearStats, nextLevel, UPGRADES, FUEL_PRICE, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
+import { defaultUpgrades, gearStats, nextLevel, UPGRADES, FUEL_PRICE, TRAP_PRICE, TRAP_LIMIT, BOATS, BOAT_IDS, START_BOATS } from './Gear.js';
 
 const SAVE_KEY = 'tidewater.save.v1';
 
@@ -19,6 +19,7 @@ export class GameState {
 		// the last addFish: { species, kg, cm, value, newSpecies, record, prevBestKg, prevBestCm, kept } (the catch card)
 		this.lastCatch = null;
 		this.upgrades = defaultUpgrades();
+		this.boats = [ ...START_BOATS ]; // the boats you own (ids of Gear.BOATS), in BOAT_IDS order
 		this.fuel = null; // litres left (null = full tank)
 		// the world: which day it is, the time of day when the game was last saved, and the weather
 		this.day = 1;
@@ -247,6 +248,7 @@ export class GameState {
 	buy( key ) {
 
 		if ( ! UPGRADES[ key ] ) return null;
+		if ( UPGRADES[ key ].boat && ! this.ownsBoat( UPGRADES[ key ].boat ) ) return null; // the lobster boat's gear needs the lobster boat
 		const next = nextLevel( this.upgrades, key );
 		if ( ! next || next.cost > this.money ) return null;
 		this.money -= next.cost;
@@ -255,6 +257,25 @@ export class GameState {
 		this.save();
 		this.emit();
 		return next;
+
+	}
+
+	ownsBoat( id ) {
+
+		return this.boats.includes( id );
+
+	}
+
+	// buy a boat at the chandlery; returns its entry, or null (unknown, already yours, or not enough money)
+	buyBoat( id ) {
+
+		const b = BOATS[ id ];
+		if ( ! b || this.ownsBoat( id ) || b.cost > this.money ) return null;
+		this.money -= b.cost;
+		this.boats = BOAT_IDS.filter( ( k ) => k === id || this.ownsBoat( k ) );
+		this.save();
+		this.emit();
+		return b;
 
 	}
 
@@ -402,7 +423,7 @@ export class GameState {
 
 		return { v: 1, money: this.money, inventory: this.inventory, log: this.log, upgrades: this.upgrades, fuel: this.fuel, nextId: this._nextId,
 			day: this.day, clock: this.clock, weather: this.weather,
-			traps: this.traps, sets: this.sets, market: this.market, order: this.order };
+			traps: this.traps, sets: this.sets, market: this.market, order: this.order, boats: this.boats };
 
 	}
 
@@ -436,6 +457,9 @@ export class GameState {
 		const o = d.order;
 		this.order = o && typeof o === 'object' && Number.isFinite( o.day ) && FISH[ o.species ] && Number.isFinite( o.minKg )
 			? { day: o.day, species: o.species, minKg: o.minKg, filled: o.filled | 0, bonus: Number.isFinite( o.bonus ) ? o.bonus : 0 } : null;
+		// the boats you own: a save from before boats were sold owns them all (nothing is taken away); an unknown id is dropped
+		const owned = Array.isArray( d.boats ) ? BOAT_IDS.filter( ( k ) => d.boats.includes( k ) ) : [ ...BOAT_IDS ];
+		this.boats = owned.length ? owned : [ ...START_BOATS ];
 		this._nextId = Math.max( d.nextId | 0, ...this.inventory.map( ( f ) => f.id + 1 ), ...this.sets.map( ( s ) => ( s.id | 0 ) + 1 ), 1 );
 		return true;
 
@@ -474,6 +498,7 @@ export class GameState {
 		this.inventory = [];
 		this.log = {};
 		this.upgrades = defaultUpgrades();
+		this.boats = [ ...START_BOATS ];
 		this.fuel = null;
 		this.day = 1;
 		this.clock = null;

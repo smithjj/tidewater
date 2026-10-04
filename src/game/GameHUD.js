@@ -1,7 +1,7 @@
 import { FISH, fishLengthCm } from './FishTable.js';
 import { ORDER_MULT, fmtKg } from './Orders.js';
 import { FishGuide } from './FishGuide.js';
-import { UPGRADES, nextLevel, FUEL_PRICE, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
+import { UPGRADES, BOATS, nextLevel, FUEL_PRICE, TRAP_PRICE, TRAP_LIMIT } from './Gear.js';
 import { FishPortrait } from './FishPortrait.js';
 import { resolveLabels } from '../core/Bindings.js';
 
@@ -557,16 +557,26 @@ GameHUD.prototype.renderShop = function () {
 	const v = this.vendor;
 	// the trap line first: the licence is the gate, then the pots themselves
 	const licensed = s.mayTrap;
-	const licenceRow = `<div class="gm-shop-row"><span>${ UPGRADES.trapLicence.name }: ${ licensed ? 'held' : 'none' }<small>${ licensed ? `${ s.traps } aboard · ${ s.sets.length } of ${ TRAP_LIMIT } in the water` : `Set and haul lobster pots (max ${ TRAP_LIMIT } in the water)` }</small></span>${ nextLevel( s.upgrades, 'trapLicence' ) ? `<button class="gm-btn" data-buy="trapLicence" ${ nextLevel( s.upgrades, 'trapLicence' ).cost > s.money ? 'disabled' : '' }>$${ nextLevel( s.upgrades, 'trapLicence' ).cost }</button>` : '<span class="gm-have">Held</span>' }</div>`;
+	const licenceRow = `<div class="gm-shop-row"><span>${ UPGRADES.trapLicence.name }: ${ licensed ? 'held' : 'none' }<small>${ licensed ? `${ s.traps } aboard · ${ s.sets.length } of ${ TRAP_LIMIT } in the water` : `Set and haul lobster pots (max ${ TRAP_LIMIT } in the water)` }</small></span>${ ! s.ownsBoat( UPGRADES.trapLicence.boat ) ? '<span class="gm-have">Needs the lobster boat</span>' : nextLevel( s.upgrades, 'trapLicence' ) ? `<button class="gm-btn" data-buy="trapLicence" ${ nextLevel( s.upgrades, 'trapLicence' ).cost > s.money ? 'disabled' : '' }>$${ nextLevel( s.upgrades, 'trapLicence' ).cost }</button>` : '<span class="gm-have">Held</span>' }</div>`;
 	const trapRow = `<div class="gm-shop-row"><span>Lobster traps · $${ TRAP_PRICE } each<small>${ licensed ? `${ s.traps } aboard (max ${ TRAP_LIMIT })` : 'Licence required' }</small></span>${ ! licensed ? '<span class="gm-have">Licence</span>' : s.traps >= TRAP_LIMIT ? '<span class="gm-have">Full</span>' : `<button class="gm-btn" data-traps ${ s.money < TRAP_PRICE ? 'disabled' : '' }>Buy 1 · $${ TRAP_PRICE }</button>` }</div>`;
 	const rows = Object.entries( UPGRADES ).filter( ( [ key ] ) => key !== 'trapLicence' ).map( ( [ key, track ] ) => {
 
 		const cur = track.levels[ s.upgrades[ key ] | 0 ];
 		const next = nextLevel( s.upgrades, key );
-		const btn = next
+		const btn = track.boat && ! s.ownsBoat( track.boat )
+			? `<span class="gm-have">Needs the ${ BOATS[ track.boat ].name.toLowerCase() }</span>`
+			: next
 			? `<button class="gm-btn" data-buy="${ key }" ${ next.cost > s.money ? 'disabled' : '' }>$${ next.cost }</button>`
 			: '<span class="gm-have">Top of the line</span>';
 		return `<div class="gm-shop-row"><span>${ track.name }: ${ next ? next.label : cur.label }<small>Now: ${ cur.label }</small></span>${ btn }</div>`;
+
+	} ).join( '' );
+	// the boats: yours, or for sale (they wait at their moorings by the pier until bought)
+	const boatRows = Object.entries( BOATS ).map( ( [ id, b ] ) => {
+
+		const own = s.ownsBoat( id );
+		const btn = own ? '<span class="gm-have">Yours</span>' : `<button class="gm-btn" data-boat="${ id }" ${ b.cost > s.money ? 'disabled' : '' }>$${ b.cost.toLocaleString() }</button>`;
+		return `<div class="gm-shop-row"><span>${ b.name }<small>${ own ? 'Moored by the pier' : 'Moored by the pier · yours to take out once bought' }</small></span>${ btn }</div>`;
 
 	} ).join( '' );
 	const missing = s.stats.fuelL - s.fuelL;
@@ -574,10 +584,11 @@ GameHUD.prototype.renderShop = function () {
 	this.stand.innerHTML = `
 		<h2>${ v.name }</h2>
 		<p class="gm-sub">${ v.greeting } · You have $${ s.money.toLocaleString() }</p>
-		<div class="gm-list">${ fuelRow }${ licenceRow }${ trapRow }${ rows }</div>
+		<div class="gm-list">${ boatRows }${ fuelRow }${ licenceRow }${ trapRow }${ rows }</div>
 		<div class="gm-foot"><span class="gm-sub">Upgrades take effect at once</span><button class="gm-btn is-ghost" data-close>Leave (<span data-bind="interact">E</span>)</button></div>`;
 	this.stand.querySelector( '[data-close]' ).onclick = () => this.closeStand();
 	for ( const b of this.stand.querySelectorAll( '[data-buy]' ) ) b.onclick = () => this.game.buy( b.dataset.buy );
+	for ( const b of this.stand.querySelectorAll( '[data-boat]' ) ) b.onclick = () => this.game.buyBoat( b.dataset.boat );
 	const f = this.stand.querySelector( '[data-fuel]' );
 	if ( f ) f.onclick = () => this.game.refuel();
 	const tr = this.stand.querySelector( '[data-traps]' );

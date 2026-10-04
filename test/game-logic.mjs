@@ -3,7 +3,7 @@ import { FISH, FISH_IDS, fishValue, fishLengthCm } from '../src/game/FishTable.j
 import { habitatAt, pickSpecies, rollWeight, biteDelay } from '../src/game/Bites.js';
 import { CatchMinigame } from '../src/game/CatchMinigame.js';
 import { GameState } from '../src/game/GameState.js';
-import { gearStats, defaultUpgrades, UPGRADES } from '../src/game/Gear.js';
+import { gearStats, defaultUpgrades, UPGRADES, BOATS, BOAT_IDS, START_BOATS } from '../src/game/Gear.js';
 
 let fails = 0;
 const ok = ( c, msg ) => {
@@ -169,6 +169,37 @@ ok( Object.keys( defaultUpgrades() ).length === Object.keys( UPGRADES ).length &
 	st.money = 1000;
 	ok( st.buy( 'fuel' ) && st.fuelL === 80, 'a new tank comes full' );
 	ok( st.buy( 'fishFinder' ) && st.stats.finder === true && st.buy( 'fishFinder' ) === null, 'fish finder: one level' );
+
+}
+// ---- boats: you start with the mini, buy the others at the chandlery
+{
+
+	const m = new Map();
+	const mk = () => new GameState( { getItem: ( k ) => m.get( k ) ?? null, setItem: ( k, v ) => m.set( k, v ) } );
+	const st = mk();
+	ok( START_BOATS.length === 1 && START_BOATS[ 0 ] === 'mini' && st.ownsBoat( 'mini' ) && ! st.ownsBoat( 'lobster' ) && ! st.ownsBoat( 'pelagic' ), 'a new game owns the mini only' );
+	st.money = 899;
+	ok( st.buyBoat( 'lobster' ) === null && st.money === 899 && ! st.ownsBoat( 'lobster' ), 'the lobster boat cannot be bought for $899' );
+	ok( st.buyBoat( 'nope' ) === null && st.buyBoat( 'mini' ) === null, 'an unknown boat, or one you own, cannot be bought' );
+	st.money = 3000;
+	ok( st.buyBoat( 'pelagic' ) === BOATS.pelagic && st.money === 500 && st.ownsBoat( 'pelagic' ) && ! st.ownsBoat( 'lobster' ), 'buying the Pelagic 30 takes its price' );
+	ok( st.buyBoat( 'pelagic' ) === null && st.money === 500, 'a boat is bought once' );
+	ok( st.boats.join() === 'mini,pelagic', 'owned boats stay in the fixed order' );
+	// the lobster boat's own gear needs the lobster boat
+	st.money = 5000;
+	ok( st.buy( 'engine' ) === null && st.buy( 'lights' ) === null && st.buy( 'trapLicence' ) === null && st.money === 5000, 'engine, lights and the trap licence need the lobster boat' );
+	ok( st.buyBoat( 'lobster' ) && st.buy( 'engine' ) && st.buy( 'lights' ) && st.buy( 'trapLicence' ) && st.mayTrap, 'and are for sale once you have it' );
+	const back = mk();
+	ok( back.load() && back.boats.join() === 'mini,lobster,pelagic' && back.upgrades.engine === 1, 'the boats come back from the save' );
+	// a save from before boats were sold owns all three; a hand-edited list is cleaned up; an empty one falls back to the mini
+	const legacy = new GameState( { getItem: () => JSON.stringify( { v: 1, money: 5, inventory: [], log: {}, upgrades: {}, fuel: null, nextId: 1 } ), setItem: () => {} } );
+	ok( legacy.load() && legacy.boats.join() === BOAT_IDS.join(), 'an older save keeps all three boats' );
+	const odd = new GameState( { getItem: () => JSON.stringify( { v: 1, boats: [ 'pelagic', 'dinghy', 'pelagic' ] } ), setItem: () => {} } );
+	ok( odd.load() && odd.boats.join() === 'pelagic', 'unknown boat ids are dropped' );
+	const none = new GameState( { getItem: () => JSON.stringify( { v: 1, boats: [] } ), setItem: () => {} } );
+	ok( none.load() && none.boats.join() === 'mini', 'an empty list falls back to the mini' );
+	st.reset();
+	ok( st.boats.join() === 'mini', 'a reset goes back to the mini' );
 
 }
 // ---- the island day: the world clock in the save, and shop hours

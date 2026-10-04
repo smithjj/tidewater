@@ -22,6 +22,18 @@ __tw.money( 25000 )     // flush, for testing the shop
 __tw.add( - 20000 )     // back to where you were
 ```
 
+## Boats
+
+You start with the mini fishing boat; the lobster boat ($900) and the Pelagic 30 ($2,500) are bought at the chandlery.
+A save from before boats were sold owns all three.
+
+| command | what it does |
+|---|---|
+| `__tw.boats()` | the ids you own: `mini`, `lobster`, `pelagic` |
+| `__tw.boats( 'all' )` / `__tw.boats( 'pelagic' )` | hand them over without paying (saves) |
+
+`__tw.state.reset()` goes back to the mini only.
+
 ## The world clock
 
 | command | what it does |

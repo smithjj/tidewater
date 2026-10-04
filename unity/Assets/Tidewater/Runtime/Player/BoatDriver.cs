@@ -37,6 +37,8 @@ namespace Tidewater.Player
 			view = GetComponent<BoatView>();
 			if ( ocean == null || ocean.query == null || terrain == null || terrain.data == null || view == null || view.model == null ) return false;
 			controller = new BoatController( view.model.dynamics(), ocean.query, terrain.data.HeightAt, colliders, BoatDock.Lobster ) { view = view };
+			// the sea is not drawn inside the boat (its hull volume masks the surface)
+			ocean.hullMask.Add( Tidewater.Engine.UnityMesh.Create( view.model.createHullVolumeGeometry(), "boat-hullmask" ), view.transform );
 			if ( ocean.spray != null ) spray = new BoatSpray( controller, view.model, ocean.spray );
 			if ( ocean.wakeShader != null ) wake = new Tidewater.Ocean.WakeSim( ocean.wakeShader, terrain.gpu, controller, view.model.lines, colliders );
 			return true;
@@ -83,7 +85,12 @@ namespace Tidewater.Player
 			Tick( Mathf.Min( Time.deltaTime, 0.1f ) );
 		}
 
-		void OnDestroy() { if ( wake != null ) wake.Dispose(); }
+		void OnDestroy()
+		{
+			if ( wake != null ) wake.Dispose();
+			var ocean = OceanRenderer.instance;
+			if ( ocean != null ) ocean.hullMask.Remove( transform );
+		}
 
 		// the camera follows the boat once it has moved this frame
 		void LateUpdate()

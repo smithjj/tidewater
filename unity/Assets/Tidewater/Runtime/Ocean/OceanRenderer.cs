@@ -86,6 +86,9 @@ namespace Tidewater.Ocean
 
 		// the active ocean, for the passes that read its state
 		public static OceanRenderer instance { get; private set; }
+		// closed volumes the sea is not drawn inside (the boats register theirs)
+		HullMask hullMaskInstance;
+		public HullMask hullMask => hullMaskInstance ??= new HullMask();
 
 		// can this camera see anything below the water? The water height at the camera is the query's (a frame or two old, and only
 		// the game camera has a query), so a margin covers the waves: above it the underwater composite has nothing to do
@@ -108,6 +111,7 @@ namespace Tidewater.Ocean
 		{
 			if ( instance == this ) instance = null;
 			RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
+			hullMask.Dispose();
 			Release();
 		}
 
@@ -267,6 +271,7 @@ namespace Tidewater.Ocean
 			cameraSim = new Vector3( cp.x, cp.y, - cp.z );
 			fft.SetGlobals();
 			seaDetail.SetGlobals();
+			hullMask.Render( context, cam );
 			Shader.SetGlobalTexture( "_TWFoamTex", foamTexture );
 			Shader.SetGlobalVector( "_TWViewPos", new Vector4( cp.x, cp.y, - cp.z, 0 ) );
 			Shader.SetGlobalVector( "_TWCamera", new Vector4( cp.x, cp.y, - cp.z, 0 ) );

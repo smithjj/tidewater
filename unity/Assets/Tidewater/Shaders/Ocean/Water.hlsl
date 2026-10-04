@@ -22,6 +22,8 @@ float4 _TWFrame;   // time, wind speed, night, 0 (OceanRenderer.PublishSun)
 
 TEXTURE2D_ARRAY(_TWOceanDisp);  SAMPLER(sampler_TWOceanDisp);    // (Dx, Dy, Dz, foam) per cascade, mipmapped
 TEXTURE2D_ARRAY(_TWOceanDeriv); SAMPLER(sampler_TWOceanDeriv);   // (dDy/dx, dDy/dz, dDx/dx, dDz/dz), aniso 4
+TEXTURE2D(_TWHullMask);                                           // camera distance of the nearest hull-volume face per pixel (HullMask.cs, 0 = none)
+float4 _TWHullParams;                                             // active, width, height
 TEXTURE2D(_TWFoamTex); SAMPLER(sampler_TWFoamTex);               // the tileable foam pattern (aniso)
 
 float4 _TWOceanParams;        // choppiness, foamBias, cascades, 0
@@ -464,6 +466,15 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 	float3 camPos = _TWCamera.xyz;                          // sim
 	float2 screenUV = input.positionCS.xy * _ScreenSize.zw;
 	float surfEye = input.positionCS.w;                     // eye depth of the surface (positive)
+
+	// No sea inside a hull: the surface behind the nearest face of the hull volume is water the hull keeps out (without this it
+	// shows through the cockpit sole when the stern squats or the boat heels)
+	if ( _TWHullParams.x > 0.5 && front )
+	{
+		uint2 hpx = ( uint2 ) ( clamp( screenUV, 0.0, 0.9999 ) * _TWHullParams.yz );
+		float hullDist = LOAD_TEXTURE2D( _TWHullMask, hpx ).x;
+		if ( hullDist > 0.01 && length( posRWS ) > hullDist - 0.02 ) discard;
+	}
 	float2 lagXZ = input.lagXZ;
 	float vDepth = input.misc.y;
 	float vHeight = input.misc.x;

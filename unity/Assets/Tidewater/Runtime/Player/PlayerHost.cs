@@ -23,8 +23,10 @@ namespace Tidewater.Player
 		public BoatDriver driver { get; private set; }
 		public Pelagic30Driver pelagicDriver { get; private set; } // the second boat (null when the scene has none)
 		public MiniBoatDriver miniDriver { get; private set; } // the third boat (null when the scene has none)
-		Colliders colliders;
+		public Colliders colliders { get; private set; }
 		TerrainRenderer terrain;
+		public Tidewater.World.TerrainData terrainData => terrain != null ? terrain.data : null; // the island's heights (the traders stand on it)
+		public Tidewater.Game.GameHost game { get; private set; } // the economy (null when the scene has none)
 		bool flashSeeded;
 		string toast; float toastUntil;
 
@@ -47,6 +49,7 @@ namespace Tidewater.Player
 			miniDriver = FindAnyObjectByType<MiniBoatDriver>();
 			if ( miniDriver != null && miniDriver.Ensure() ) boats.Add( miniDriver.controller );
 			player = new Player( simCamera, input, terrain.data.HeightAt, colliders, ocean.query, driver.controller, boats );
+			game = FindAnyObjectByType<Tidewater.Game.GameHost>();
 			fly = new FlyCamera( simCamera, input );
 			fly.setPose( new Engine3( 20, 6, - 20 ), System.Math.PI * 0.9, - 0.12 );
 			if ( startAboard ) { player.boardBoat( driver.controller ); }
@@ -88,6 +91,8 @@ namespace Tidewater.Player
 			if ( miniDriver != null ) miniDriver.Tick( dt );
 			if ( freeCam ) fly.update( dt );
 			else player.update( dt );
+			// Game.update: the world clock, the traders, the fuel (after the player, which sets the boat's controls and the prompt)
+			if ( game != null && game.Ensure( this ) ) game.Tick( dt );
 			Apply();
 			input.endFrame();
 		}

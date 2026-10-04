@@ -81,6 +81,10 @@ namespace Tidewater.EditorTools
 			var player = GameObject.Find( "Player" ) ?? new GameObject( "Player" );
 			if ( player.GetComponent<Tidewater.Player.PlayerHost>() == null ) player.AddComponent<Tidewater.Player.PlayerHost>();
 
+			// the economy: the state / save, the clock, the two traders (PlayerHost ticks it after the player)
+			var game = GameObject.Find( "Game" ) ?? new GameObject( "Game" );
+			if ( game.GetComponent<Tidewater.Game.GameHost>() == null ) game.AddComponent<Tidewater.Game.GameHost>();
+
 			// sun: from the south-west, low in the afternoon
 			var sun = GameObject.Find( "Sun" );
 			if ( sun != null ) sun.transform.rotation = Quaternion.Euler( 32, 55, 0 );

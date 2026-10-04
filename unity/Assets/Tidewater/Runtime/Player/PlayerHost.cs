@@ -23,6 +23,11 @@ namespace Tidewater.Player
 		public BoatDriver driver { get; private set; }
 		Colliders colliders;
 		TerrainRenderer terrain;
+		bool flashSeeded;
+		string toast; float toastUntil;
+
+		// a short message at the top of the view (until the HUD's toasts are ported)
+		public void Toast( string text, float seconds = 2.2f ) { toast = text; toastUntil = Time.unscaledTime + seconds; }
 
 		bool Build()
 		{
@@ -50,6 +55,19 @@ namespace Tidewater.Player
 			if ( ! input.locked && input.mouseDown && input.enabled && ! input.menuMode ) input.RequestLock();
 
 			if ( input.actHit( "freeCam" ) ) SetFreeCam( ! freeCam );
+
+			// the torch remembers what it was left as (the controls option); L toggles it (App.js: the flashlight action)
+			var lamps = LocalLightsView.instance;
+			if ( lamps != null )
+			{
+				if ( ! flashSeeded ) { flashSeeded = true; lamps.ToggleFlashlight( input.bindings.opts.flashlightOn ); }
+				if ( input.actHit( "flashlight" ) )
+				{
+					bool on = lamps.ToggleFlashlight();
+					input.bindings.opts.flashlightOn = on;
+					Toast( on ? "Flashlight on" : "Flashlight off" );
+				}
+			}
 
 			// App.frame: the boats step, then the player (which sets the boat's controls) or the free camera
 			driver.Tick( dt );
@@ -121,6 +139,7 @@ namespace Tidewater.Player
 			float w = Screen.width, h = Screen.height;
 			if ( ! freeCam && player.prompt != null )
 				GUI.Label( new Rect( 0, h * 0.72f, w, 30 ), "[" + input.label( player.prompt.action ) + "]  " + player.prompt.text, style );
+			if ( toast != null && Time.unscaledTime < toastUntil ) GUI.Label( new Rect( 0, h * 0.08f, w, 30 ), toast, style );
 			var small = new GUIStyle( GUI.skin.label ) { alignment = TextAnchor.LowerLeft, fontSize = 12 };
 			small.normal.textColor = new Color( 1, 1, 1, 0.7f );
 			string hint = ! input.locked ? "Click the view to capture the mouse  ·  Esc releases it  ·  " : "";

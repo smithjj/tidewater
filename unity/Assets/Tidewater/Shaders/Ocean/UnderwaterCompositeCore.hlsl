@@ -15,6 +15,8 @@ StructuredBuffer<float4> _TWWaterQuery;   // slot 0 = the camera ( height, nx, n
 TEXTURE2D_X_FLOAT(_UwDepthTex);           // the camera depth buffer, bound by UnderwaterCompositePass
 TEXTURE2D_X(_UwSceneTex);                 // a copy of the lit scene colour
 float4 _UwParams;                         // shafts strength, meniscus half-width (px), enabled, 0
+// the flashlight (LocalLightsView): position (sim) + on, direction, colour x intensity (lux), cos inner / outer
+float4 _TWFlashPos, _TWFlashDir, _TWFlashCol, _TWFlashCone;
 
 #define UW_STRADDLE 0.35    // m: closer than this to the surface the near plane can cross it (LENS_REACH)
 #define UW_BAND 16          // px: widest meniscus band searched
@@ -61,6 +63,13 @@ float3 UwLit( float m, float3 sigT, float zc, float dirY, float dist )
 	float3 e0 = exp( -a );
 	float3 e1 = exp( -max( a + kk * dist, 0.0 ) );
 	return abs( kk ) < 1e-4 ? e0 * dist : ( e0 - e1 ) / kk;
+}
+
+// spot profile of the local lights (LocalLights.js localLightsSpotProfile): hot centre, soft edge, faint spill
+float UwSpotProfile( float cd, float cosInner, float cosOuter )
+{
+	float m = smoothstep( cosOuter, cosInner, cd );
+	return max( m * m, smoothstep( cosOuter - 0.55, cosOuter, cd ) * 0.05 );
 }
 
 float UwIgn( float2 px ) { return frac( frac( dot( px, float2( 0.06711056, 0.00583715 ) ) ) * 52.9829189 ); }
@@ -183,8 +192,39 @@ float4 Frag( Varyings varyings ) : SV_Target
 			shafts = max( shafts * sunE * sigS * phase * _UwParams.x * 2.5, 0.0 );
 		}
 
+		// diver's torch: single scattering of the flashlight cone along the view ray (the torch sits beside the eye, so the beam is a
+		// shaft slightly off the view axis), extinction on the light and the view legs, the same phase lobe, up to the scene depth
+		float3 torch = 0.0;
+		if ( _TWFlashPos.w > 0.5 && dist > 0.0 )
+		{
+			const int tSteps = 8;
+			float tMax = min( dist, 25.0 );
+			float tds = tMax / tSteps;
+			float tJit = UwIgn( pixel + float( _FrameCount % 64 ) * 5.588238 + 17.3 );
+			float3 fpos = _TWFlashPos.xyz;
+			float3 fdir = _TWFlashDir.xyz;
+			float2 cone = _TWFlashCone.xy;
+			// the same lobe as the sun in-scatter (0.75 forward g = 0.85 + 0.25 isotropic), Schlick's form
+			float sk = 1.55 * g - 0.55 * g * g * g;
+			for ( int ti = 0; ti < tSteps; ti ++ )
+			{
+				float s = ( float( ti ) + tJit ) * tds;
+				float3 v = camSim + dir * s - fpos;
+				float r2 = max( dot( v, v ), 1e-4 );
+				float r = sqrt( r2 );
+				float3 Lr = v / r;
+				float spot = UwSpotProfile( dot( Lr, fdir ), cone.x, cone.y );
+				float sd = 1.0 - dot( dir, -Lr ) * sk;
+				float ph = ( 1.0 - sk * sk ) / ( 4.0 * PI ) * 0.75 / ( sd * sd ) + 0.25 / ( 4.0 * PI );
+				torch += exp( -sigT * ( r + s ) ) * ( spot * ph / ( r2 + 0.15 ) );
+			}
+
+			// x3: the suspended particles scatter more than the clear-water coefficient (the beam reads)
+			torch = torch * _TWFlashCol.rgb * exposure * sigS * tds * 3.0;
+		}
+
 		float3 T = exp( -sigT * dist );
-		result = base * T + inSun + inAmb + shafts;
+		result = base * T + inSun + inAmb + shafts + torch;
 	}
 
 	// meniscus contact line and bright rim

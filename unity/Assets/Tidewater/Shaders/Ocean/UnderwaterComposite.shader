@@ -6,8 +6,8 @@
 //  - participating medium: Beer-Lambert absorption of the scene plus single scattering of the depth-attenuated sun and sky
 //    light (analytic), with ray-marched caustic light shafts near the camera
 //  - the meniscus band along the waterline on the lens: refraction through a rounded water edge, a dark contact line and a rim
-// Not yet: the diver's torch (waits for the flashlight, materials/LocalLights), the half-resolution shaft march (the march runs
-// per pixel here, with fewer steps).
+//  - the diver's torch: single scattering of the flashlight cone along the view ray (LocalLightsView publishes _TWFlash*)
+// Not yet: the half-resolution shaft march (the march runs per pixel here, with fewer steps), the torch in the marine snow.
 Shader "Hidden/Tidewater/UnderwaterComposite"
 {
     SubShader

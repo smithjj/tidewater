@@ -10,8 +10,6 @@
 // gets a sim-space normal back.
 //
 // Differences from the JS, all pending other systems:
-//  - HAS_WETNESS = 0: the swash wetness / foam residue come from a static damp band (terWetFoam fallback)
-//    until ShoreSim is ported.
 //  - the heightfield sun shadow modulation (materialSunModulation) is not applied: HDRP's cascaded shadows stand
 //    in for it for now. terMeadowW is still computed for when it is.
 //  - REFRACTION_CLIP is 0 (the refraction pass does not exist yet).
@@ -52,10 +50,15 @@ float TWGustAt( float2 xz, float2 offset )
 	return smoothstep( 0.46, 0.6, n );
 }
 
-// ---- wetness (swash zone) from the shore system, else a static damp band
+// ---- wetness (swash zone) from the shore system (ShoreSim): x = wetness, y = foam residue stranded on the sand. Outside the
+// simulated region (or while there is no sim) a static damp band: the JS terrainWetness of App.js.
 float2 TWWetFoam( float2 xz, float h )
 {
-	return float2( smoothstep( 0.5, 0.0, h ), 0.0 );
+	float4 s = ShoreSimSample( xz );
+	float inside = ShoreSimInside( ShoreSimUvOf( xz ) );
+	float band = smoothstep( 0.45, 0.0, h );
+	// foam left on the sand: the lace the water carried, stranded and popping (ShoreSim.sandFoam)
+	return float2( max( s.y, band * ( 1.0 - inside ) ), ShoreSimSandFoam( xz, s, h ) );
 }
 
 float4 TWSplat( float2 xz )

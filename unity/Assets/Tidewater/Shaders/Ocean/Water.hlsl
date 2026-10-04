@@ -10,6 +10,8 @@
 #include "../Common/CDLOD.hlsl"
 #include "../Common/Noise.hlsl"
 #include "ShoreWaves.hlsl"
+#include "ShoreSim.hlsl"
+#include "SurfFoam.hlsl"
 
 TEXTURE2D_ARRAY(_TWOceanDisp);  SAMPLER(sampler_TWOceanDisp);    // (Dx, Dy, Dz, foam) per cascade, mipmapped
 TEXTURE2D_ARRAY(_TWOceanDeriv); SAMPLER(sampler_TWOceanDeriv);   // (dDy/dx, dDy/dz, dDx/dx, dDz/dz), aniso 4
@@ -230,6 +232,7 @@ struct WaterSurfaceFrag
 	float aeration;
 	float gust;
 	float slick;
+	SurfFoamInfo foamInfo;
 };
 
 float2 Rot( float2 v, float a )
@@ -240,7 +243,7 @@ float2 Rot( float2 v, float a )
 
 // extraFoam: foam carried by the water (ShoreSim; not ported yet); surfMask: clear face of a plunging wave, whitewater roller
 // relief (from the vertex stage)
-WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float depth, float vertexFoam, float3 shoreN, float shoreFoam, float extraFoam, float2 surfMask )
+WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float depth, float vertexFoam, float3 shoreN, float shoreFoam, float extraFoam, float4 simState, float2 surfMask, float3 P )
 {
 	float4 d = 0.0;
 	float foamSum = 0.0;
@@ -248,7 +251,7 @@ WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float dept
 	// shore simulation below it is not on the face
 	float face = TWSat( surfMask.x );
 	// (some of it stays: the lace of the previous wave is drawn up the face)
-	float simFoam = 0.0; // = extraFoam * ( 1 - face * 0.72 ) once ShoreSim exists
+	float simFoam = extraFoam * ( 1.0 - face * 0.72 );
 	foamSum += simFoam;
 	// bubbles mixed into the water (milky, turquoise, hides the bottom): surf and wake
 	float aeration = 0.0;
@@ -286,6 +289,7 @@ WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float dept
 
 	// base normal: large shoreline waves (per-vertex, can overhang) perturbed by FFT detail
 	float3 normal;
+	float3 Ns_base;
 	{
 		// On a coarse mesh the shore normal can flip between the vertices of a folding crest: the interpolated vector then
 		// cancels out (or is NaN). Keep it finite and facing up; NaN would otherwise surface as a white-hot cell after the
@@ -293,6 +297,7 @@ WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float dept
 		float3 sn = clamp( shoreN, -1.0, 1.0 ) + float3( 0.0, 1e-3, 0.0 );
 		float3 Ns0 = sn / max( length( sn ), 1e-4 );
 		float3 Ns = normalize( float3( Ns0.x, max( Ns0.y, 0.12 ), Ns0.z ) );
+		Ns_base = Ns;
 		// the ripples and chop ride on the wave: the detail normal is rotated onto the tilted face (reoriented normal
 		// mapping) instead of being flattened by it, so a steep face keeps the full texture of the sea surface rather than
 		// turning into smooth plastic
@@ -300,7 +305,7 @@ WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float dept
 		float3 tq = Ns + float3( 0.0, 1.0, 0.0 );
 		float3 uq = float3( slopes.x, 1.0, slopes.y ) * nd.y;
 		normal = normalize( tq * ( dot( tq, uq ) / tq.y ) - uq );
-		foamSum += shoreFoam * 1.0;
+		foamSum += shoreFoam * 0.55; // ShoreSim carries the rest of the surf foam
 		// the roller and the water behind the plunge point are full of bubbles, decaying behind the bore with the foam it
 		// sheds; the clear face of a plunging wave is not
 		aeration += TWSat( shoreFoam * 1.2 + simFoam * 0.7 ) * ( 1.0 - face ) * smoothstep( -0.1, 0.3, depth );
@@ -327,6 +332,15 @@ WaterSurfaceFrag WaterSurfaceFragment( float2 lagXZ, float footprint, float dept
 	float foam = lerp( detail, coverage * 0.85, farK );
 
 	WaterSurfaceFrag o;
+	// foam look (surf zone whitewater / lace, see SurfFoam)
+	SurfFoamArgs fa;
+	fa.coverage = coverage; fa.foam = foam; fa.footprint = footprint; fa.depth = depth; fa.bubbles = p1.y;
+	fa.lagXZ = lagXZ; fa.normal = normal; fa.baseNormal = Ns_base;
+	fa.fresh = shoreFoam; fa.sim = simFoam; fa.simState = simState; fa.roller = surfMask.y; fa.P = P;
+	fa.seaLevel = _TWWaterC.w; fa.sunDir = normalize( _TWSunDir.xyz );
+	o.foamInfo = SurfFoamShading( fa );
+	foam = o.foamInfo.foam;
+
 	o.normal = normal;
 	o.foam = foam;
 	o.coverage = coverage;
@@ -502,8 +516,8 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 	// the meniscus: the last decimetre of the advancing sheet bends down to the sand
 	float lipW = ( 1.0 - smoothstep( 0.0, 0.14, frontD ) ) * uprush;
 
-	// (simState: ShoreSim.sample here once ported)
-	WaterSurfaceFrag surf = WaterSurfaceFragment( lagXZ, footprint, vDepth, input.misc.z, input.shoreNS.xyz, input.misc.w + edgeFoam, 0.0, input.surfMask );
+	float4 simState = ShoreSimSample( pos.xz );
+	WaterSurfaceFrag surf = WaterSurfaceFragment( lagXZ, footprint, vDepth, input.misc.z, input.shoreNS.xyz, input.misc.w + edgeFoam, simState.x, simState, input.surfMask, pos );
 	float foam = surf.foam;
 	// (the whale's churned white water and slick: not ported yet)
 
@@ -646,9 +660,10 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 		// bubbles mixed into the water (the surf behind breakers, wakes): a strong scatterer, the water turns milky
 		// turquoise and the bottom disappears (WaterSurface.fragment aeration)
 		float aer = surf.aeration;
-		// surf zone: sand and bubbles stirred up by the breakers (see ShoreWaves.surfMedium); sandK would also scale it by the
-		// foam carried by the shore sim (not ported yet)
-		float sandK = 1.0;
+		// sand stirred up where the bores have just passed (the foam they left marks that water): clouds of sediment, not a
+		// uniform tint
+		float sandK = saturate( simState.x * 2.5 ) * 1.8 + 0.45;
+		// surf zone: sand and bubbles stirred up by the breakers (see ShoreWaves.surfMedium)
 		ShoreMedium surfMed = ShoreSurfMedium( pos.xz, vDepth );
 		float3 sigA = absorption + surfMed.absorb * sandK;
 		// (bubble plumes are shallow and patchy: a moderate scatterer, milky turquoise rather than a glow)
@@ -691,7 +706,7 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 
 		// ---- foam
 		// foam: bright diffuse scatterer (albedo ~0.85), wrapped sun + sky irradiance (skyIrradiance = E/PI)
-		float3 foamLit = ( sunLight * ( max( dot( N, L ), 0.0 ) * 0.75 + 0.25 ) * INV_PI + skyIrradiance * 0.95 ) * 0.85;
+		float3 foamLit = SurfFoamLight( surf.foamInfo, N, L, V, sunLight, pos, skyIrradiance );
 		float3 foamCol = foamLit * _TWWaterB.w;
 
 		// a thin bright rim just behind the edge: the rounded bead catches the sky

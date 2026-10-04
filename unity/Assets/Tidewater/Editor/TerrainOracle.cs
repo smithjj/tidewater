@@ -55,6 +55,11 @@ namespace Tidewater.EditorTools
 			CompareF( sb, "shore", shore.data, dir + "/shore.f32" );
 			CompareF( sb, "shoreDepth", shore.depth, dir + "/shore_depth.f32" );
 
+			var swl = System.Diagnostics.Stopwatch.StartNew();
+			var lace = Tidewater.Ocean.LaceTexture.LaceData( 512 );
+			sb.AppendLine( $"lace texture ms: {swl.ElapsedMilliseconds}" );
+			CompareB( sb, "lace", lace, dir + "/lace.u8" );
+
 			var file = JsonUtility.FromJson<SampleFile>( File.ReadAllText( dir + "/noise.json" ) );
 			var n = new Noise2D( 7 );
 			var worst = new Dictionary<string, double>();

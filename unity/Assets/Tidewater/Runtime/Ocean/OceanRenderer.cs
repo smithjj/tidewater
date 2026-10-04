@@ -19,7 +19,7 @@ namespace Tidewater.Ocean
 	[ExecuteAlways]
 	public sealed class OceanRenderer : MonoBehaviour
 	{
-		public ComputeShader fftShader, foamShader, queryShader;
+		public ComputeShader fftShader, foamShader, queryShader, shoreSimShader;
 		public Material material;
 		public Light sun;
 		public int gridSize = 32;
@@ -45,6 +45,8 @@ namespace Tidewater.Ocean
 		public WaterQuery query { get; private set; }
 		// the shoreline waves (needs the terrain's shore field); null until the terrain exists
 		public ShoreWaves shore { get; private set; }
+		// the Eulerian foam / wetness state over the main beach
+		public ShoreSim shoreSim { get; private set; }
 		public CDLOD lod { get; private set; }
 		RenderTexture foamTexture;
 
@@ -63,13 +65,14 @@ namespace Tidewater.Ocean
 			if ( fftShader == null ) fftShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/OceanFFT.compute" );
 			if ( foamShader == null ) foamShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/FoamPattern.compute" );
 			if ( queryShader == null ) queryShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/WaterQuery.compute" );
+			if ( shoreSimShader == null ) shoreSimShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/ShoreSim.compute" );
 #endif
 		}
 
 		void OnEnable()
 		{
 			FillDefaults();
-			if ( fftShader == null || foamShader == null || queryShader == null ) { enabled = false; Debug.LogError( "OceanRenderer: compute shaders not assigned" ); return; }
+			if ( fftShader == null || foamShader == null || queryShader == null || shoreSimShader == null ) { enabled = false; Debug.LogError( "OceanRenderer: compute shaders not assigned" ); return; }
 			Build();
 			RenderPipelineManager.beginCameraRendering += OnBeginCamera;
 		}
@@ -102,6 +105,8 @@ namespace Tidewater.Ocean
 		{
 			if ( query != null ) query.Dispose();
 			query = null;
+			if ( shoreSim != null ) shoreSim.Dispose();
+			shoreSim = null;
 			if ( shore != null ) shore.Destroy();
 			shore = null;
 			if ( fft != null ) fft.Dispose();
@@ -132,6 +137,7 @@ namespace Tidewater.Ocean
 				G.time += G.dt;
 				fft.Update( G.dt );
 				if ( shore != null ) shore.Update( G.dt );
+				if ( shoreSim != null ) shoreSim.Update( G.dt, G.time, G.seaLevel );
 			}
 		}
 
@@ -144,6 +150,7 @@ namespace Tidewater.Ocean
 				G.dt = step; G.time += step;
 				fft.Update( step );
 				if ( shore != null ) shore.Update( step );
+				if ( shoreSim != null ) shoreSim.Update( step, G.time, G.seaLevel );
 			}
 		}
 
@@ -199,7 +206,11 @@ namespace Tidewater.Ocean
 			if ( query == null )
 			{
 				var tr = FindAnyObjectByType<Tidewater.World.TerrainRenderer>();
-				if ( tr != null && tr.gpu != null && tr.shoreField != null ) shore = new ShoreWaves( tr.gpu, tr.shoreField );
+				if ( tr != null && tr.gpu != null && tr.shoreField != null )
+				{
+					shore = new ShoreWaves( tr.gpu, tr.shoreField );
+					shoreSim = new ShoreSim( shoreSimShader, tr.gpu, shore );
+				}
 				query = new WaterQuery( queryShader, fft, tr != null ? tr.gpu : null, shore ) { amplitude = amplitude };
 			}
 
@@ -209,6 +220,7 @@ namespace Tidewater.Ocean
 				shore.SetGlobals( G.time, G.seaLevel );
 			}
 			else ShoreWaves.SetDisabledGlobals();
+			if ( shoreSim != null ) shoreSim.SetGlobals(); else ShoreSim.SetDisabledGlobals();
 
 			if ( cam.cameraType == CameraType.Game )
 			{

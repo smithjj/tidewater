@@ -1,0 +1,92 @@
+// Port of the kernel of src/ocean/ShoreSim.js: the Eulerian shore state (foam carried by the water, sand wetness, foam stranded
+// on the sand, flow speed), one step per frame. See ShoreSim.hlsl for what the four channels are.
+
+#pragma kernel ShoreSimStep
+
+#define TW_NO_NORMAL_ROCK
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "../Terrain/TerrainHeight.hlsl"
+#include "../Common/Noise.hlsl"
+#include "ShoreWaves.hlsl"
+#include "ShoreSim.hlsl"
+
+// ShoreSimParams
+float4 _SSLife;      // dryTime, foamLife (thin swash sheet), surfFoamLife (turbulent surf zone), residueLife
+float4 _SSGen;       // foamGen, depositGain, dt (frame.dt), sea level
+
+RWTexture2D<float4> _ShoreSimOut;
+RWStructuredBuffer<uint> _ShoreSimDeposit;   // foam deposited by spray falling back (drops per texel), consumed and cleared here
+Texture2D<float4> _ShoreSimLaceMips;         // the filtered lace pattern (for the mottling at mip 2)
+SamplerState sampler_LinearRepeat;
+
+[numthreads( 8, 8, 1 )]
+void ShoreSimStep( uint3 gid : SV_DispatchThreadID )
+{
+	uint res = ( uint ) SHORE_SIM_RES;
+	if ( gid.x >= res || gid.y >= res ) { return; }
+	float dryTime = _SSLife.x, foamLife = _SSLife.y, surfFoamLife = _SSLife.z, residueLife = _SSLife.w;
+	float foamGen = _SSGen.x, depositGain = _SSGen.y, dt = _SSGen.z, seaLevel = _SSGen.w;
+
+	float2 ij = float2( gid.xy );
+	float2 uv = ( ij + 0.5 ) / SHORE_SIM_RES;
+	float2 p = _TWShoreSimParams.xy + uv * _TWShoreSimParams.z;
+	float ground = TWHeightAt( p );
+	float depth = seaLevel - ground;
+
+	float4 here = _TWShoreSimState.Load( int3( gid.xy, 0 ) );
+	uint di = gid.y * res + gid.x;
+	float drops = ( float ) _ShoreSimDeposit[ di ];
+	if ( drops > 0.0 )
+	{
+		_ShoreSimDeposit[ di ] = 0u;
+	}
+
+	// far from the surf and swash zone nothing happens: just let everything decay
+	if ( depth > 7.0 || ground > 3.2 )
+	{
+		float k = exp( -dt / 2.0 );
+		_ShoreSimOut[ gid.xy ] = float4( here.x * k, here.y * exp( -dt / dryTime ), here.z * k, 0.0 );
+		return;
+	}
+
+	ShoreSample sw = ShoreEvaluateWorld( p, depth, ground );
+
+	// fraction of this texel covered by water: open water, or the swash sheet up to its leading edge (soft over one texel, so
+	// no field stored here shows the texel grid)
+	float cov = depth > 0.03 ? 1.0 : saturate( ( sw.runup - sw.inland ) / ( _TWShoreSimParams.z / SHORE_SIM_RES ) + 0.5 );
+	bool covered = cov > 0.5;
+	float2 vel = covered ? sw.flow : 0.0;
+
+	// semi-Lagrangian advection (backtrace)
+	float2 back = uv - vel * dt / _TWShoreSimParams.z;
+	float4 prev = ShoreSimStateAt( back );
+
+	// foam: made where the bore roller / plunge point / swash front pass, torn into patches by the mottling of the lace texture,
+	// then it decays (bubbles rising and popping) and drains into the sand once the water has gone
+	float mott = _ShoreSimLaceMips.SampleLevel( sampler_LinearRepeat, p / ( SHORE_SIM_LACE_TILE * 4.3 ), 2.0 ).z;
+	float patchK = smoothstep( 0.25, 0.75, mott ) * 0.8 + 0.35;
+	float swashy = smoothstep( 0.35, 0.05, depth );
+	// dense foam collapses within a second or two (big bubbles burst first), the lace it leaves lingers
+	float lace = lerp( surfFoamLife, foamLife, swashy );
+	float life = lerp( 0.7, lerp( lace, 0.8, smoothstep( 0.3, 0.8, prev.x ) ), cov );
+	float gen = ( sw.foam * 2.2 + sw.swashFoam * 1.4 ) * patchK * cov;
+	// the foam is diluted where the flow spreads it out (the uprush thinning as it climbs, the backwash draining):
+	// d(foam)/dt = - foam * du/ds along the flow
+	float h = _TWShoreSimParams.z / SHORE_SIM_RES;
+	float2 dirH = sw.dir * ( h / _TWShoreSimParams.z );
+	float uAhead = ShoreSimStateAt( uv + dirH ).w;
+	float uBehind = ShoreSimStateAt( uv - dirH ).w;
+	float spreadRate = max( ( uAhead - uBehind ) / ( 2.0 * h ), 0.0 );
+	float splash = drops * depositGain * cov;
+	float foam = min( prev.x * exp( -dt * ( 1.0 / life + spreadRate ) ) + gen * foamGen * dt + splash, 1.0 );
+
+	// wetness: saturated while covered, then dries
+	float wet = max( here.y * exp( -dt / dryTime ), cov );
+
+	// residue: foam stranded on the sand when the water leaves (the draining film gathers its bubbles into lines, so it
+	// concentrates); washed away by the next uprush
+	float stranded = min( here.x * 2.4, 1.0 ) * ( 1.0 - cov );
+	float residue = max( here.z * lerp( exp( -dt / residueLife ), 0.85, cov ), stranded );
+
+	_ShoreSimOut[ gid.xy ] = float4( foam, wet, residue, dot( vel, sw.dir ) );
+}

@@ -23,6 +23,7 @@ float4 _TWViewPos;         // view camera, sim space (the morph centre in every 
 float4 _TWWind;            // sim wind direction xz, speed (m/s)
 float4 _TWGust;            // integrated gust offset xz
 
+#include "../Ocean/ShoreSim.hlsl"   // swash wetness / foam residue (HAS_WETNESS)
 #include "TerrainShading.hlsl"
 #include "TerrainSurface.hlsl"
 

@@ -115,6 +115,9 @@ namespace Tidewater.Player
 			else player.update( dt );
 			// Game.update: the world clock, the traders, the fuel (after the player, which sets the boat's controls and the prompt)
 			if ( game != null && game.Ensure( this ) ) game.Tick( dt );
+			// the sky follows the world clock (App.updateSun)
+			var sky = Tidewater.Sky.DayNight.instance;
+			if ( sky != null && game != null && game.clock != null ) { sky.hour = game.clock.hour; sky.Apply(); }
 			Apply();
 			// App.updateAudio, and the mute action
 			if ( ! noAudio )

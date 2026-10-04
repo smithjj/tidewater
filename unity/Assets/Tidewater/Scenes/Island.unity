@@ -210,7 +210,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 157207112}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.24449332, y: 0.44386128, z: -0.12727517, w: 0.85264957}
+  m_LocalRotation: {x: 0.17345047, y: 0.6525636, z: -0.1570518, w: 0.7207014}
   m_LocalPosition: {x: 0, y: 3, z: 0}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
@@ -268,7 +268,7 @@ MonoBehaviour:
   m_AreaLightShadowCone: 120
   m_UseScreenSpaceShadows: 0
   m_InteractsWithSky: 1
-  m_AngularDiameter: 2.5
+  m_AngularDiameter: 0.6160729
   diameterMultiplerMode: 0
   diameterMultiplier: 1
   diameterOverride: 0.5
@@ -387,7 +387,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ce2206aaca20efb478aff7bee1472d5c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.World.Fish.FishSchoolsView
-  stats: 
+  stats: 'schools: 1856 fish in 51 groups, 15 models (47973 vertices, 74911 triangles) in 153 ms'
   drawCalls: 0
   drawnInstances: 0
 --- !u!4 &337538644
@@ -438,7 +438,7 @@ MonoBehaviour:
   priority: 0
   blendDistance: 0
   weight: 1
-  sharedProfile: {fileID: 11400000, guid: 8ba92e2dd7f884a0f88b98fa2d235fe7, type: 2}
+  sharedProfile: {fileID: 1582372170}
 --- !u!4 &432432461
 Transform:
   m_ObjectHideFlags: 0
@@ -453,6 +453,245 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &589229104
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 589229107}
+  - component: {fileID: 589229105}
+  - component: {fileID: 589229106}
+  m_Layer: 0
+  m_Name: Moon
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!108 &589229105
+Light:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 589229104}
+  m_Enabled: 0
+  serializedVersion: 13
+  m_Type: 1
+  m_Color: {r: 0.6, g: 0.7, b: 1, a: 1}
+  m_Intensity: 0
+  m_Range: 10
+  m_SpotAngle: 30
+  m_InnerSpotAngle: 21.80208
+  m_CookieSize2D: {x: 0.5, y: 0.5}
+  m_Shadows:
+    m_Type: 0
+    m_Resolution: -1
+    m_CustomResolution: -1
+    m_Strength: 1
+    m_Bias: 0.05
+    m_NormalBias: 0.4
+    m_NearPlane: 0.2
+    m_CullingMatrixOverride:
+      e00: 1
+      e01: 0
+      e02: 0
+      e03: 0
+      e10: 0
+      e11: 1
+      e12: 0
+      e13: 0
+      e20: 0
+      e21: 0
+      e22: 1
+      e23: 0
+      e30: 0
+      e31: 0
+      e32: 0
+      e33: 1
+    m_UseCullingMatrixOverride: 0
+  m_Cookie: {fileID: 0}
+  m_DrawHalo: 0
+  m_Flare: {fileID: 0}
+  m_RenderMode: 0
+  m_CullingMask:
+    serializedVersion: 2
+    m_Bits: 4294967295
+  m_RenderingLayerMask: 1
+  m_Lightmapping: 4
+  m_LightShadowCasterMode: 0
+  m_AreaSize: {x: 1, y: 1}
+  m_BounceIntensity: 1
+  m_ColorTemperature: 6570
+  m_UseColorTemperature: 0
+  m_BoundingSphereOverride: {x: 0, y: 0, z: 0, w: 0}
+  m_UseBoundingSphereOverride: 0
+  m_UseViewFrustumForShadowCasterCull: 1
+  m_ForceVisible: 0
+  m_ShapeRadius: 0.025
+  m_ShadowAngle: 0
+  m_LightUnit: 2
+  m_LuxAtDistance: 1
+  m_EnableSpotReflector: 1
+--- !u!114 &589229106
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 589229104}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7a68c43fe1f2a47cfa234b5eeaa98012, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Unity.RenderPipelines.HighDefinition.Runtime::UnityEngine.Rendering.HighDefinition.HDAdditionalLightData
+  m_PointlightHDType: 0
+  m_SpotLightShape: 0
+  m_AreaLightShape: 0
+  m_EnableSpotReflector: 1
+  m_LightUnit: 0
+  m_LuxAtDistance: 1
+  m_Intensity: 0
+  m_InnerSpotPercent: -1
+  m_ShapeWidth: -1
+  m_ShapeHeight: -1
+  m_AspectRatio: -1
+  m_ShapeRadius: -1
+  m_Version: 15
+  m_ObsoleteShadowResolutionTier: 1
+  m_ObsoleteUseShadowQualitySettings: 0
+  m_ObsoleteCustomShadowResolution: 512
+  m_ObsoleteContactShadows: 0
+  m_SpotIESCutoffPercent: 100
+  m_LightDimmer: 1
+  m_VolumetricDimmer: 1
+  m_FadeDistance: 10000
+  m_VolumetricFadeDistance: 10000
+  m_AffectDiffuse: 1
+  m_AffectSpecular: 1
+  m_NonLightmappedOnly: 0
+  m_SoftnessScale: 1
+  m_UseCustomSpotLightShadowCone: 0
+  m_CustomSpotLightShadowCone: 30
+  m_MaxSmoothness: 0.99
+  m_ApplyRangeAttenuation: 1
+  m_DisplayAreaLightEmissiveMesh: 0
+  m_AreaLightCookie: {fileID: 0}
+  m_IESPoint: {fileID: 0}
+  m_IESSpot: {fileID: 0}
+  m_IncludeForRayTracing: 1
+  m_IncludeForPathTracing: 1
+  m_AreaLightShadowCone: 120
+  m_UseScreenSpaceShadows: 0
+  m_InteractsWithSky: 1
+  m_AngularDiameter: 0.55
+  diameterMultiplerMode: 0
+  diameterMultiplier: 1
+  diameterOverride: 0.5
+  celestialBodyShadingSource: 1
+  sunLightOverride: {fileID: 0}
+  sunColor: {r: 1, g: 1, b: 1, a: 1}
+  sunIntensity: 130000
+  moonPhase: 0.2
+  moonPhaseRotation: 0
+  earthshine: 1
+  flareSize: 2
+  flareTint: {r: 1, g: 1, b: 1, a: 1}
+  flareFalloff: 4
+  flareMultiplier: 1
+  surfaceTexture: {fileID: 0}
+  surfaceTint: {r: 1, g: 1, b: 1, a: 1}
+  m_Distance: 1.5e+11
+  m_UseRayTracedShadows: 0
+  m_NumRayTracingSamples: 4
+  m_FilterTracedShadow: 1
+  m_FilterSizeTraced: 16
+  m_SunLightConeAngle: 0.5
+  m_SemiTransparentShadow: 0
+  m_ColorShadow: 1
+  m_DistanceBasedFiltering: 0
+  m_EvsmExponent: 15
+  m_EvsmLightLeakBias: 0
+  m_EvsmVarianceBias: 0.00001
+  m_EvsmBlurPasses: 0
+  m_LightlayersMask: 1
+  m_LinkShadowLayers: 1
+  m_ShadowNearPlane: 0.1
+  m_BlockerSampleCount: 24
+  m_FilterSampleCount: 16
+  m_MinFilterSize: 0.1
+  m_DirLightPCSSBlockerSampleCount: 24
+  m_DirLightPCSSFilterSampleCount: 16
+  m_DirLightPCSSMaxPenumbraSize: 0.56
+  m_DirLightPCSSMaxSamplingDistance: 0.5
+  m_DirLightPCSSMinFilterSizeTexels: 1.5
+  m_DirLightPCSSMinFilterMaxAngularDiameter: 10
+  m_DirLightPCSSBlockerSearchAngularDiameter: 12
+  m_DirLightPCSSBlockerSamplingClumpExponent: 2
+  m_KernelSize: 5
+  m_LightAngle: 1
+  m_MaxDepthBias: 0.001
+  m_ShadowResolution:
+    m_Override: 512
+    m_UseOverride: 1
+    m_Level: 0
+  m_ShadowDimmer: 1
+  m_VolumetricShadowDimmer: 1
+  m_ShadowFadeDistance: 10000
+  m_UseContactShadow:
+    m_Override: 0
+    m_UseOverride: 1
+    m_Level: 0
+  m_RayTracedContactShadow: 0
+  m_ShadowTint: {r: 0, g: 0, b: 0, a: 1}
+  m_PenumbraTint: 0
+  m_NormalBias: 0.75
+  m_SlopeBias: 0.5
+  m_ShadowUpdateMode: 0
+  m_AlwaysDrawDynamicShadows: 0
+  m_UpdateShadowOnLightMovement: 0
+  m_CachedShadowTranslationThreshold: 0.01
+  m_CachedShadowAngularThreshold: 0.5
+  m_BarnDoorAngle: 90
+  m_BarnDoorLength: 0.05
+  m_preserveCachedShadow: 0
+  m_OnDemandShadowRenderOnPlacement: 1
+  m_ShadowCascadeRatios:
+  - 0.05
+  - 0.2
+  - 0.3
+  m_ShadowCascadeBorders:
+  - 0.2
+  - 0.2
+  - 0.2
+  - 0.2
+  m_ShadowAlgorithm: 0
+  m_ShadowVariant: 0
+  m_ShadowPrecision: 0
+  useOldInspector: 0
+  useVolumetric: 1
+  featuresFoldout: 1
+  m_AreaLightEmissiveMeshShadowCastingMode: 0
+  m_AreaLightEmissiveMeshMotionVectorGenerationMode: 0
+  m_AreaLightEmissiveMeshLayer: -1
+--- !u!4 &589229107
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 589229104}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0.19951725, y: -0.70777214, z: 0.22034995, w: 0.64085674}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 1541096245}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &617408908
 GameObject:
@@ -486,6 +725,7 @@ MonoBehaviour:
   freeCam: 0
   startAboard: 0
   showPrompts: 1
+  noAudio: 0
 --- !u!4 &617408910
 Transform:
   m_ObjectHideFlags: 0
@@ -595,7 +835,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e407bef0600cfd54b8417ae7bc26b5ef, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.Game.GameHost
-  saveToFile: 1
+  saveToFile: 0
   showHud: 1
 --- !u!4 &714844769
 Transform:
@@ -694,8 +934,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 815542577}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalRotation: {x: -0.025212137, y: 0.9984042, z: -0.005073999, w: 0.050276}
+  m_LocalPosition: {x: 55.018955, y: 0.008657098, z: -43.996525}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -746,7 +986,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.World.Village.VillageView
   bakeShader: {fileID: 7200000, guid: a5df59ff92ef03d47b42cbf2ec8694ef, type: 3}
-  stats: 'village: 208530 vertices, 134752 triangles, meshes + 78 fish props + textures (0 MB, bake 0 ms) in 144 ms'
+  stats: 'village: 208530 vertices, 134752 triangles, meshes + 78 fish props + textures (0 MB, bake 0 ms) in 168 ms'
 --- !u!4 &946851045
 Transform:
   m_ObjectHideFlags: 0
@@ -793,7 +1033,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.Player.BoatDriver
   keyboard: 1
-  external: 0
+  external: 1
   followCamera: 1
 --- !u!114 &981190654
 MonoBehaviour:
@@ -814,7 +1054,7 @@ MonoBehaviour:
   propMesh: {fileID: 0}
   rudderMesh: {fileID: 0}
   propAngle: 0
-  radarAngle: 0
+  radarAngle: 1.4241886696274344
 --- !u!4 &981190655
 Transform:
   m_ObjectHideFlags: 0
@@ -823,13 +1063,329 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 981190652}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalRotation: {x: -0.0080211945, y: 0.99996704, z: 0.0012719248, w: -0.000058189504}
+  m_LocalPosition: {x: 64.5043, y: -0.57381386, z: -36.50153}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1230765537
+MonoBehaviour:
+  m_ObjectHideFlags: 3
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 7e9e4ed5a6f56fb4ebd693e39684f36f, type: 3}
+  m_Name: VolumetricClouds
+  m_EditorClassIdentifier: Unity.RenderPipelines.HighDefinition.Runtime::UnityEngine.Rendering.HighDefinition.VolumetricClouds
+  active: 1
+  m_Version: 3
+  localClouds:
+    m_OverrideState: 1
+    m_Value: 0
+  m_ObsoleteWindSpeed:
+    m_OverrideState: 1
+    m_Value: 1
+  m_ObsoleteOrientation:
+    m_OverrideState: 1
+    m_Value: 0
+  m_ObsoleteShapeOffsetX:
+    m_OverrideState: 1
+    m_Value: 0
+  m_ObsoleteShapeOffsetY:
+    m_OverrideState: 1
+    m_Value: 0
+  m_ObsoleteShapeOffsetZ:
+    m_OverrideState: 1
+    m_Value: 0
+  enable:
+    m_OverrideState: 1
+    m_Value: 1
+  cloudTiling:
+    m_OverrideState: 1
+    m_Value: {x: 1, y: 1}
+  cloudOffset:
+    m_OverrideState: 1
+    m_Value: {x: 0, y: 0}
+  bottomAltitude:
+    m_OverrideState: 1
+    m_Value: 1200
+  altitudeRange:
+    m_OverrideState: 1
+    m_Value: 2000
+  fadeInMode:
+    m_OverrideState: 1
+    m_Value: 0
+  fadeInStart:
+    m_OverrideState: 1
+    m_Value: 0
+  fadeInDistance:
+    m_OverrideState: 1
+    m_Value: 0
+  numPrimarySteps:
+    m_OverrideState: 1
+    m_Value: 64
+  numLightSteps:
+    m_OverrideState: 1
+    m_Value: 6
+  cloudMap:
+    m_OverrideState: 1
+    m_Value: {fileID: 0}
+    dimension: 2
+  cloudLut:
+    m_OverrideState: 1
+    m_Value: {fileID: 0}
+    dimension: 2
+  cloudControl:
+    m_OverrideState: 1
+    m_Value: 0
+  cloudSimpleMode:
+    m_OverrideState: 1
+    m_Value: 0
+  m_CloudPreset:
+    m_OverrideState: 1
+    m_Value: 1
+  cumulusMap:
+    m_OverrideState: 1
+    m_Value: {fileID: 0}
+    dimension: 2
+  cumulusMapMultiplier:
+    m_OverrideState: 1
+    m_Value: 1
+  altoStratusMap:
+    m_OverrideState: 1
+    m_Value: {fileID: 0}
+    dimension: 2
+  altoStratusMapMultiplier:
+    m_OverrideState: 1
+    m_Value: 1
+  cumulonimbusMap:
+    m_OverrideState: 1
+    m_Value: {fileID: 0}
+    dimension: 2
+  cumulonimbusMapMultiplier:
+    m_OverrideState: 1
+    m_Value: 1
+  rainMap:
+    m_OverrideState: 1
+    m_Value: {fileID: 0}
+    dimension: 2
+  cloudMapResolution:
+    m_OverrideState: 1
+    m_Value: 64
+  densityCurve:
+    m_OverrideState: 1
+    m_Value:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 0.15
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 0.1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  erosionCurve:
+    m_OverrideState: 1
+    m_Value:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 0.1
+        value: 0.9
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  ambientOcclusionCurve:
+    m_OverrideState: 1
+    m_Value:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 0.25
+        value: 0.4
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      - serializedVersion: 3
+        time: 1
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0
+        outWeight: 0
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+  scatteringTint:
+    m_OverrideState: 1
+    m_Value: {r: 0, g: 0, b: 0, a: 1}
+  powderEffectIntensity:
+    m_OverrideState: 1
+    m_Value: 0.25
+  multiScattering:
+    m_OverrideState: 1
+    m_Value: 0.5
+  densityMultiplier:
+    m_OverrideState: 1
+    m_Value: 0.4
+  shapeFactor:
+    m_OverrideState: 1
+    m_Value: 0.9
+  shapeScale:
+    m_OverrideState: 1
+    m_Value: 5
+  shapeOffset:
+    m_OverrideState: 1
+    m_Value: {x: 0, y: 0, z: 0}
+  erosionFactor:
+    m_OverrideState: 1
+    m_Value: 0.8
+  erosionScale:
+    m_OverrideState: 1
+    m_Value: 107
+  erosionNoiseType:
+    m_OverrideState: 1
+    m_Value: 1
+  microErosion:
+    m_OverrideState: 1
+    m_Value: 0
+  microErosionFactor:
+    m_OverrideState: 1
+    m_Value: 0.5
+  microErosionScale:
+    m_OverrideState: 1
+    m_Value: 200
+  ambientLightProbeDimmer:
+    m_OverrideState: 1
+    m_Value: 1
+  sunLightDimmer:
+    m_OverrideState: 1
+    m_Value: 1
+  erosionOcclusion:
+    m_OverrideState: 1
+    m_Value: 0.1
+  globalWindSpeed:
+    m_OverrideState: 1
+    m_Value:
+      mode: 1
+      customValue: 100
+      additiveValue: 0
+      multiplyValue: 1
+  orientation:
+    m_OverrideState: 1
+    m_Value:
+      mode: 1
+      customValue: 0
+      additiveValue: 0
+      multiplyValue: 1
+  altitudeDistortion:
+    m_OverrideState: 1
+    m_Value: 0.25
+  cloudMapSpeedMultiplier:
+    m_OverrideState: 1
+    m_Value: 0.5
+  shapeSpeedMultiplier:
+    m_OverrideState: 1
+    m_Value: 1
+  erosionSpeedMultiplier:
+    m_OverrideState: 1
+    m_Value: 0.25
+  verticalShapeWindSpeed:
+    m_OverrideState: 1
+    m_Value: 0
+  verticalErosionWindSpeed:
+    m_OverrideState: 1
+    m_Value: 0
+  temporalAccumulationFactor:
+    m_OverrideState: 1
+    m_Value: 0.95
+  ghostingReduction:
+    m_OverrideState: 1
+    m_Value: 1
+  perceptualBlending:
+    m_OverrideState: 1
+    m_Value: 1
+  shadows:
+    m_OverrideState: 1
+    m_Value: 0
+  shadowResolution:
+    m_OverrideState: 1
+    m_Value: 256
+  shadowDistance:
+    m_OverrideState: 1
+    m_Value: 8000
+  shadowOpacity:
+    m_OverrideState: 1
+    m_Value: 1
+  shadowOpacityFallback:
+    m_OverrideState: 1
+    m_Value: 0
 --- !u!21 &1260297974
 Material:
   serializedVersion: 8
@@ -926,8 +1482,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1296385369}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalRotation: {x: -0.031055443, y: 0.9842732, z: -0.0022783463, w: -0.17388679}
+  m_LocalPosition: {x: 43.53642, y: -0.18889727, z: -38.002666}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1004,6 +1560,73 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1541096243
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1541096245}
+  - component: {fileID: 1541096244}
+  m_Layer: 0
+  m_Name: Day Night
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1541096244
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1541096243}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 240267cef4b4ce9489d7612ef6d4893f, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.Sky.DayNight
+  hour: 16.200000000000003
+  sunAzimuth: 0
+  sun: {fileID: 157207113}
+  moon: {fileID: 589229105}
+--- !u!4 &1541096245
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1541096243}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children:
+  - {fileID: 589229107}
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1582372170
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d7fd9488000d3734a9e00ee676215985, type: 3}
+  m_Name: SkyandFogSettingsProfile(Clone)(Clone)(Clone)(Clone)(Clone)(Clone)
+  m_EditorClassIdentifier: 
+  components:
+  - {fileID: 1142777632297148762, guid: 8ba92e2dd7f884a0f88b98fa2d235fe7, type: 2}
+  - {fileID: -7724654706381055090, guid: 8ba92e2dd7f884a0f88b98fa2d235fe7, type: 2}
+  - {fileID: -4151792930034644520, guid: 8ba92e2dd7f884a0f88b98fa2d235fe7, type: 2}
+  - {fileID: 7642060734654139733, guid: 8ba92e2dd7f884a0f88b98fa2d235fe7, type: 2}
+  - {fileID: 1230765537}
 --- !u!1 &1601790714
 GameObject:
   m_ObjectHideFlags: 0
@@ -1033,7 +1656,7 @@ MonoBehaviour:
   m_Script: {fileID: 881360586}
   m_Name: 
   m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.World.LocalLightsView
-  active: 0
+  active: 1
 --- !u!4 &1601790716
 Transform:
   m_ObjectHideFlags: 0
@@ -1082,7 +1705,7 @@ MonoBehaviour:
   rangeFactor: 2
   seed: 7
   material: {fileID: 1260297974}
-  stats: 'terrain: generate 2181 ms, village 239 ms, textures 347 ms, total 2985 ms'
+  stats: 'terrain: generate 2135 ms, village 577 ms, textures 793 ms, total 3920 ms'
 --- !u!4 &1608796484
 Transform:
   m_ObjectHideFlags: 0
@@ -1184,8 +1807,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1823688464}
   serializedVersion: 2
-  m_LocalRotation: {x: 0.02617695, y: 0, z: 0, w: 0.99965733}
-  m_LocalPosition: {x: 60, y: 12, z: -150}
+  m_LocalRotation: {x: 0.12278781, y: 0.6963643, z: 0.12278781, w: -0.6963643}
+  m_LocalPosition: {x: 0, y: 2.3652232, z: 46}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1466,3 +2089,4 @@ SceneRoots:
   - {fileID: 815542580}
   - {fileID: 617408910}
   - {fileID: 714844769}
+  - {fileID: 1541096245}

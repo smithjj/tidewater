@@ -85,9 +85,14 @@ namespace Tidewater.EditorTools
 			var game = GameObject.Find( "Game" ) ?? new GameObject( "Game" );
 			if ( game.GetComponent<Tidewater.Game.GameHost>() == null ) game.AddComponent<Tidewater.Game.GameHost>();
 
-			// sun: from the south-west, low in the afternoon
+			// sun: from the south-west, low in the afternoon (the day-night sky then puts it where the clock's hour says, 16.2 at the start)
 			var sun = GameObject.Find( "Sun" );
 			if ( sun != null ) sun.transform.rotation = Quaternion.Euler( 32, 55, 0 );
+			var sky = GameObject.Find( "Day Night" ) ?? new GameObject( "Day Night" );
+			var dn = sky.GetComponent<Tidewater.Sky.DayNight>() ?? sky.AddComponent<Tidewater.Sky.DayNight>();
+			dn.sun = sun != null ? sun.GetComponent<Light>() : null;
+			dn.EnsureMoon();
+			dn.SetHour( dn.hour );
 
 			EditorSceneManager.MarkSceneDirty( scene );
 			EditorSceneManager.SaveScene( scene );
@@ -114,9 +119,17 @@ namespace Tidewater.EditorTools
 		// Fixed exposure (EV100) for repeatable screenshots, on an in-memory copy of the volume profile (the asset is not
 		// touched); NaN restores the profile's own (automatic) exposure.
 		static UnityEngine.Rendering.VolumeProfile original;
+		// the scene's own sky volume (not the one DayNight adds above it)
+		static UnityEngine.Rendering.Volume SceneVolume()
+		{
+			foreach ( var v in Object.FindObjectsByType<UnityEngine.Rendering.Volume>() )
+				if ( v.GetComponentInParent<Tidewater.Sky.DayNight>() == null ) return v;
+			return null;
+		}
+
 		public static string Exposure( float ev )
 		{
-			var v = Object.FindAnyObjectByType<UnityEngine.Rendering.Volume>();
+			var v = SceneVolume();
 			if ( v == null ) return "no volume";
 			if ( original == null ) original = v.sharedProfile;
 			if ( float.IsNaN( ev ) ) { v.profile = null; v.sharedProfile = original; return "automatic exposure"; }

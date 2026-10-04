@@ -9,8 +9,8 @@ using UnityEngine;
 // foam, while a jump (a preset click, a load) rebuilds it and clears the foam, because the old foam belongs to a sea
 // that no longer exists.
 //
-// Not ported yet (their systems do not exist): the shore waves' amplitude / period (v.surf, v.period) and the cloud
-// cover. WriteConditions leaves them out and says so below.
+// The shore waves' amplitude / period (v.surf, v.period) and the cloud cover are not written here: OceanRenderer.ApplySeaState
+// publishes them (shore.amplitude / shore.period, G.cover for DayNight's clouds).
 namespace Tidewater.Ocean
 {
 	public struct Condition
@@ -59,7 +59,7 @@ namespace Tidewater.Ocean
 			// more whitecaps: foam starts at less compression (and more of it in fresh wind), lasts longer
 			fft.foamBias = ( float ) ( 0.5 + 0.16 * v.whitecaps + 0.01 * Math.Max( - 5, Math.Min( 12, v.wind - 7 ) ) );
 			fft.foamDecay = ( float ) ( 0.6 - 0.35 * v.whitecaps );
-			// shore.amplitude / shore.period (v.surf, v.period) and the cloud cover: not ported yet
+			// shore.amplitude / shore.period (v.surf, v.period) and the cloud cover: the caller publishes them
 		}
 
 		// a condition interpolated along the ladder, for a fractional level (0 Calm .. 3 Storm)

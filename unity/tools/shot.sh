@@ -1,6 +1,6 @@
 #!/bin/sh
 # usage: unity/tools/shot.sh <name> <simX> <simZ> <eyeHeight> <yawDeg> <pitchDeg> [seaVisible=true] [width] [height]
-# ADV=<seconds> first runs the sea forward by that long. Exposure is fixed (EV100 $EV, default 14) so shots are repeatable; EV=auto keeps the scene's automatic exposure.
+# ADV=<seconds> first runs the sea forward by that long. The Day Night driver volume's eye (auto exposure) overrides the scene volume's, so EV= no longer fixes the exposure while a DayNight is in the scene; EV=auto is the default look.
 # Places the camera (sim coordinates: x east, z south; yaw 0 = north, pitch > 0 looks down) and saves unity/Temp/shots/<name>.png from the Game view.
 cd "$(dirname "$0")/.." || exit 1
 U=/mnt/c/Users/smith/AppData/Local/Unity/bin/unity.exe

@@ -170,6 +170,7 @@ namespace Tidewater.Ocean
 			Conditions.WriteConditions( fft, c, out Vector2 wd, out float ws, true, jump );
 			G.windDir = wd;
 			G.windSpeed = ws;
+			G.cover = ( float ) c.cover;
 			shoreAmplitude = ( float ) c.surf; shorePeriod = ( float ) c.period;
 			appliedSeaState = seaState;
 		}
@@ -227,6 +228,7 @@ namespace Tidewater.Ocean
 
 		Vector3 SunDirSim()
 		{
+			if ( G.skyDriven ) return G.sunDir; // the day-night sky says which of the sun and the moon is the key light
 			if ( sun == null ) sun = RenderSettings.sun;
 			if ( sun == null ) return new Vector3( 0.3f, 0.8f, 0.5f ).normalized;
 			// toward the sun = against the light's travel direction; Unity world -> sim
@@ -235,6 +237,7 @@ namespace Tidewater.Ocean
 
 		Vector3 SunColor()
 		{
+			if ( G.skyDriven ) return G.sunColor;
 			if ( sun == null ) sun = RenderSettings.sun;
 			if ( sun == null ) return new Vector3( 100000, 100000, 100000 );
 			// HDRP directional lights are in lux (Light.intensity in the light's HDRP unit); the colour is the tint
@@ -256,9 +259,14 @@ namespace Tidewater.Ocean
 			Shader.SetGlobalVector( "_TWSunDir", new Vector4( sd.x, sd.y, sd.z, 0 ) );
 			var sc = SunColor();
 			Shader.SetGlobalVector( "_TWSunColor", new Vector4( sc.x, sc.y, sc.z, 0 ) );
-			// G.night (App.js): 0 by day, 1 with the sun well below the horizon
-			double night = Tidewater.Engine.MathUtils.smoothstep( - sd.y, 0.02, 0.18 );
-			G.night = ( float ) night;
+			// G.night (App.js): 0 by day, 1 with the sun well below the horizon. The day-night sky writes it from the real sun; without one it is
+			// derived from the light (which is the sun)
+			double night = G.night;
+			if ( ! G.skyDriven )
+			{
+				night = Tidewater.Engine.MathUtils.smoothstep( - sd.y, 0.02, 0.18 );
+				G.night = ( float ) night;
+			}
 			Shader.SetGlobalVector( "_TWFrame", new Vector4( ( float ) G.time, ( float ) G.windSpeed, ( float ) night, 0 ) );
 		}
 

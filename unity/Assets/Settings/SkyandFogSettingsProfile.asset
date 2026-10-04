@@ -43,6 +43,16 @@ MonoBehaviour:
   includeSunInBaking:
     m_OverrideState: 0
     m_Value: 0
+  m_SkyVersion: 2
+  m_ObsoleteEarthPreset:
+    m_OverrideState: 0
+    m_Value: 1
+  planetaryRadius:
+    m_OverrideState: 0
+    m_Value: 6378100
+  planetCenterPosition:
+    m_OverrideState: 0
+    m_Value: {x: 0, y: -6378100, z: 0}
   type:
     m_OverrideState: 0
     m_Value: 1
@@ -108,10 +118,10 @@ MonoBehaviour:
     m_Value: {x: 0, y: 0, z: 0}
   spaceEmissionTexture:
     m_OverrideState: 0
-    m_Value: {fileID: 0}
+    m_Value: {fileID: 8900000, guid: aa27d2a83268d054e8f70d37ddb37e58, type: 2}
   spaceEmissionMultiplier:
     m_OverrideState: 0
-    m_Value: 1
+    m_Value: 0
   spaceRotation:
     m_OverrideState: 0
     m_Value: {x: 0, y: 0, z: 0}
@@ -133,16 +143,6 @@ MonoBehaviour:
   horizonZenithShift:
     m_OverrideState: 0
     m_Value: 0
-  m_SkyVersion: 2
-  m_ObsoleteEarthPreset:
-    m_OverrideState: 0
-    m_Value: 1
-  planetaryRadius:
-    m_OverrideState: 0
-    m_Value: 6378100
-  planetCenterPosition:
-    m_OverrideState: 0
-    m_Value: {x: 0, y: -6378100, z: 0}
 --- !u!114 &-4151792930034644520
 MonoBehaviour:
   m_ObjectHideFlags: 3
@@ -213,6 +213,9 @@ MonoBehaviour:
   sliceDistributionUniformity:
     m_OverrideState: 0
     m_Value: 0.75
+  multipleScatteringIntensity:
+    m_OverrideState: 0
+    m_Value: 0
   m_FogControlMode:
     m_OverrideState: 0
     m_Value: 0
@@ -229,6 +232,9 @@ MonoBehaviour:
     m_OverrideState: 0
     m_Value: 0.666
   directionalLightsOnly:
+    m_OverrideState: 0
+    m_Value: 0
+  volumetricLightingDensityCutoff:
     m_OverrideState: 0
     m_Value: 0
 --- !u!114 &11400000
@@ -248,6 +254,8 @@ MonoBehaviour:
   - {fileID: -7724654706381055090}
   - {fileID: -4151792930034644520}
   - {fileID: 7642060734654139733}
+  - {fileID: 0}
+  - {fileID: 0}
 --- !u!114 &1142777632297148762
 MonoBehaviour:
   m_ObjectHideFlags: 3
@@ -261,15 +269,16 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   active: 1
+  m_Version: 1
   skyType:
     m_OverrideState: 1
     m_Value: 4
   cloudType:
-    m_OverrideState: 0
-    m_Value: 0
+    m_OverrideState: 1
+    m_Value: 2
   skyAmbientMode:
     m_OverrideState: 1
-    m_Value: 0
+    m_Value: 1
   planetRadius:
     m_OverrideState: 0
     m_Value: 6378.1
@@ -291,7 +300,6 @@ MonoBehaviour:
   fogType:
     m_OverrideState: 1
     m_Value: 0
-  m_Version: 1
 --- !u!114 &7642060734654139733
 MonoBehaviour:
   m_ObjectHideFlags: 3
@@ -307,7 +315,7 @@ MonoBehaviour:
   active: 1
   mode:
     m_OverrideState: 1
-    m_Value: 4
+    m_Value: 0
   meteringMode:
     m_OverrideState: 0
     m_Value: 2
@@ -315,8 +323,8 @@ MonoBehaviour:
     m_OverrideState: 0
     m_Value: 1
   fixedExposure:
-    m_OverrideState: 0
-    m_Value: 0
+    m_OverrideState: 1
+    m_Value: 14
   compensation:
     m_OverrideState: 0
     m_Value: 0

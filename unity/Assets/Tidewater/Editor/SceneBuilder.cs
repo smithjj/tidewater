@@ -24,6 +24,10 @@ namespace Tidewater.EditorTools
 			var t = GameObject.Find( "Terrain" ) ?? new GameObject( "Terrain" );
 			if ( t.GetComponent<TerrainRenderer>() == null ) t.AddComponent<TerrainRenderer>();
 
+			// the fishing village (Village is built by the terrain: it flattens the building pads in the height map)
+			var vil = GameObject.Find( "Village" ) ?? new GameObject( "Village" );
+			if ( vil.GetComponent<Tidewater.World.Village.VillageView>() == null ) vil.AddComponent<Tidewater.World.Village.VillageView>();
+
 			// the sea (replaces the flat placeholder plane the scene had before the ocean was ported)
 			var old = GameObject.Find( "Sea (placeholder)" );
 			if ( old != null ) Object.DestroyImmediate( old );

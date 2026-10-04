@@ -15,7 +15,7 @@ namespace Tidewater.Player
 	public sealed class BoatDriver : MonoBehaviour
 	{
 		public BoatController controller { get; private set; }
-		public Colliders colliders = new Colliders();
+		[System.NonSerialized] public Colliders colliders; // the world's (TerrainRenderer.colliders), set by Ensure
 		public bool keyboard = true;
 		public bool external;            // the Player (PlayerHost) drives the boat's controls and the camera: no keyboard, no follow camera here
 		public bool followCamera = true; // tools turn this off to place the camera themselves
@@ -37,6 +37,7 @@ namespace Tidewater.Player
 			var terrain = FindAnyObjectByType<TerrainRenderer>();
 			view = GetComponent<BoatView>();
 			if ( ocean == null || ocean.query == null || terrain == null || terrain.data == null || view == null || view.model == null ) return false;
+			colliders = terrain.colliders;
 			controller = new BoatController( view.model.dynamics(), ocean.query, terrain.data.HeightAt, colliders, BoatDock.Lobster ) { view = view, boatModel = view.model };
 			// the sea is not drawn inside the boat (its hull volume masks the surface)
 			ocean.hullMask.Add( Tidewater.Engine.UnityMesh.Create( view.model.createHullVolumeGeometry(), "boat-hullmask" ), view.transform );

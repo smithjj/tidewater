@@ -1,0 +1,598 @@
+// GPU-baked, tileable PBR texture sets for the village materials (src/world/village/TextureBaker.js).
+//
+// Every set is generated once with two kernels:
+//   1. Fields_<set>: the generator writes height / roughness / occlusion into a transient RGBA16F texture (_OutFields)
+//      and the final albedo or mask map into an RGBA8 texture (_OutAlbedo),
+//   2. Derive: turns the height field into a tangent-space normal (Sobel filtered) plus horizon based ambient occlusion,
+//      packed as RG = normal xy, B = roughness, A = AO (_OutNRA).
+// All noise is periodic over the texture tile so the maps tile seamlessly.
+//
+// Texel (px, py) of a map holds tile coordinate X = ( px + 0.5 ) / w, Y = ( py + 0.5 ) / h, so sampling at uv = ( X, Y ) returns it.
+// The generators are the WGSL of the browser game, line for line (let -> typed locals, mix -> lerp, fract -> frac, select -> ?:).
+
+#pragma kernel Fields_wood
+#pragma kernel Fields_paint
+#pragma kernel Fields_roof
+#pragma kernel Fields_thatch
+#pragma kernel Fields_stone
+#pragma kernel Fields_hard
+#pragma kernel Fields_grime
+#pragma kernel Fields_rope
+#pragma kernel Fields_net
+#pragma kernel Derive
+
+#define VLG_TAU 6.283185307179586
+#define VLG_PI 3.141592653589793
+#define fract frac
+#define mix lerp
+
+RWTexture2D<float4> _OutFields;
+RWTexture2D<float4> _OutAlbedo;
+Texture2D<float4> _Fields;
+RWTexture2D<float4> _OutNRA;
+uint2 _Dim;
+float4 _Derive;   // SLOPE xy, AO xy
+
+// ---------------------------------------------------------------------------
+// Periodic noise library
+
+uint vlgHashU( float x, float y, float s )
+{
+	return ( ( uint ) x * 1597334677u ) ^ ( ( uint ) y * 3812015801u ) ^ ( ( uint ) s * 2654435761u + 1013904223u );
+}
+
+// three.js TSL hash() (pcg), [0, 1)
+float vlgPcg( uint seed )
+{
+	uint state = seed * 747796405u + 2891336453u;
+	uint word = ( ( state >> ( ( state >> 28u ) + 4u ) ) ^ state ) * 277803737u;
+	return ( float ) ( ( word >> 22u ) ^ word ) * ( 1.0 / 4294967296.0 );
+}
+
+// three independent 10-bit randoms from one hash
+float3 vlgHash3( float x, float y, float s )
+{
+	uint h = ( uint ) ( vlgPcg( vlgHashU( x, y, s ) ) * 1073741823.0 );
+	return float3( ( float ) ( h & 1023u ), ( float ) ( ( h >> 10u ) & 1023u ), ( float ) ( ( h >> 20u ) & 1023u ) ) / 1023.0;
+}
+
+float2 vlgWrapP( float2 i, float2 per ) { return i - per * floor( i / per ); }
+
+float vlgGrad( float gx, float gy, float s, float2 f, float ox, float oy )
+{
+	float2 h = vlgHash3( gx, gy, s ).xy - 0.5;
+	return h.x * ( f.x - ox ) + h.y * ( f.y - oy );
+}
+
+// periodic 2D gradient noise, roughly in [-1, 1]
+float vlgPNoise( float2 p, float2 per, float s )
+{
+	float2 i = floor( p );
+	float2 f = fract( p );
+	float2 u = f * f * f * ( f * ( f * 6.0 - 15.0 ) + 10.0 );
+	float2 i0 = vlgWrapP( i, per );
+	float2 i1 = vlgWrapP( i + 1.0, per );
+	float n00 = vlgGrad( i0.x, i0.y, s, f, 0.0, 0.0 );
+	float n10 = vlgGrad( i1.x, i0.y, s, f, 1.0, 0.0 );
+	float n01 = vlgGrad( i0.x, i1.y, s, f, 0.0, 1.0 );
+	float n11 = vlgGrad( i1.x, i1.y, s, f, 1.0, 1.0 );
+	return mix( mix( n00, n10, u.x ), mix( n01, n11, u.x ), u.y ) * 3.4;
+}
+
+// periodic fBm (octave loop inside the shader)
+float vlgPFbm( float2 p, float2 per, int oct, float s, float gain )
+{
+	float sum = 0.0;
+	float amp = 1.0;
+	float norm = 0.0;
+	float2 q = p;
+	float2 pp = per;
+	[loop] for ( int o = 0; o < oct; o ++ )
+	{
+		sum += vlgPNoise( q, pp, s + ( float ) o * 17.0 ) * amp;
+		norm += amp;
+		amp *= gain;
+		q *= 2.0;
+		pp *= 2.0;
+	}
+	return sum / norm;
+}
+
+// periodic cellular noise: returns float4( F1, F2, cellId, 0 )
+float4 vlgPWorley( float2 p, float2 per, float s, float jit )
+{
+	float2 i = floor( p );
+	float2 f = fract( p );
+	float d1 = 9.0;
+	float d2 = 9.0;
+	float id = 0.0;
+	[loop] for ( int cy = -1; cy < 2; cy ++ )
+	{
+		[loop] for ( int cx = -1; cx < 2; cx ++ )
+		{
+			float2 o = float2( ( float ) cx, ( float ) cy );
+			float2 c = vlgWrapP( i + o, per );
+			float3 h = vlgHash3( c.x, c.y, s );
+			float d = length( o + ( h.xy - 0.5 ) * jit + 0.5 - f );
+			if ( d < d1 )
+			{
+				d2 = d1;
+				d1 = d;
+				id = h.z;
+			}
+			else if ( d < d2 )
+			{
+				d2 = d;
+			}
+		}
+	}
+	return float4( d1, d2, id, 0.0 );
+}
+
+// periodic cellular noise returning the offset to the nearest feature: float4( rel.x, rel.y, F1, cellId )
+float4 vlgPWorleyRel( float2 p, float2 per, float s, float jit )
+{
+	float2 i = floor( p );
+	float2 f = fract( p );
+	float d1 = 9.0;
+	float2 rel = float2( 0.0, 0.0 );
+	float id = 0.0;
+	[loop] for ( int cy = -1; cy < 2; cy ++ )
+	{
+		[loop] for ( int cx = -1; cx < 2; cx ++ )
+		{
+			float2 o = float2( ( float ) cx, ( float ) cy );
+			float2 c = vlgWrapP( i + o, per );
+			float3 h = vlgHash3( c.x, c.y, s );
+			float2 dv = f - ( o + ( h.xy - 0.5 ) * jit + 0.5 );
+			float d = length( dv );
+			if ( d < d1 )
+			{
+				d1 = d;
+				rel = dv;
+				id = h.z;
+			}
+		}
+	}
+	return float4( rel, d1, id );
+}
+
+// convenience wrappers (fx, fy: integer frequencies over the tile)
+float vlgPn( float X, float Y, float fx, float fy, float s ) { return vlgPNoise( float2( X * fx, Y * fy ), float2( fx, fy ), s ); }
+float vlgPf( float X, float Y, float fx, float fy, int oct, float s, float gain ) { return vlgPFbm( float2( X * fx, Y * fy ), float2( fx, fy ), oct, s, gain ); }
+float4 vlgPw( float X, float Y, float fx, float fy, float s, float jit ) { return vlgPWorley( float2( X * fx, Y * fy ), float2( fx, fy ), s, jit ); }
+float4 vlgPwr( float X, float Y, float fx, float fy, float s, float jit ) { return vlgPWorleyRel( float2( X * fx, Y * fy ), float2( fx, fy ), s, jit ); }
+float vlgN01( float n ) { return n * 0.5 + 0.5; }
+float vlgHf( float a, float b ) { return fract( sin( a * 12.9898 + b * 78.233 ) * 43758.5453 ); }
+float vlgBand( float x, float a, float b, float c, float d ) { return smoothstep( a, b, x ) * ( 1.0 - smoothstep( c, d, x ) ); }
+
+struct VlgOut
+{
+	float4 fields;  // height, roughness, occlusion, 0
+	float4 albedo;  // albedo / mask map
+};
+
+// ---------------------------------------------------------------------------
+// Texture set generators. Each returns VlgOut { fields: float4( height, roughness, occlusion, 0 ), albedo }
+// X, Y are tile coordinates in [0, 1).
+
+// WEATHERED WOOD - tile = 2 m along the grain (X) x 1 m across (Y)
+VlgOut vlgGen_wood( float X, float Y )
+{
+	// knots with grain flowing around them
+	float4 kw = vlgPwr( X, Y, 6.0, 10.0, 11.0, 0.7 );
+	float kHas = step( 0.9, kw.w );
+	float kRad = 0.01 + vlgHf( kw.w, 3.3 ) * 0.013;
+	float kdm = length( float2( kw.x * ( 2.0 / 6.0 ), kw.y * ( 1.0 / 10.0 ) ) );
+	float kInfl = exp( - ( kdm / ( kRad * 2.4 ) ) ) * kHas;
+
+	// growth rings with uneven spacing and per-ring width / contrast
+	float warpA = vlgPf( X, Y, 2.0, 4.0, 3, 21.0, 0.5 );
+	float warpB = vlgPf( X, Y, 1.0, 2.0, 2, 23.0, 0.5 );
+	float r = Y * 110.0 + warpA * 5.0 + warpB * 14.0 + kInfl * 14.0;
+	float ringId = floor( r );
+	float ringIdW = ringId - floor( ringId / 110.0 ) * 110.0;
+	float w = fract( r );
+	float lw = mix( 0.09, 0.32, vlgHf( ringIdW, 5.1 ) );
+	float late = smoothstep( 0.93 - lw, 1.0 - lw, w ) * ( 1.0 - smoothstep( 0.9, 0.995, w ) );
+	float ringDark = mix( 0.65, 1.15, vlgHf( ringIdW, 9.7 ) );
+
+	// dense fibre streaks along the grain (the signature of sun-weathered timber)
+	float fA = vlgN01( vlgPn( X, Y, 12.0, 300.0, 53.0 ) );
+	float fB = vlgN01( vlgPn( X, Y, 5.0, 140.0, 55.0 ) );
+	float fC = vlgN01( vlgPn( X, Y, 16.0, 400.0, 57.0 ) );
+	float streak = fA * 0.5 + fB * 0.3 + fC * 0.2;
+	float erosion = ( 1.0 - late ) * ( fB * 0.6 + 0.4 );
+
+	// checks / cracks along the grain, tapering at the ends
+	float crN = abs( vlgPn( X, Y, 6.0, 60.0, 71.0 ) );
+	float crMask = smoothstep( 0.1, 0.45, vlgPf( X, Y, 3.0, 4.0, 2, 73.0, 0.5 ) );
+	float crack = ( 1.0 - smoothstep( 0.012, 0.055, crN / ( crMask + 0.05 ) ) ) * step( 0.05, crMask );
+
+	float kCore = ( 1.0 - smoothstep( kRad * 0.72, kRad, kdm ) ) * kHas;
+	float kRing = vlgBand( kdm, kRad * 0.92, kRad * 1.02, kRad * 1.05, kRad * 1.3 ) * kHas;
+
+	float height = 0.46 + late * 0.22 * ringDark - erosion * 0.09 + ( streak - 0.5 ) * 0.14
+		- crack * 0.36 + kCore * 0.08 - kRing * 0.22;
+
+	// silver grey surface, brown-grey eroded grooves, fibre streaks, stains and bleaching
+	float blotch = vlgN01( vlgPf( X, Y, 2.0, 3.0, 3, 81.0, 0.5 ) );
+	float bleach = smoothstep( 0.5, 0.82, vlgN01( vlgPf( X, Y, 3.0, 2.0, 3, 83.0, 0.5 ) ) );
+	float stain = smoothstep( 0.58, 0.86, vlgN01( vlgPf( X, Y, 4.0, 5.0, 3, 85.0, 0.5 ) ) );
+	// sun-bleached driftwood grey (linear albedo ~0.2 in the grooves, ~0.45 on the latewood)
+	float3 grooveC = float3( 0.2, 0.186, 0.168 );
+	float3 silverC = float3( 0.45, 0.445, 0.428 );
+	float3 col = mix( grooveC, silverC, clamp( late * ringDark * 0.55 + streak * 0.75 - 0.12, 0.0, 1.0 ) );
+	col = col * ( fA * 0.34 + 0.83 );
+	col = col * ( 1.0 - smoothstep( 0.7, 0.95, fC ) * 0.3 );
+	col = col * ( blotch * 0.24 + 0.88 );
+	col = mix( col, float3( 0.55, 0.54, 0.51 ), bleach * 0.3 );
+	col = mix( col, col * float3( 0.8, 0.68, 0.54 ), stain * 0.6 );
+	col = mix( col, float3( 0.035, 0.03, 0.026 ), crack * 0.92 );
+	col = mix( col, mix( float3( 0.13, 0.085, 0.05 ), float3( 0.07, 0.045, 0.03 ), fract( kdm * 900.0 ) ), kCore );
+	col = mix( col, float3( 0.05, 0.04, 0.03 ), kRing * 0.8 );
+
+	// paint chip field (A): paint lets go in grain-aligned flakes, first at cracks, knots and eroded grain
+	float4 flake = vlgPw( X, Y, 30.0, 80.0, 91.0, 0.9 );
+	float chipLarge = vlgN01( vlgPf( X, Y, 4.0, 8.0, 4, 97.0, 0.5 ) );
+	float chip = chipLarge * 0.62 + flake.z * 0.3 + late * 0.06 - erosion * 0.04
+		- crack * 0.4 - kCore * 0.1;
+
+	float rough = clamp( 0.82 + erosion * 0.1 + fA * 0.04 + crack * 0.08 - kCore * 0.15, 0.0, 1.0 );
+	float occ = 1.0 - crack * 0.65 - kRing * 0.4 - erosion * 0.08;
+	VlgOut o;
+	o.fields = float4( height, rough, occ, 0.0 );
+	o.albedo = float4( col, clamp( chip, 0.0, 1.0 ) );
+	return o;
+}
+
+// PAINT FILM - tile = 1 m along the grain (X) x 0.5 m across (Y): brush strokes and crazing
+VlgOut vlgGen_paint( float X, float Y )
+{
+	float strokes = vlgPn( X, Y, 4.0, 60.0, 701.0 ) * 0.25 + vlgPn( X, Y, 16.0, 160.0, 703.0 ) * 0.12 + vlgPn( X, Y, 2.0, 12.0, 704.0 ) * 0.2;
+	float4 cz = vlgPw( X, Y, 34.0, 40.0, 705.0, 1.0 );
+	float crazeMask = smoothstep( 0.62, 0.85, vlgN01( vlgPf( X, Y, 3.0, 2.0, 3, 707.0, 0.5 ) ) );
+	float craze = ( 1.0 - smoothstep( 0.015, 0.04, cz.y - cz.x ) ) * crazeMask;
+	float height = 0.5 + strokes - craze * 0.12;
+	float rough = clamp( 0.5 + strokes * 0.35 + craze * 0.15, 0.0, 1.0 );
+	float occ = 1.0 - craze * 0.18;
+	VlgOut o;
+	o.fields = float4( height, rough, occ, 0.0 );
+	o.albedo = float4( 0.0, 0.0, 0.0, 0.0 );
+	return o;
+}
+
+// GRIME / SALT - tile = 2 m x 2 m in mesh space (X along the wall, Y up)
+VlgOut vlgGen_grime( float X, float Y )
+{
+	float streak = smoothstep( 0.55, 0.9, vlgN01( vlgPn( X, Y, 26.0, 2.0, 601.0 ) ) ) * smoothstep( 0.35, 0.7, vlgN01( vlgPf( X, Y, 4.0, 3.0, 2, 603.0, 0.5 ) ) );
+	float drip = smoothstep( 0.6, 0.95, vlgN01( vlgPn( X, Y, 70.0, 4.0, 604.0 ) ) ) * 0.5;
+	float salt = smoothstep( 0.52, 0.8, vlgN01( vlgPf( X, Y, 4.0, 4.0, 5, 605.0, 0.5 ) ) ) * ( vlgN01( vlgPn( X, Y, 120.0, 120.0, 607.0 ) ) * 0.5 + 0.5 );
+	float4 mw = vlgPw( X, Y, 60.0, 60.0, 609.0, 1.0 );
+	float mildew = ( 1.0 - smoothstep( 0.05, 0.22, mw.x ) ) * step( 0.6, vlgN01( vlgPf( X, Y, 3.0, 3.0, 3, 611.0, 0.5 ) ) );
+	float macroV = vlgN01( vlgPf( X, Y, 2.0, 2.0, 3, 613.0, 0.5 ) );
+	VlgOut o;
+	o.fields = float4( 0.0, 0.0, 0.0, 0.0 );
+	o.albedo = float4( clamp( streak + drip, 0.0, 1.0 ), salt, mildew, macroV );
+	return o;
+}
+
+// CORRUGATED ROOF SHEET - tile = 0.84 m across the ribs (X, 8 ribs) x 1.68 m down the slope (Y, 3 purlins)
+VlgOut vlgGen_roof( float X, float Y )
+{
+	float corr = sin( ( X * 8.0 - 0.25 ) * VLG_TAU ) * 0.5 + 0.5;
+	float valley = 1.0 - corr;
+	// screws with washers on every second crest at each purlin
+	float sx = ( fract( X * 4.0 - 0.25 + 0.5 ) - 0.5 ) * ( 0.84 / 4.0 );
+	float sy = ( fract( Y * 3.0 - 0.5 + 0.5 ) - 0.5 ) * ( 1.68 / 3.0 );
+	float ds = length( float2( sx, sy ) );
+	float washer = 1.0 - smoothstep( 0.0095, 0.0115, ds );
+	float hq = ds / 0.0065;
+	float head = sqrt( max( 1.0 - hq * hq, 0.0 ) );
+	// dents, rust pitting
+	float4 dw = vlgPw( X, Y, 5.0, 10.0, 13.0, 0.9 );
+	float dent = step( 0.7, dw.z ) * ( 1.0 - smoothstep( 0.0, 0.5, dw.x ) );
+	float blot = vlgN01( vlgPf( X, Y, 3.0, 5.0, 5, 31.0, 0.5 ) );
+	float vstreak = vlgN01( vlgPn( X, Y, 48.0, 3.0, 33.0 ) );
+	float sq = sx / 0.007;
+	float screwStreak = exp( - ( sq * sq ) ) * smoothstep( - 0.35, - 0.01, sy ) * step( sy, 0.004 )
+		* ( vlgN01( vlgPn( X, Y, 16.0, 6.0, 35.0 ) ) * 0.8 + 0.2 );
+	float edge = 1.0 - smoothstep( 0.0, 0.05, min( X, 1.0 - X ) * 0.84 );
+	float streakLong = smoothstep( 0.55, 0.85, vlgN01( vlgPn( X, Y, 64.0, 2.0, 39.0 ) ) ) * vlgN01( vlgPf( X, Y, 4.0, 6.0, 2, 45.0, 0.5 ) );
+	float rust = clamp( blot * 0.42 + vstreak * valley * 0.25 + streakLong * 0.35 + screwStreak * 0.7 + washer * 0.45 + edge * 0.3 + dent * 0.15 - 0.05, 0.0, 1.0 );
+	float pit = vlgPn( X, Y, 150.0, 300.0, 37.0 ) * smoothstep( 0.45, 0.8, rust );
+	float lapLine = 1.0 - smoothstep( 0.0012, 0.0028, abs( X * 0.84 - 0.028 ) );
+	float lapTop = 1.0 - smoothstep( 0.026, 0.03, X * 0.84 );
+	float height = corr * 0.9 + washer * 0.035 + head * 0.05 - dent * 0.1 + pit * 0.012 + lapTop * 0.012;
+
+	float rustVar = vlgN01( vlgPf( X, Y, 10.0, 20.0, 3, 41.0, 0.5 ) );
+	float fade = clamp( vlgN01( vlgPf( X, Y, 2.0, 4.0, 4, 43.0, 0.5 ) ) * 0.8 + corr * 0.25, 0.0, 1.0 );
+	float grime = clamp( valley * vlgN01( vlgPn( X, Y, 32.0, 2.0, 47.0 ) ) * 0.8 + blot * 0.2, 0.0, 1.0 );
+	float rough = clamp( 0.5 + ( vlgN01( vlgPn( X, Y, 20.0, 40.0, 49.0 ) ) - 0.5 ) * 0.25 + fade * 0.1, 0.0, 1.0 );
+	float occ = 1.0 - lapLine * 0.7 - vlgBand( ds, 0.0095, 0.011, 0.012, 0.016 ) * 0.35;
+	VlgOut o;
+	o.fields = float4( height, rough, occ, 0.0 );
+	o.albedo = float4( rust, rustVar, fade, grime );
+	return o;
+}
+
+// PALM THATCH - tile = 1 m along the eave (X) x 1 m up the slope (Y), 5 layered rows
+struct VlgRow { float tip; float sf; float rnd; };
+
+#define VLG_R 5.0
+
+VlgRow vlgRow( float X, float rowF, float k )
+{
+	float kk = k - floor( k / VLG_R ) * VLG_R;
+	float warp = vlgPNoise( float2( X * 7.0, kk * 3.1 ), float2( 7.0, 1000.0 ), 131.0 );
+	// strands lean a little, in coherent groups, so they are not perfectly parallel
+	float lean = vlgPNoise( float2( X * 9.0, kk * 5.3 ), float2( 9.0, 1000.0 ), 133.0 );
+	float s = max( rowF - k, - 0.5 );
+	float sc = X * 110.0 + warp * 1.3 + lean * s * 2.2;
+	float sid = floor( sc );
+	float sidW = sid - floor( sid / 110.0 ) * 110.0;
+	float sf = fract( sc );
+	float rnd = vlgHf( sidW + kk * 211.0, kk * 7.3 + 1.0 );
+	float lump = vlgN01( vlgPNoise( float2( X * 5.0, kk * 2.3 ), float2( 5.0, 1000.0 ), 137.0 ) );
+	float lump2 = vlgN01( vlgPNoise( float2( X * 2.0, kk * 1.7 ), float2( 2.0, 1000.0 ), 139.0 ) );
+	float hang = 0.06 + lump * 0.14 + lump2 * 0.16 + rnd * rnd * 0.22;
+	VlgRow r;
+	r.tip = k - hang;
+	r.sf = sf;
+	r.rnd = rnd;
+	return r;
+}
+
+VlgOut vlgGen_thatch( float X, float Y )
+{
+	// rows wave up and down along the eave and are unevenly spaced
+	float rowWarp = vlgPn( X, Y, 3.0, 1.0, 143.0 ) * 0.22 + vlgPn( X, Y, 7.0, 2.0, 145.0 ) * 0.1;
+	float rowF = Y * VLG_R + rowWarp;
+	float k0 = floor( rowF );
+
+	VlgRow r0 = vlgRow( X, rowF, k0 );
+	VlgRow r1 = vlgRow( X, rowF, k0 + 1.0 );
+	VlgRow r2 = vlgRow( X, rowF, k0 + 2.0 );
+	float in1 = step( r1.tip, rowF );
+	float tip = mix( r0.tip, r1.tip, in1 );
+	float nextTip = mix( r1.tip, r2.tip, in1 );
+	float sf = mix( r0.sf, r1.sf, in1 );
+	float rnd = mix( r0.rnd, r1.rnd, in1 );
+	float s = rowF - tip;
+	float dNext = nextTip - rowF;
+
+	float bulge = sin( sf * VLG_PI );
+	float tipZone = 1.0 - smoothstep( 0.0, 0.16, s );
+	// frayed tips and gaps between strands reveal the darker layer underneath
+	float gapW = mix( 0.43, 0.3, tipZone ) - vlgHf( rnd, 2.2 ) * 0.06;
+	float gap = smoothstep( gapW, gapW + 0.05, abs( sf - 0.5 ) );
+	float fibre = vlgPn( X, Y, 330.0, 6.0, 139.0 );
+	float fibre2 = vlgPn( X, Y, 160.0, 3.0, 141.0 );
+	float height = 0.92 - min( s, 1.3 ) / 1.3 * 0.55 + bulge * 0.08 + fibre * 0.03 - gap * 0.32;
+
+	float3 golden = float3( 0.42, 0.3, 0.13 );
+	float3 pale = float3( 0.5, 0.43, 0.27 );
+	float3 brown = float3( 0.24, 0.165, 0.09 );
+	float3 grey = float3( 0.34, 0.31, 0.26 );
+	float3 col = mix( golden, pale, smoothstep( 0.25, 0.75, rnd ) );
+	col = mix( col, brown, step( 0.85, rnd ) * 0.75 );
+	col = mix( col, grey, smoothstep( 0.1, 0.5, vlgHf( rnd, 9.1 ) ) * 0.4 );
+	col = col * ( vlgN01( fibre ) * 0.38 + 0.8 ) * ( vlgN01( fibre2 ) * 0.2 + 0.9 );
+	col = mix( col, grey * 1.18, tipZone * 0.4 );
+	col = col * ( 1.0 - smoothstep( 0.55, 1.25, s ) * 0.3 );
+	col = mix( col, float3( 0.07, 0.055, 0.035 ), gap * 0.85 );
+	float occ = ( smoothstep( 0.0, 0.32, dNext ) * 0.7 + 0.3 ) * ( bulge * 0.25 + 0.75 ) * ( 1.0 - gap * 0.6 );
+	float rough = 0.88 + fibre * 0.05;
+	VlgOut o;
+	o.fields = float4( height, rough, occ, 0.0 );
+	o.albedo = float4( col, tipZone );
+	return o;
+}
+
+// RUBBLE STONE WITH MORTAR - tile = 2 m x 2 m: warped, rounded stones with mottling and lichen
+VlgOut vlgGen_stone( float X, float Y )
+{
+	float wx = vlgPf( X, Y, 4.0, 4.0, 2, 213.0, 0.5 ) * 0.45;
+	float wy = vlgPf( X, Y, 4.0, 4.0, 2, 215.0, 0.5 ) * 0.45;
+	float4 W = vlgPWorley( float2( X * 7.0 + wx, Y * 12.0 + wy ), float2( 7.0, 12.0 ), 201.0, 0.85 );
+	float edge = W.y - W.x;
+	float mortar = 1.0 - smoothstep( 0.035, 0.085, edge );
+	float dome = pow( smoothstep( 0.02, 0.5, edge ), 0.7 );
+	float surf = vlgPf( X, Y, 24.0, 24.0, 4, 203.0, 0.5 );
+	float4 pits = vlgPw( X, Y, 70.0, 70.0, 207.0, 1.0 );
+	float porous = step( 0.55, vlgHf( W.z, 4.2 ) );
+	float pitSize = mix( 0.1, 0.19, vlgHf( pits.z, 1.7 ) );
+	float pit = ( 1.0 - smoothstep( pitSize * 0.6, pitSize, pits.x ) ) * step( 0.4, pits.z ) * ( porous * 0.75 + 0.25 );
+	float sandy = vlgPn( X, Y, 140.0, 140.0, 209.0 );
+	float height = 0.2 + dome * 0.46 + surf * 0.11 + vlgPn( X, Y, 200.0, 200.0, 229.0 ) * 0.025 - pit * 0.16 - mortar * 0.12 + sandy * 0.02;
+
+	float id = W.z;
+	// coral stone / limestone: warm beiges with the odd darker basalt and pale block
+	float3 c0 = float3( 0.55, 0.5, 0.41 );
+	float3 c1 = float3( 0.47, 0.45, 0.41 );
+	float3 c2 = float3( 0.42, 0.37, 0.3 );
+	float3 c3 = float3( 0.3, 0.29, 0.27 );
+	float3 c4 = float3( 0.64, 0.6, 0.52 );
+	float3 col = mix( c0, c1, smoothstep( 0.2, 0.4, id ) );
+	col = mix( col, c2, smoothstep( 0.5, 0.62, id ) );
+	col = mix( col, c3, smoothstep( 0.8, 0.86, id ) * 0.8 );
+	col = mix( col, c4, smoothstep( 0.9, 0.97, id ) );
+	// mottling, veins and weathering inside each stone
+	float mott = vlgN01( vlgPf( X, Y, 10.0, 10.0, 4, 217.0, 0.5 ) );
+	float vein = ( 1.0 - smoothstep( 0.0, 0.035, abs( vlgPf( X, Y, 6.0, 6.0, 3, 219.0, 0.5 ) ) ) ) * step( 0.6, vlgHf( id, 6.6 ) );
+	float speck = vlgN01( vlgPn( X, Y, 300.0, 300.0, 225.0 ) );
+	float grain = vlgN01( vlgPn( X, Y, 120.0, 120.0, 227.0 ) );
+	col = col * ( mott * 0.6 + 0.68 ) * ( vlgN01( surf ) * 0.3 + 0.85 ) * ( speck * 0.34 + 0.83 ) * ( grain * 0.22 + 0.89 );
+	col = col * mix( 0.66, 1.0, smoothstep( 0.04, 0.28, edge ) );
+	col = mix( col, col * 1.25, vein * 0.5 );
+	// lichen: pale grey-green and dark specks
+	float lich = smoothstep( 0.62, 0.8, vlgN01( vlgPf( X, Y, 8.0, 8.0, 3, 221.0, 0.5 ) ) ) * smoothstep( 0.4, 0.6, vlgN01( vlgPn( X, Y, 60.0, 60.0, 223.0 ) ) );
+	col = mix( col, float3( 0.42, 0.44, 0.36 ), lich * 0.45 );
+	col = col * ( 1.0 - pit * 0.5 );
+	col = mix( col, float3( 0.5, 0.47, 0.41 ) * ( vlgN01( sandy ) * 0.3 + 0.85 ), mortar );
+	col = col * ( 1.0 - vlgBand( edge, 0.03, 0.06, 0.08, 0.16 ) * 0.3 );
+	float plaster = clamp( vlgN01( vlgPf( X, Y, 3.0, 3.0, 5, 211.0, 0.5 ) ) - mortar * 0.08, 0.0, 1.0 );
+	float rough = 0.84 + surf * 0.06 + mortar * 0.1 - lich * 0.05;
+	float occ = 1.0 - pit * 0.55 - mortar * 0.3;
+	VlgOut o;
+	o.fields = float4( height, rough, occ, 0.0 );
+	o.albedo = float4( col, plaster );
+	return o;
+}
+
+// WORN METAL / PLASTIC - tile = 1 m x 1 m: rust blooms, pits, scratches, grime
+VlgOut vlgGen_hard( float X, float Y )
+{
+	float baseN = vlgN01( vlgPf( X, Y, 4.0, 4.0, 5, 401.0, 0.5 ) );
+	float4 sp = vlgPw( X, Y, 16.0, 16.0, 403.0, 1.0 );
+	float spots = ( 1.0 - smoothstep( 0.1, 0.38, sp.x ) ) * step( 0.5, sp.z );
+	float rust = clamp( baseN * 0.8 + spots * 0.35 - 0.08, 0.0, 1.0 );
+	float sMask = smoothstep( 0.2, 0.6, vlgN01( vlgPf( X, Y, 3.0, 3.0, 2, 413.0, 0.5 ) ) );
+	float s1 = 1.0 - smoothstep( 0.008, 0.03, abs( vlgPn( X, Y, 3.0, 90.0, 405.0 ) ) );
+	float s2 = 1.0 - smoothstep( 0.008, 0.03, abs( vlgPn( X, Y, 90.0, 3.0, 407.0 ) ) );
+	float scratch = max( s1, s2 ) * sMask;
+	float grime = vlgN01( vlgPf( X, Y, 3.0, 3.0, 3, 409.0, 0.5 ) );
+	float4 pw2 = vlgPw( X, Y, 90.0, 90.0, 411.0, 1.0 );
+	float pit = ( 1.0 - smoothstep( 0.1, 0.28, pw2.x ) ) * smoothstep( 0.4, 0.8, rust );
+	float bump = vlgPn( X, Y, 40.0, 40.0, 415.0 ) * 0.04 * rust;
+	float height = 0.5 - pit * 0.3 - scratch * 0.12 + bump;
+	float rough = clamp( 0.5 + rust * 0.3 - scratch * 0.25 + grime * 0.08, 0.0, 1.0 );
+	float occ = 1.0 - pit * 0.5;
+	VlgOut o;
+	o.fields = float4( height, rough, occ, 0.0 );
+	o.albedo = float4( rust, scratch, grime, 0.0 );
+	return o;
+}
+
+// three-strand rope, tile = one circumference long x full circumference around
+float vlgRopeH( float2 q )
+{
+	float phi = ( q.x + q.y ) * 3.0;
+	float sf = fract( phi );
+	float a = sf * 2.0 - 1.0;
+	float prof = sqrt( max( 1.0 - a * a, 0.0 ) );
+	float yarn = fract( sf * 3.0 + ( q.x - q.y ) * 6.0 );
+	float b = yarn * 2.0 - 1.0;
+	float yprof = sqrt( max( 1.0 - b * b, 0.0 ) );
+	float fuzz = vlgPNoise( q * 64.0, float2( 64.0, 64.0 ), 801.0 );
+	return prof * 0.8 + yprof * prof * 0.2 + fuzz * 0.03;
+}
+
+VlgOut vlgGen_rope( float X, float Y )
+{
+	float2 q = float2( X, Y );
+	float e = 1.0 / 256.0;
+	float hx = vlgRopeH( q + float2( e, 0.0 ) ) - vlgRopeH( q - float2( e, 0.0 ) );
+	float hy = vlgRopeH( q + float2( 0.0, e ) ) - vlgRopeH( q - float2( 0.0, e ) );
+	float3 n = normalize( float3( hx * ( - 0.09 / ( 2.0 * e ) ), hy * ( - 0.09 / ( 2.0 * e ) ), 1.0 ) );
+	float h = vlgRopeH( q );
+	float fib = vlgN01( vlgPNoise( float2( ( X + Y ) * 40.0, ( X - Y ) * 160.0 ), float2( 40.0, 160.0 ), 803.0 ) );
+	float lum = 0.45 + h * 0.4 + fib * 0.15;
+	float ao = 0.3 + smoothstep( 0.0, 0.7, h ) * 0.7;
+	VlgOut o;
+	o.fields = float4( 0.0, 0.0, 0.0, 0.0 );
+	o.albedo = float4( lum, ao, n.x * 0.5 + 0.5, n.y * 0.5 + 0.5 );
+	return o;
+}
+
+// knotted diamond fishing net, tile = 0.2 m (4 x 4 meshes)
+float vlgNetH( float2 q )
+{
+	float a = ( q.x + q.y ) * 4.0;
+	float b = ( q.x - q.y ) * 4.0;
+	float da = 0.5 - abs( fract( a ) - 0.5 );
+	float db = 0.5 - abs( fract( b ) - 0.5 );
+	float w = 0.055;
+	float qa = da / w;
+	float qb = db / w;
+	float la = sqrt( max( 1.0 - qa * qa, 0.0 ) ) * ( abs( fract( b * 14.0 ) - 0.5 ) * 0.25 + 0.8 );
+	float lb = sqrt( max( 1.0 - qb * qb, 0.0 ) ) * ( abs( fract( a * 14.0 ) - 0.5 ) * 0.25 + 0.8 );
+	float qk = length( float2( da, db ) ) / 0.1;
+	float knot = sqrt( max( 1.0 - qk * qk, 0.0 ) ) * 1.35;
+	return max( max( la, lb ), knot );
+}
+
+VlgOut vlgGen_net( float X, float Y )
+{
+	float2 q = float2( X, Y );
+	float e = 1.0 / 256.0;
+	float h = vlgNetH( q );
+	float hx = vlgNetH( q + float2( e, 0.0 ) ) - vlgNetH( q - float2( e, 0.0 ) );
+	float hy = vlgNetH( q + float2( 0.0, e ) ) - vlgNetH( q - float2( 0.0, e ) );
+	float3 n = normalize( float3( hx * ( - 0.012 / ( 2.0 * e ) ), hy * ( - 0.012 / ( 2.0 * e ) ), 1.0 ) );
+	float alpha = smoothstep( 0.0, 0.18, h );
+	float shade = 0.45 + min( h, 1.0 ) * 0.55;
+	VlgOut o;
+	o.fields = float4( 0.0, 0.0, 0.0, 0.0 );
+	o.albedo = float4( alpha, shade, n.x * 0.5 + 0.5, n.y * 0.5 + 0.5 );
+	return o;
+}
+
+// ---------------------------------------------------------------------------
+// Kernels (HASF / HASA: whether the set has a field map / a final albedo map)
+
+#define FIELDS_KERNEL( NAME, HASF, HASA ) \
+[numthreads( 8, 8, 1 )] \
+void Fields_##NAME( uint3 id : SV_DispatchThreadID ) \
+{ \
+	if ( id.x >= _Dim.x || id.y >= _Dim.y ) return; \
+	float2 t = ( float2( id.xy ) + 0.5 ) / float2( _Dim ); \
+	VlgOut r = vlgGen_##NAME( t.x, t.y ); \
+	if ( HASF ) _OutFields[ id.xy ] = r.fields; \
+	if ( HASA ) _OutAlbedo[ id.xy ] = r.albedo; \
+}
+
+FIELDS_KERNEL( wood, 1, 1 )
+FIELDS_KERNEL( paint, 1, 0 )
+FIELDS_KERNEL( roof, 1, 1 )
+FIELDS_KERNEL( thatch, 1, 1 )
+FIELDS_KERNEL( stone, 1, 1 )
+FIELDS_KERNEL( hard, 1, 1 )
+FIELDS_KERNEL( grime, 0, 1 )
+FIELDS_KERNEL( rope, 0, 1 )
+FIELDS_KERNEL( net, 0, 1 )
+
+// ---------------------------------------------------------------------------
+// Derivation pass: Sobel normal + horizon AO from the height field.
+// Taps read the field map nearest-filtered and repeat-wrapped: texel floor( pixel centre + offset ), wrapped.
+
+float4 vlgTap( float2 px, float2 o )
+{
+	int2 dim = int2( _Dim );
+	int2 p = int2( floor( px + o ) );
+	return _Fields.Load( int3( ( ( p % dim ) + dim ) % dim, 0 ) );
+}
+
+[numthreads( 8, 8, 1 )]
+void Derive( uint3 id : SV_DispatchThreadID )
+{
+	if ( id.x >= _Dim.x || id.y >= _Dim.y ) return;
+	float2 SLOPE = _Derive.xy;
+	float2 AO = _Derive.zw;
+	float2 px = float2( id.xy ) + 0.5;
+	float tl = vlgTap( px, float2( -1.0, 1.0 ) ).x;
+	float t = vlgTap( px, float2( 0.0, 1.0 ) ).x;
+	float tr = vlgTap( px, float2( 1.0, 1.0 ) ).x;
+	float l = vlgTap( px, float2( -1.0, 0.0 ) ).x;
+	float r = vlgTap( px, float2( 1.0, 0.0 ) ).x;
+	float bl = vlgTap( px, float2( -1.0, -1.0 ) ).x;
+	float b = vlgTap( px, float2( 0.0, -1.0 ) ).x;
+	float br = vlgTap( px, float2( 1.0, -1.0 ) ).x;
+	float4 c = vlgTap( px, float2( 0.0, 0.0 ) );
+	float dX = ( tr + r * 2.0 + br - ( tl + l * 2.0 + bl ) ) / 8.0;
+	float dY = ( tl + t * 2.0 + tr - ( bl + b * 2.0 + br ) ) / 8.0;
+	float3 n = normalize( float3( - dX * SLOPE.x, - dY * SLOPE.y, 1.0 ) );
+	// horizon based occlusion: 8 directions x 2 radii
+	float occ = 0.0;
+	[unroll] for ( int i = 0; i < 8; i ++ )
+	{
+		float a = ( float ) i / 8.0 * VLG_TAU + 0.3;
+		[unroll] for ( int k = 0; k < 2; k ++ )
+		{
+			float rad = k == 0 ? 3.0 : 9.0;
+			occ += clamp( ( vlgTap( px, float2( cos( a ) * rad, sin( a ) * rad ) ).x - c.x ) * AO.y / rad * 1.6, 0.0, 1.0 );
+		}
+	}
+	float ao = clamp( 1.0 - occ / 16.0 * AO.x, 0.0, 1.0 ) * c.z;
+	_OutNRA[ id.xy ] = float4( n.x * 0.5 + 0.5, n.y * 0.5 + 0.5, c.y, ao );
+}

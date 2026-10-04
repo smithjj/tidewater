@@ -885,7 +885,7 @@ namespace Tidewater.World
 		}
 
 		// min/max pyramid for CDLOD culling bounds
-		void BuildMinMax()
+		public void BuildMinMax()
 		{
 			const int tile = 8; // texels per tile at the finest level
 			int n = res / tile;

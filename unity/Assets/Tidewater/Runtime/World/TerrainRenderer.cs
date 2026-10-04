@@ -23,6 +23,8 @@ namespace Tidewater.World
 		public Material material;
 
 		public TerrainData data { get; private set; }
+		public Colliders colliders { get; private set; } // the world's colliders (App.colliders): the village registers its buildings, the player and boats collide with them
+		public Tidewater.World.Village.Village village { get; private set; }
 		public TerrainGPU gpu { get; private set; }
 		public CDLOD lod { get; private set; }
 		public ShoreFieldData shoreField { get; private set; }
@@ -56,6 +58,11 @@ namespace Tidewater.World
 			var sw = System.Diagnostics.Stopwatch.StartNew();
 			data = new TerrainData( seed );
 			double genMs = sw.Elapsed.TotalMilliseconds;
+			// the village flattens its building pads into the height map: it is built before the shore field and the terrain textures
+			colliders = new Colliders();
+			village = new Tidewater.World.Village.Village( data, colliders );
+			double villageMs = sw.Elapsed.TotalMilliseconds - genMs;
+			foreach ( var vv in FindObjectsByType<Tidewater.World.Village.VillageView>( FindObjectsSortMode.None ) ) vv.Rebuild();
 			// the wave travel-time field the shore waves follow (App.js: res 512, the world's swell direction)
 			shoreField = ShoreField.Compute( data, 512, WorldLayout.SwellDirX, WorldLayout.SwellDirZ );
 			gpu = new TerrainGPU( data, shoreField );
@@ -69,7 +76,7 @@ namespace Tidewater.World
 			for ( int i = 0; i < Batch; i ++ ) identity[ i ] = Matrix4x4.identity;
 			block = new MaterialPropertyBlock();
 			Shader.SetGlobalVectorArray( "_TWLodMorph", PadMorph( lod.morph ) );
-			stats = $"terrain: generate {genMs:F0} ms, textures {gpu.bakeMs:F0} ms, total {sw.Elapsed.TotalMilliseconds:F0} ms";
+			stats = $"terrain: generate {genMs:F0} ms, village {villageMs:F0} ms, textures {gpu.bakeMs:F0} ms, total {sw.Elapsed.TotalMilliseconds:F0} ms";
 		}
 
 		static Vector4[] PadMorph( Vector4[] m )
@@ -82,7 +89,7 @@ namespace Tidewater.World
 		void Release()
 		{
 			if ( gpu != null ) gpu.Destroy();
-			gpu = null; data = null; lod = null; shoreField = null;
+			gpu = null; data = null; colliders = null; village = null; lod = null; shoreField = null;
 		}
 
 		// travelling gust field offset (the same integration as Vegetation's vegGustOffset)

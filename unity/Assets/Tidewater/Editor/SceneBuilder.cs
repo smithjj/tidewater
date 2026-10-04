@@ -304,3 +304,39 @@ namespace Tidewater.EditorTools
 		}
 	}
 }
+
+namespace Tidewater.EditorTools
+{
+	public static class BoatDebug
+	{
+		// puts the lobster boat on the sea at sim (x, z), heading yawDeg (0 = north, clockwise), floating at the design waterline
+		public static string Spawn( double x, double z, double yawDeg )
+		{
+			var g = GameObject.Find( "Lobster Boat" ) ?? new GameObject( "Lobster Boat" );
+			if ( g.GetComponent<Tidewater.World.Boat.BoatView>() == null ) g.AddComponent<Tidewater.World.Boat.BoatView>();
+			g.transform.SetPositionAndRotation( Tidewater.Util.Sim.ToUnity( x, 0, z ), Quaternion.Euler( 0, ( float ) yawDeg, 0 ) );
+			return "boat at sim (" + x + ", " + z + ") yaw " + yawDeg;
+		}
+
+		public static string Rebuild()
+		{
+			var g = GameObject.Find( "Lobster Boat" );
+			if ( g == null ) return "no boat";
+			g.GetComponent<Tidewater.World.Boat.BoatView>().Rebuild();
+			return "rebuilt";
+		}
+
+		// camera `dist` m from the boat along `bearingDeg` (0 = north of it), `eye` m above the water, looking at the boat's middle
+		public static string Look( double dist, double bearingDeg, double eye, double lookY = 1.0 )
+		{
+			var g = GameObject.Find( "Lobster Boat" );
+			if ( g == null ) return "no boat";
+			var c = Camera.main;
+			var dir = Quaternion.Euler( 0, ( float ) bearingDeg, 0 ) * Vector3.forward;
+			var target = g.transform.position + Vector3.up * ( float ) lookY;
+			c.transform.position = new Vector3( g.transform.position.x, ( float ) eye, g.transform.position.z ) + dir * ( float ) dist;
+			c.transform.rotation = Quaternion.LookRotation( ( target - c.transform.position ).normalized, Vector3.up );
+			return "camera at " + c.transform.position;
+		}
+	}
+}

@@ -14,5 +14,15 @@ namespace Tidewater.Util
 		public static Vector3 ToUnity( double x, double y, double z ) => new Vector3( ( float ) x, ( float ) y, ( float ) - z );
 		public static Vector3 FromUnity( Vector3 p ) => new Vector3( p.x, p.y, - p.z );
 		public static Vector3 DirToUnity( Vector3 d ) => new Vector3( d.x, d.y, - d.z );
+
+		// The boat's pose. Its sim frame is right-handed (+Z forward, +X port); the Unity boat meshes are mirrored in x (local x = -x), and the
+		// world mirrors z, so the Unity rotation is R_u = M R S with M = diag(1, 1, -1), S = diag(-1, 1, 1): M = Rz(180) * -1 and S = Rx(180) * -1
+		// give R_u = Rz(180) R Rx(180), a proper rotation (a point p at sim position R p + t is at Unity R_u (S p) + M t).
+		public static Quaternion BoatToUnity( Tidewater.Engine.Quaternion q )
+		{
+			var t = new Tidewater.Engine.Quaternion().multiplyQuaternions( new Tidewater.Engine.Quaternion( 0, 0, 1, 0 ), q );
+			t.multiplyQuaternions( t, new Tidewater.Engine.Quaternion( 1, 0, 0, 0 ) );
+			return new Quaternion( ( float ) t.x, ( float ) t.y, ( float ) t.z, ( float ) t.w );
+		}
 	}
 }

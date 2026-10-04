@@ -44,6 +44,11 @@ namespace Tidewater.EditorTools
 			cvol.injectionPoint = UnityEngine.Rendering.HighDefinition.CustomPassInjectionPoint.BeforePostProcess;
 			if ( cvol.customPasses.Count == 0 ) cvol.customPasses.Add( new UnderwaterCompositePass() );
 
+			// the lobster boat at its berth, moored (BoatDriver hosts the controller until the player is ported)
+			var boat = GameObject.Find( "Lobster Boat" ) ?? new GameObject( "Lobster Boat" );
+			if ( boat.GetComponent<Tidewater.World.Boat.BoatView>() == null ) boat.AddComponent<Tidewater.World.Boat.BoatView>();
+			if ( boat.GetComponent<Tidewater.Player.BoatDriver>() == null ) boat.AddComponent<Tidewater.Player.BoatDriver>();
+
 			// camera: off the beach, looking north at the island (Unity +z = north)
 			var cam = Camera.main;
 			cam.transform.SetPositionAndRotation( new Vector3( 60, 12, - 150 ), Quaternion.Euler( 3, 0, 0 ) );
@@ -316,6 +321,95 @@ namespace Tidewater.EditorTools
 			if ( g.GetComponent<Tidewater.World.Boat.BoatView>() == null ) g.AddComponent<Tidewater.World.Boat.BoatView>();
 			g.transform.SetPositionAndRotation( Tidewater.Util.Sim.ToUnity( x, 0, z ), Quaternion.Euler( 0, ( float ) yawDeg, 0 ) );
 			return "boat at sim (" + x + ", " + z + ") yaw " + yawDeg;
+		}
+
+		// installs the driver and runs the boat for `seconds` of sim time in the Editor (it does not tick when not playing): each frame the sea
+		// advances, the water queries are dispatched and read back at once, and the controller steps. Returns the boat's state.
+		public static string Sim( double seconds, double throttle, double steer, bool driven, double dt = 1.0 / 30 )
+		{
+			var g = GameObject.Find( "Lobster Boat" );
+			if ( g == null ) return "no boat";
+			var drv = g.GetComponent<Tidewater.Player.BoatDriver>() ?? g.AddComponent<Tidewater.Player.BoatDriver>();
+			var ocean = Object.FindAnyObjectByType<OceanRenderer>();
+			if ( ocean == null || ocean.query == null ) return "no ocean query yet (render a frame first)";
+			if ( ! drv.Ensure() ) return "driver not ready";
+			drv.SetControls( throttle, steer, driven );
+			var q = ocean.query;
+			for ( double t = 0; t < seconds; t += dt )
+			{
+				ocean.Advance( ( float ) dt, ( float ) dt );
+				q.Update(); q.Flush();
+				drv.Tick( dt );
+			}
+
+			return State();
+		}
+
+		// the pose mapping: for random poses, a boat-frame point p must land at the same place whether it goes through the sim
+		// (R p + t, then the z flip) or through the Unity transform of the mirrored mesh (local = (-x, y, z))
+		public static string CheckPose()
+		{
+			var view = GameObject.Find( "Lobster Boat" ).GetComponent<Tidewater.World.Boat.BoatView>();
+			var saved = ( view.transform.position, view.transform.rotation );
+			var rnd = new System.Random( 5 ); double worst = 0;
+			for ( int k = 0; k < 20; k ++ )
+			{
+				var q = new Tidewater.Engine.Quaternion( rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5, rnd.NextDouble() - 0.5 ).normalize();
+				var t = new Tidewater.Engine.Vector3( rnd.NextDouble() * 100, rnd.NextDouble() * 4, rnd.NextDouble() * 100 );
+				view.SetPose( t, q );
+				var p = new Tidewater.Engine.Vector3( rnd.NextDouble() * 4 - 2, rnd.NextDouble() * 3 - 1, rnd.NextDouble() * 8 - 4 );
+				var w = p.clone().applyQuaternion( q ).add( t );
+				var u = view.transform.TransformPoint( new Vector3( - ( float ) p.x, ( float ) p.y, ( float ) p.z ) );
+				worst = System.Math.Max( worst, System.Math.Max( System.Math.Abs( u.x - w.x ), System.Math.Max( System.Math.Abs( u.y - w.y ), System.Math.Abs( u.z + w.z ) ) ) );
+			}
+
+			view.transform.SetPositionAndRotation( saved.Item1, saved.Item2 );
+			return "worst pose error " + worst.ToString( "E2" ) + " m (float precision of positions ~1e-5)";
+		}
+
+		// the part rotations: a vertex of each animated part, rotated the JS way (about the part's local axis in the right-handed boat frame),
+		// must land where the mirrored Unity mesh puts it
+		public static string CheckParts()
+		{
+			var view = GameObject.Find( "Lobster Boat" ).GetComponent<Tidewater.World.Boat.BoatView>();
+			var m = view.model;
+			var q = new Tidewater.Engine.Quaternion( 0.3, -0.2, 0.5, 0.7 ).normalize();
+			var t = new Tidewater.Engine.Vector3( 12, 1, -7 );
+			view.SetPose( t, q );
+			const double a = 0.9;
+			view.SetSteering( 0.6 ); view.SetThrottle( -0.7 ); view.SetPropellerRPM( 300 ); view.Tick( 0.05 ); view.Tick( 0.05 );
+			// the angles the view has reached
+			double steer = 0.6, thr = -0.7;
+			var g = new Tidewater.Engine.Vector3( 0.07, 0.11, 0.2 );
+			double worst = 0; string sb = "";
+			System.Func<Tidewater.Engine.Vector3, Tidewater.Engine.Quaternion, Tidewater.Engine.Vector3, Tidewater.Engine.Vector3> place =
+				( pos, rot, v ) => v.clone().applyQuaternion( rot ).add( pos ); // part local -> parent
+			System.Action<string, Transform, Tidewater.Engine.Vector3> check = ( name, tr, expected ) =>
+			{
+				var u = tr.TransformPoint( new Vector3( - ( float ) g.x, ( float ) g.y, ( float ) g.z ) );
+				var w = expected.clone().applyQuaternion( q ).add( t );
+				double e = System.Math.Max( System.Math.Abs( u.x - w.x ), System.Math.Max( System.Math.Abs( u.y - w.y ), System.Math.Abs( u.z + w.z ) ) );
+				worst = System.Math.Max( worst, e ); sb += name + " " + e.ToString( "E1" ) + "  ";
+			};
+			var axisZ = new Tidewater.Engine.Vector3( 0, 0, 1 ); var axisX = new Tidewater.Engine.Vector3( 1, 0, 0 ); var axisY = new Tidewater.Engine.Vector3( 0, 1, 0 );
+			Tidewater.Engine.Quaternion Rot( Tidewater.Engine.Vector3 ax, double ang ) => new Tidewater.Engine.Quaternion().setFromAxisAngle( ax, ang );
+			// wheel: pivot rotation then rotation.z = -steer * turns * 2 pi
+			var wr = place( m.wheelPos, m.wheelPivotRotation, place( new Tidewater.Engine.Vector3(), Rot( axisZ, - steer * Tidewater.World.Boat.BoatModel.WHEEL_TURNS * System.Math.PI * 2 ), g ) );
+			check( "wheel", view.wheelMesh, wr );
+			check( "throttle", view.throttleMesh, place( m.throttlePos, Rot( axisX, thr * Tidewater.World.Boat.BoatModel.THROTTLE_ANGLE ), g ) );
+			check( "rudder", view.rudderMesh, place( m.rudderPos, Rot( axisY, - steer * Tidewater.World.Boat.RUDDER.maxAngle ), g ) );
+			check( "prop", view.propMesh, place( m.propPos, Rot( axisZ, view.propAngle ), g ) );
+			check( "radar", view.radarMesh, place( m.radarPos, Rot( axisY, view.radarAngle ), g ) );
+			return "worst part error " + worst.ToString( "E2" ) + ": " + sb;
+		}
+
+		public static string State()
+		{
+			var g = GameObject.Find( "Lobster Boat" );
+			var c = g?.GetComponent<Tidewater.Player.BoatDriver>()?.controller;
+			if ( c == null ) return "no controller";
+			var e = new Tidewater.Engine.Euler().setFromQuaternion( c.quaternion, "YXZ" );
+			return $"pos ({c.position.x:F2}, {c.position.y:F2}, {c.position.z:F2}) yaw {e.y * 57.2958:F1} pitch {e.x * 57.2958:F1} roll {e.z * 57.2958:F1} speed {c.speed:F2} wet {c.wetFraction:F2} rpm {c.rpm:F2} thrust {c.thrust:F0} hasWater {c.hasWater}";
 		}
 
 		public static string Rebuild()

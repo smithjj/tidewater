@@ -174,6 +174,13 @@ namespace Tidewater.World.Boat
 			return m;
 		}
 
+		// what BoatController reads of the model
+		public Tidewater.Player.BoatDynamics dynamics() => new Tidewater.Player.BoatDynamics
+		{
+			hydro = hydro, hullSamples = hullSamples, propeller = propeller, rudderZ = rudder.z,
+			hasLines = true, zAft = lines.zAft, zFwd = lines.zBow, deckY = lines.deckY, halfBreadth = lines.halfBreadth, tAtSheerZ = lines.tAtSheerZ,
+		};
+
 		public double halfBeamAt( double z ) => lines.halfBeamAt( z );
 		public double draftAt( double z ) => lines.draftAt( z );
 

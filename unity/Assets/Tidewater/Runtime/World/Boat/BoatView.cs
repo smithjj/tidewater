@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Tidewater.Engine;
 using UnityEngine;
@@ -11,12 +12,91 @@ using Quaternion = UnityEngine.Quaternion;
 namespace Tidewater.World.Boat
 {
 	[ExecuteAlways]
-	public sealed class BoatView : MonoBehaviour
+	public sealed class BoatView : MonoBehaviour, Tidewater.Player.IBoatVisual
 	{
 		public BoatModel model { get; private set; }
 		readonly Dictionary<string, Material> materials = new Dictionary<string, Material>();
 		readonly List<GameObject> built = new List<GameObject>();
 		public Transform wheelPivot, wheelMesh, throttleMesh, radarMesh, propMesh, rudderMesh;
+
+		// ---- the controls and the pose (IBoatVisual: what BoatController drives). Rotations: the JS part rotations are about the part's
+		// local axes in the right-handed boat frame; the Unity meshes are mirrored in x (Unity local x = -JS x), so a rotation about x keeps
+		// its angle and about y or z flips it (S Ry(a) S = Ry(-a), S Rz(a) S = Rz(-a), S = diag(-1, 1, 1)).
+		static UnityEngine.Quaternion RotX( double a ) => new UnityEngine.Quaternion( ( float ) Math.Sin( a / 2 ), 0, 0, ( float ) Math.Cos( a / 2 ) );
+		static UnityEngine.Quaternion RotY( double a ) => new UnityEngine.Quaternion( 0, ( float ) Math.Sin( -a / 2 ), 0, ( float ) Math.Cos( a / 2 ) );
+		static UnityEngine.Quaternion RotZ( double a ) => new UnityEngine.Quaternion( 0, 0, ( float ) Math.Sin( -a / 2 ), ( float ) Math.Cos( a / 2 ) );
+
+		double rpmShown, flagWind = 0.5;
+		public double propAngle, radarAngle;
+		readonly Tidewater.Engine.Vector3 simPos = new Tidewater.Engine.Vector3(), lastPos = new Tidewater.Engine.Vector3(), vel = new Tidewater.Engine.Vector3(), flagDir = new Tidewater.Engine.Vector3( 0, 0, -1 );
+		readonly Tidewater.Engine.Quaternion simQ = new Tidewater.Engine.Quaternion();
+		bool hasLastPos;
+
+		// pose of the boat in sim space (position, quaternion of the right-handed boat frame)
+		public void SetPose( Tidewater.Engine.Vector3 position, Tidewater.Engine.Quaternion quaternion )
+		{
+			simPos.copy( position ); simQ.copy( quaternion );
+			transform.SetPositionAndRotation( Tidewater.Util.Sim.ToUnity( position.x, position.y, position.z ), Tidewater.Util.Sim.BoatToUnity( quaternion ) );
+		}
+
+		// -1..1, positive turns the boat to port (left): rudder trailing edge to port, wheel turned counter-clockwise as seen from the helm
+		public void SetSteering( double angle )
+		{
+			double a = MathUtils.clamp( angle, -1, 1 );
+			if ( wheelMesh != null ) wheelMesh.localRotation = RotZ( - a * BoatModel.WHEEL_TURNS * Math.PI * 2 );
+			if ( rudderMesh != null ) rudderMesh.localRotation = RotY( - a * RUDDER.maxAngle );
+		}
+
+		// -1 (full astern) .. 0 (neutral) .. 1 (full ahead); lever tips forward for ahead
+		public void SetThrottle( double t )
+		{
+			if ( throttleMesh != null ) throttleMesh.localRotation = RotX( MathUtils.clamp( t, -1, 1 ) * BoatModel.THROTTLE_ANGLE );
+		}
+
+		// shaft RPM; positive = ahead (right-handed prop, clockwise from astern)
+		public void SetPropellerRPM( double rpm ) { rpmShown = rpm; }
+
+		// BoatModel.update( dt ): the propeller (its displayed speed saturates at ~5 rev/s so the blades don't strobe backwards), the radar,
+		// and the ensign (apparent wind, true wind minus the boat's velocity, in the boat frame)
+		public void Tick( double dt )
+		{
+			if ( ! ( dt > 0 ) || model == null ) return;
+			double rps = rpmShown / 60;
+			double shown = BoatModel.PROP_DISPLAY_RPS * Math.Tanh( rps / BoatModel.PROP_DISPLAY_RPS );
+			propAngle = ( propAngle + shown * Math.PI * 2 * dt ) % ( Math.PI * 2 );
+			if ( propMesh != null ) propMesh.localRotation = RotZ( propAngle );
+			radarAngle = ( radarAngle + BoatModel.RADAR_RPM / 60 * Math.PI * 2 * dt ) % ( Math.PI * 2 );
+			if ( radarMesh != null ) radarMesh.localRotation = RotY( radarAngle );
+
+			var v = new Tidewater.Engine.Vector3();
+			if ( hasLastPos )
+			{
+				v.subVectors( simPos, lastPos ).divideScalar( dt );
+				if ( v.lengthSq() < 900 ) vel.lerp( v, 1 - Math.Exp( - dt * 4 ) ); // ignore teleports
+			}
+
+			lastPos.copy( simPos );
+			hasLastPos = true;
+
+			var wd = G.windDir; double ws = G.windSpeed;
+			v.set( wd.x * ws, 0, wd.y * ws ).sub( vel ).applyQuaternion( new Tidewater.Engine.Quaternion().copy( simQ ).invert() );
+			v.y = 0;
+			double speed = v.length();
+			if ( speed > 1e-3 )
+			{
+				v.divideScalar( speed );
+				flagDir.lerp( v, 1 - Math.Exp( - dt * 3 ) );
+				if ( flagDir.lengthSq() < 1e-4 ) flagDir.copy( v );
+				flagDir.normalize();
+			}
+
+			flagWind += ( MathUtils.clamp( speed / 9, 0, 1 ) - flagWind ) * ( 1 - Math.Exp( - dt * 2 ) );
+			if ( materials.TryGetValue( "fittings", out var fm ) )
+			{
+				fm.SetVector( "_FlagDir", new Vector4( ( float ) flagDir.x, ( float ) flagDir.y, ( float ) flagDir.z, 0 ) );
+				fm.SetFloat( "_FlagWind", ( float ) flagWind );
+			}
+		}
 
 		static readonly string[] BUCKET_KIND = { "hull", "gelcoat", "wood", "fittings", "glass", "glow", "trap" };
 

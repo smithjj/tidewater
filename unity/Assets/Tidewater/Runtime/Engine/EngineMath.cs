@@ -10,6 +10,8 @@ namespace Tidewater.Engine
 		public const double EPSILON = 2.220446049250313e-16;   // Number.EPSILON
 		public static double Round( double x ) => Math.Floor( x + 0.5 );      // Math.round
 		public static double Trunc( double x ) => Math.Truncate( x );
+		public static double Sign( double x ) => double.IsNaN( x ) ? double.NaN : ( x > 0 ? 1 : ( x < 0 ? -1 : x ) );   // Math.sign
+		public static double Or( double x, double fallback ) => ( x == 0 || double.IsNaN( x ) ) ? fallback : x;           // x || fallback
 		public static double Hypot( double a, double b ) => HypotN( a, b, 0, 2 );
 		public static double Hypot( double a, double b, double c ) => HypotN( a, b, c, 3 );
 

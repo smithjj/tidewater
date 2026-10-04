@@ -29,7 +29,7 @@ namespace Tidewater.Ocean
 		public float height, nx, nz, floor;
 	}
 
-	public sealed class WaterQuery : IDisposable
+	public sealed class WaterQuery : IDisposable, Tidewater.Player.IWaterQuery
 	{
 		const int MAX = QueryLimits.MAX_QUERIES;
 
@@ -72,6 +72,14 @@ namespace Tidewater.Ocean
 			results = new ComputeBuffer( MAX, 16 );
 			results.SetData( new Vector4[ MAX ] );
 		}
+
+		// the read-back the boat controller (and any other CPU physics) reads
+		float Tidewater.Player.IWaterQuery.latency => latency;
+		bool Tidewater.Player.IWaterQuery.cpuValid => cpuValid;
+		int Tidewater.Player.IWaterQuery.version => version;
+		double Tidewater.Player.IWaterQuery.resultTime => resultTime;
+		float[] Tidewater.Player.IWaterQuery.cpu => cpu;
+		float[] Tidewater.Player.IWaterQuery.resultInputs => resultInputs;
 
 		// ---------------------------------------------------------------- CPU API
 

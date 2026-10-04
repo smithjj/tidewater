@@ -6,8 +6,10 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 
 // Hosts a BoatController on the lobster boat's BoatView until the player (Player.js) and the app loop are ported: builds the controller
-// once the sea's water queries exist, feeds it the controls and ticks it. Keyboard (play mode): W / S throttle ahead / astern, A / D steer
-// to port / starboard, Space throttle to neutral, Enter takes / leaves the helm. Tools drive it with SetControls / Tick.
+// once the sea's water queries exist, feeds it the controls and ticks it, and while at the helm drives the main camera with BoatCamera.
+// Keyboard (play mode), as the game's bindings: Enter takes / leaves the helm, W / S throttle ahead (Shift: full) / astern, A / D steer to
+// port / starboard, V toggles the helm / chase camera, right mouse button + move looks, mouse wheel zooms the chase camera. Tools drive it
+// with SetControls / Tick.
 namespace Tidewater.Player
 {
 	public sealed class BoatDriver : MonoBehaviour
@@ -15,8 +17,12 @@ namespace Tidewater.Player
 		public BoatController controller { get; private set; }
 		public Colliders colliders = new Colliders();
 		public bool keyboard = true;
+		public BoatCamera cam = new BoatCamera();
 		double throttleIn, steerIn;
 		BoatView view;
+		Engine.Vector2 look = new Engine.Vector2();
+		double wheel;
+		bool wasDriven;
 
 		// the controller, once the sea (its queries) and the terrain exist
 		public bool Ensure()
@@ -49,15 +55,43 @@ namespace Tidewater.Player
 		void Update()
 		{
 			if ( ! Application.isPlaying ) return;
+			look.set( 0, 0 ); wheel = 0;
 			if ( Ensure() && keyboard && Keyboard.current != null )
 			{
-				var kb = Keyboard.current;
+				var kb = Keyboard.current; var mouse = Mouse.current;
 				if ( kb.enterKey.wasPressedThisFrame ) { controller.driven = ! controller.driven; if ( controller.driven ) controller.moored = false; }
-				if ( kb.wKey.isPressed ) throttleIn = 1; else if ( kb.sKey.isPressed ) throttleIn = -1; else if ( kb.spaceKey.isPressed ) throttleIn = 0;
+				if ( kb.vKey.wasPressedThisFrame ) cam.toggle();
+				// Player.updateBoat: W 0.7, Shift+W 1.0, S -0.6, released = 0; A to port is positive steer
+				double fwd = ( kb.wKey.isPressed ? 1 : 0 ) - ( kb.sKey.isPressed ? 1 : 0 );
+				throttleIn = fwd >= 0 ? fwd * ( kb.leftShiftKey.isPressed ? 1 : 0.7 ) : fwd * 0.6;
 				steerIn = ( kb.aKey.isPressed ? 1 : 0 ) - ( kb.dKey.isPressed ? 1 : 0 );
+				if ( mouse != null )
+				{
+					if ( mouse.rightButton.isPressed ) { var d = mouse.delta.ReadValue(); look.set( d.x, - d.y ); } // pixels, y down
+					wheel = - Mathf.Sign( mouse.scroll.ReadValue().y ) * ( Mathf.Abs( mouse.scroll.ReadValue().y ) > 0.01f ? 1 : 0 );
+				}
 			}
 
 			Tick( Mathf.Min( Time.deltaTime, 0.1f ) );
+		}
+
+		// the camera follows the boat once it has moved this frame
+		void LateUpdate()
+		{
+			if ( ! Application.isPlaying || controller == null ) return;
+			var main = Camera.main;
+			if ( main == null ) return;
+			if ( controller.driven != wasDriven )
+			{
+				wasDriven = controller.driven;
+				var fly = main.GetComponent<DebugFlyCamera>();
+				if ( fly != null ) fly.enabled = ! wasDriven;
+				if ( wasDriven ) cam.takeHelm( controller );
+			}
+
+			if ( ! controller.driven ) return;
+			cam.update( controller, view.model.helmEye, look, wheel, Mathf.Min( Time.deltaTime, 0.1f ), out var eye, out var fwdV, out var up );
+			BoatCamera.Apply( main.transform, eye, fwdV, up );
 		}
 	}
 }

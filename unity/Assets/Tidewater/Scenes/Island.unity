@@ -358,6 +358,72 @@ MonoBehaviour:
   m_AreaLightEmissiveMeshShadowCastingMode: 0
   m_AreaLightEmissiveMeshMotionVectorGenerationMode: 0
   m_AreaLightEmissiveMeshLayer: -1
+--- !u!1 &376271300
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 376271302}
+  - component: {fileID: 376271301}
+  - component: {fileID: 376271303}
+  m_Layer: 0
+  m_Name: Lobster Boat
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &376271301
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 376271300}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 09a20c59dcb7a4b4ea8336e4c97532c4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.World.Boat.BoatView
+  wheelPivot: {fileID: 0}
+  wheelMesh: {fileID: 0}
+  throttleMesh: {fileID: 0}
+  radarMesh: {fileID: 0}
+  propMesh: {fileID: 0}
+  rudderMesh: {fileID: 0}
+  propAngle: 5.131113580989522
+  radarAngle: 3.518583772020605
+--- !u!4 &376271302
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 376271300}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0.010324847, y: 0.57460153, z: -0.03183457, w: 0.81774884}
+  m_LocalPosition: {x: 140.23235, y: -0.36111316, z: -80.51232}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &376271303
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 376271300}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 3669f2b378f25344b839d40f56cd6f82, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.Player.BoatDriver
+  keyboard: 1
 --- !u!1 &419152032
 GameObject:
   m_ObjectHideFlags: 0
@@ -651,6 +717,8 @@ MonoBehaviour:
   queryShader: {fileID: 7200000, guid: 5d08c8a799680a74d8c7615046c60e97, type: 3}
   shoreSimShader: {fileID: 7200000, guid: cab521871f2dde14fb4a77f92758d7c1, type: 3}
   underwaterLightShader: {fileID: 7200000, guid: 1743a2ed8e0f82147bb8b7cdd9952b5e, type: 3}
+  sprayShader: {fileID: 7200000, guid: a69f0bf9d9c75ff4a8601fec02df6788, type: 3}
+  breakersShader: {fileID: 7200000, guid: a42a11fa72c5f8642a41ea72ef5c1b5d, type: 3}
   material: {fileID: 1199730781}
   sun: {fileID: 157207113}
   gridSize: 32
@@ -718,7 +786,7 @@ MonoBehaviour:
   rangeFactor: 2
   seed: 7
   material: {fileID: 747400206}
-  stats: 'terrain: generate 4993 ms, textures 1268 ms, total 6652 ms'
+  stats: 'terrain: generate 2216 ms, textures 328 ms, total 2774 ms'
 --- !u!4 &1790201658
 Transform:
   m_ObjectHideFlags: 0
@@ -821,8 +889,8 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1823688464}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 40, y: -1.5, z: -40}
+  m_LocalRotation: {x: 0.074238725, y: -0.2580535, z: 0.019892208, w: 0.9630687}
+  m_LocalPosition: {x: 146.23235, y: 2.5, z: -90.904625}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -1041,3 +1109,4 @@ SceneRoots:
   - {fileID: 1631777224}
   - {fileID: 419152034}
   - {fileID: 927382347}
+  - {fileID: 376271302}

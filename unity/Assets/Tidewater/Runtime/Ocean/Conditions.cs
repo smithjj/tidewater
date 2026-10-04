@@ -57,10 +57,13 @@ namespace Tidewater.Ocean
 			windSpeed = ( float ) v.wind;
 			fft.choppiness = ( float ) v.chop;
 			// more whitecaps: foam starts at less compression (and more of it in fresh wind), lasts longer
-			fft.foamBias = ( float ) ( 0.5 + 0.16 * v.whitecaps + 0.01 * Math.Max( - 5, Math.Min( 12, v.wind - 7 ) ) );
-			fft.foamDecay = ( float ) ( 0.6 - 0.35 * v.whitecaps );
+			fft.foamBias = ( float ) FoamBias( v );
+			fft.foamDecay = ( float ) FoamDecay( v );
 			// shore.amplitude / shore.period (v.surf, v.period) and the cloud cover: the caller publishes them
 		}
+
+		public static double FoamBias( Condition v ) => 0.5 + 0.16 * v.whitecaps + 0.01 * Math.Max( - 5, Math.Min( 12, v.wind - 7 ) );
+		public static double FoamDecay( Condition v ) => 0.6 - 0.35 * v.whitecaps;
 
 		// a condition interpolated along the ladder, for a fractional level (0 Calm .. 3 Storm)
 		public static Condition ConditionAt( double level, double windDir )

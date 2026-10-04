@@ -27,6 +27,8 @@ namespace Tidewater.Ocean
 		// sea state on the Conditions ladder: 0 Calm .. 3 Storm (1 = Breezy, the JS default spectrum)
 		[Range( 0, 3 )] public float seaState = 1;
 		public float windDirection = 25; // degrees (Conditions windDir)
+		// the weather (World/Weather.cs) walks the sea state while the game runs: the slider above is then ignored (the JS hands the wheel back to the player on a manual change)
+		[NonSerialized] public bool weatherDriven;
 		// shore wave amplitude (offshore H/2) and period (s): written by the sea conditions (surf, period) once the weather exists
 		public float shoreAmplitude = 0.34f, shorePeriod = 9f;
 
@@ -166,13 +168,19 @@ namespace Tidewater.Ocean
 		// Conditions.writeConditions: a condition on the ladder drives the spectrum, the wind and the foam
 		void ApplySeaState( bool jump )
 		{
-			var c = Conditions.ConditionAt( seaState, windDirection );
-			Conditions.WriteConditions( fft, c, out Vector2 wd, out float ws, true, jump );
+			ApplyConditions( Conditions.ConditionAt( seaState, windDirection ), true, jump, true );
+			appliedSeaState = seaState;
+		}
+
+		// Weather.write: a condition (`cover`: the clouds' cover rides on whole steps only), published the way the JS writeConditions + its callers do
+		public void ApplyConditions( Condition c, bool spectrum, bool resetFoam, bool cover )
+		{
+			if ( fft == null ) return;
+			Conditions.WriteConditions( fft, c, out Vector2 wd, out float ws, spectrum, resetFoam );
 			G.windDir = wd;
 			G.windSpeed = ws;
-			G.cover = ( float ) c.cover;
+			if ( cover ) G.cover = ( float ) c.cover;
 			shoreAmplitude = ( float ) c.surf; shorePeriod = ( float ) c.period;
-			appliedSeaState = seaState;
 		}
 
 		// the surf the sea state asks for, on the shore waves: before anything evaluates them this frame (the sim, the crest finder and
@@ -188,7 +196,7 @@ namespace Tidewater.Ocean
 			if ( fft == null ) return;
 			SyncShore();
 			// a changed slider is a jump in the sea (clears the foam); the weather will drift it instead
-			if ( ! Mathf.Approximately( seaState, appliedSeaState ) ) ApplySeaState( true );
+			if ( ! weatherDriven && ! Mathf.Approximately( seaState, appliedSeaState ) ) ApplySeaState( true );
 			if ( Application.isPlaying )
 			{
 				G.dt = Mathf.Min( Time.deltaTime, 0.1f );

@@ -104,6 +104,18 @@ namespace Tidewater.EditorTools
 
 		public static string Hour( double h ) { Game().clock.Set( h ); return State(); }
 
+		// the sea state: a rung of the ladder, or the name of the one we are on (Debug.js weather)
+		public static string Weather( string name = null )
+		{
+			var w = Game()?.weather;
+			if ( w == null ) return "no weather yet";
+			if ( name == null ) return $"{w.name} level={w.level:0.###} target={w.target} hold={w.HoldHours:0.##}h wind={w.windDir:0.#}";
+			int i = System.Array.IndexOf( Tidewater.Ocean.Conditions.CONDITIONS, name );
+			if ( i < 0 ) return string.Join( " | ", Tidewater.Ocean.Conditions.CONDITIONS );
+			w.Jump( i );
+			return name;
+		}
+
 		public static string State()
 		{
 			var g = Game(); var h = Host();

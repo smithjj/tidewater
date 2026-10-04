@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Tidewater.Core;
+using Tidewater.Ocean;
 using Tidewater.Player;
 using Tidewater.World;
 using UnityEngine;
@@ -27,6 +28,7 @@ namespace Tidewater.Game
 		public bool showHud = true;
 		public Vendor openVendor { get; private set; }   // the trader whose panel is open (JS hud.standOpen / hud.vendor)
 		public bool inventoryOpen { get; private set; }  // the cooler panel (I)
+		public Weather weather { get; private set; }     // the sea-state walk (null until the world is built)
 		public FishingGame fishing { get; private set; } // the rod, the bite, the fight and the catch card (null until the world is built)
 
 		readonly List<Vendor> _vendors = new List<Vendor>();
@@ -39,7 +41,13 @@ namespace Tidewater.Game
 		bool built => state != null && lobster != null;
 
 		void Awake() { instance = this; }
-		void OnDestroy() { if ( instance == this ) instance = null; if ( fishing != null ) fishing.Dispose(); }
+		void OnDestroy()
+		{
+			if ( instance == this ) instance = null;
+			if ( fishing != null ) fishing.Dispose();
+			// the Editor's sea state slider works again once the game is gone
+			if ( weather != null && OceanRenderer.instance != null ) OceanRenderer.instance.weatherDriven = false;
+		}
 
 		// builds the state and the world half once the player's world exists (PlayerHost.Build): false until then
 		public bool Ensure( PlayerHost h )
@@ -52,6 +60,15 @@ namespace Tidewater.Game
 			state.load();
 			// the day resumes where it was left
 			if ( state.clock != null ) clock.hour = state.clock.Value;
+			// then the weather takes over the sea state (App.js: new Weather, onAnnounce, restore)
+			var ocean = OceanRenderer.instance;
+			if ( ocean != null )
+			{
+				weather = new Weather( () => clock.hour, () => clock.timeSpeed, ocean.windDirection, ocean.ApplyConditions, new System.Random().Next( 1000000000 ) );
+				weather.onAnnounce = text => Toast( text, 3.6f );
+				weather.restore( state.weather );
+				ocean.weatherDriven = true;
+			}
 			var vs = Stalls.Create( h.terrainData.HeightAt, h.colliders );
 			stand = vs[ 0 ]; chandlery = vs[ 1 ];
 			_vendors.Add( stand ); _vendors.Add( chandlery );
@@ -133,6 +150,7 @@ namespace Tidewater.Game
 		{
 			state.advanceDay();
 			state.setClock( clock.hour );
+			if ( weather != null ) state.setWeather( weather.state() );
 			state.save();
 			state.emit();
 			Toast( $"Day {state.day}", 3.4f );
@@ -167,6 +185,8 @@ namespace Tidewater.Game
 
 			// App.frame: the world clock runs, and midnight is a new day
 			if ( clock.Tick( dt ) ) NewDay();
+			// the weather walks the sea state on in-game time (a no-op while the clock is paused)
+			if ( weather != null ) weather.update( dt );
 			if ( inp.actHit( "pauseTime" ) ) Toast( clock.Toggle() ? "Time running" : "Time paused" );
 
 			if ( inp.actHit( "cooler" ) ) ToggleInventory();
@@ -177,9 +197,9 @@ namespace Tidewater.Game
 
 			UpdateBoat( dt, p );
 
-			// the world clock rides along in the save (every 20 s, and at midnight)
+			// the world clock and the weather ride along in the save (every 20 s, and at midnight)
 			clockT -= dt;
-			if ( clockT <= 0 ) { clockT = 20; state.setClock( clock.hour ); state.save(); }
+			if ( clockT <= 0 ) { clockT = 20; state.setClock( clock.hour ); if ( weather != null ) state.setWeather( weather.state() ); state.save(); }
 
 			// the traders
 			foreach ( var v in _vendors ) v.update( dt, p.mode == "walk" ? p.position : null );

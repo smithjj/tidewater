@@ -42,7 +42,8 @@ namespace Tidewater.Sky
 		PhysicallyBasedSky driverSky;
 		Exposure driverExposure;
 		VolumetricClouds driverClouds;
-		float cloudCover = -1, cloudWind = -1;
+		float cloudCover = -1, cloudCoverApplied = -1, cloudWind = -1;
+		const float COVER_EASE = 8f; // seconds
 		UnityEngine.Rendering.HighDefinition.RenderingLayerMask sunLayers; bool sunLayersKept;
 		double curveNight = -1;
 		HDAdditionalLightData sunData, moonData;
@@ -216,15 +217,22 @@ namespace Tidewater.Sky
 			double stars = s.night * SkyMath.starDark( s.sun.y );
 			driverSky.spaceEmissionMultiplier.Override( ( float ) ( stars * LUX_PER_UNIT ) );
 
-			// the clouds: the sea state's cover, and the wind that drifts them
-			if ( driverClouds != null && ( System.Math.Abs( G.cover - cloudCover ) > 0.002f || System.Math.Abs( G.windSpeed - cloudWind ) > 0.05f ) )
+			// the clouds: the sea state's cover, and the wind that drifts them. The weather writes the cover in whole steps (Weather.js: a step drops the JS clouds'
+			// temporal history), where HDRP's clouds would reshape in a frame, so the cover shown eases toward it (~8 s); in the Editor it snaps
+			if ( driverClouds != null )
 			{
-				cloudCover = G.cover; cloudWind = G.windSpeed;
-				driverClouds.shapeFactor.Override( 1.0f - 0.55f * cloudCover ); // HDRP: the lower the shape factor, the more sky is cloud
-				driverClouds.densityMultiplier.Override( 0.25f + 0.3f * cloudCover );
-				// the wind blows toward G.windDir (sim xz): Unity world is (x, -z); HDRP's orientation is degrees counter-clockwise from +x (not yet checked by eye)
-				driverClouds.globalWindSpeed = new WindSpeedParameter( cloudWind, WindParameter.WindOverrideMode.Custom, true );
-				driverClouds.orientation = new WindOrientationParameter( ( float ) ( System.Math.Atan2( - G.windDir.y, G.windDir.x ) * 180 / System.Math.PI + 360 ) % 360, WindParameter.WindOverrideMode.Custom, true );
+				float target = G.cover;
+				if ( cloudCover < 0 || ! Application.isPlaying ) cloudCover = target;
+				else cloudCover += ( target - cloudCover ) * ( 1 - Mathf.Exp( - Time.deltaTime / COVER_EASE ) );
+				if ( System.Math.Abs( cloudCover - cloudCoverApplied ) > 0.002f || System.Math.Abs( G.windSpeed - cloudWind ) > 0.05f )
+				{
+					cloudCoverApplied = cloudCover; cloudWind = G.windSpeed;
+					driverClouds.shapeFactor.Override( 1.0f - 0.55f * cloudCover ); // HDRP: the lower the shape factor, the more sky is cloud
+					driverClouds.densityMultiplier.Override( 0.25f + 0.3f * cloudCover );
+					// the wind blows toward G.windDir (sim xz): Unity world is (x, -z); HDRP's orientation is degrees counter-clockwise from +x (not yet checked by eye)
+					driverClouds.globalWindSpeed = new WindSpeedParameter( cloudWind, WindParameter.WindOverrideMode.Custom, true );
+					driverClouds.orientation = new WindOrientationParameter( ( float ) ( System.Math.Atan2( - G.windDir.y, G.windDir.x ) * 180 / System.Math.PI + 360 ) % 360, WindParameter.WindOverrideMode.Custom, true );
+				}
 			}
 
 			// the eye: its ceiling follows the night
@@ -249,7 +257,7 @@ namespace Tidewater.Sky
 			// the clouds: only the cover and the wind are ours, the rest is the scene profile's (SkySetup)
 			driverClouds = driverProfile.Add<VolumetricClouds>( false );
 			driverClouds.active = true;
-			cloudCover = -1; cloudWind = -1;
+			cloudCover = -1; cloudCoverApplied = -1; cloudWind = -1;
 			if ( stars == null ) stars = LoadStars();
 			if ( stars != null ) driverSky.spaceEmissionTexture.Override( stars );
 

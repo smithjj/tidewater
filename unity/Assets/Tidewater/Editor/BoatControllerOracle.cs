@@ -71,7 +71,7 @@ namespace Tidewater.EditorTools
 
 		static double[] Arr( JToken t ) => t.Select( v => ( double ) v ).ToArray();
 
-		static BoatModel cachedModel, cachedMini;
+		static BoatModel cachedModel, cachedMini, cachedPelagic;
 		public static string Compare( string dir = null, string only = null )
 		{
 			dir = dir ?? DefaultDir;
@@ -93,8 +93,9 @@ namespace Tidewater.EditorTools
 				var dockPos = Arr( d[ "position" ] );
 				var dock = new BoatDock( new Tidewater.Engine.Vector3( dockPos[ 0 ], dockPos[ 1 ], dockPos[ 2 ] ), ( double ) d[ "heading" ] );
 				var query = new FakeQuery();
-				bool mini = prop.Name.StartsWith( "mini" );
-				var c = new BoatController( ( mini ? cachedMini ?? ( cachedMini = new MiniBoatModel() ) : model ).dynamics(), query, groundAt, colliders, dock );
+				string which = prop.Name.StartsWith( "mini" ) ? "mini" : prop.Name.StartsWith( "pelagic" ) ? "pelagic" : "lobster";
+				var boatModel = which == "mini" ? cachedMini ?? ( cachedMini = new MiniBoatModel() ) : which == "pelagic" ? cachedPelagic ?? ( cachedPelagic = new Pelagic30() ) : model;
+				var c = new BoatController( boatModel.dynamics(), query, groundAt, colliders, dock );
 
 				var ctor = sc[ "ctor" ];
 				sb.Append( Cmp( "mass/BG/pitchK", new[] { c.mass, c.BG, c.pitchStiffness, c.nHull, c.samples.Count, c.slot - c.slot + ( int ) ctor[ "slot" ] }, new[] { ( double ) ctor[ "mass" ], ( double ) ctor[ "BG" ], ( double ) ctor[ "pitchStiffness" ], ( double ) ctor[ "nHull" ], ( double ) ctor[ "n" ], ( double ) ctor[ "slot" ] } ) );

@@ -37,6 +37,18 @@ namespace Tidewater.World.Boat
 		public string tag; public Vector3 center, half; public bool walkable, solid;
 	}
 
+	// What the player's deck walking reads of a boat's deck (Player.updateDeck: the `lines` of the model): the sole height, the skin thickness, the
+	// extent aft and (if the model has one) forward, and the half breadth at hull parameter t and height y. The lobster boat's comes from its
+	// hull lines (no zFwd: the player clamps at 4.0), the Pelagic 30's is the facade over its measured outline. A model without one (the mini
+	// fishing boat) has no deck: boarding goes straight to the helm.
+	public sealed class DeckLines
+	{
+		public double deckY, shell, zAft;
+		public double? zFwd;
+		public Func<double, double, double> halfBreadth; // ( t, y )
+		public Func<double, double> tAtSheerZ;
+	}
+
 	public class BoatModel
 	{
 		public static readonly string[] STATIC_BUCKETS = { "hull", "gelcoat", "wood", "fittings", "trap", "glow", "glass" };
@@ -46,6 +58,7 @@ namespace Tidewater.World.Boat
 		public const double PROP_DISPLAY_RPS = 5;
 
 		public readonly HullLines lines;
+		public DeckLines deck;
 		public readonly Dictionary<string, BufferGeometry> staticGeometry = new Dictionary<string, BufferGeometry>();
 		public readonly WheelhouseParts parts = new WheelhouseParts();
 		// animated parts: geometry and the position of their pivot in the boat frame
@@ -74,6 +87,7 @@ namespace Tidewater.World.Boat
 		public BoatModel()
 		{
 			lines = new HullLines();
+			deck = new DeckLines { deckY = lines.deckY, shell = lines.shell, zAft = lines.zAft, zFwd = null, halfBreadth = lines.halfBreadth, tAtSheerZ = lines.tAtSheerZ };
 			var kit = new GeoKit();
 
 			buildHull( kit, lines );

@@ -186,7 +186,7 @@ namespace Tidewater.Player
 			// (not with a line out or a fish in hand: interact belongs to the fishing then)
 			if ( nearBoat() && ! busy )
 			{
-				prompt = new Prompt { action = "interact", text = _boardable.boatModel.lines != null ? "Board boat" : "Take the helm" };
+				prompt = new Prompt { action = "interact", text = _boardable.boatModel.deck != null ? "Board boat" : "Take the helm" };
 				if ( inp.actHit( "interact" ) ) { boardBoat(); return; }
 			}
 
@@ -403,13 +403,13 @@ namespace Tidewater.Player
 
 		// ------------------------------------------------------------------ boat
 
-		// step aboard from the pier / beach / water. Boats with a deck (`lines`) drop you on the cockpit sole; deckless boats (the Pelagic) take you
+		// step aboard from the pier / beach / water. Boats with a deck (`lines`) drop you on the cockpit sole; deckless boats (the mini fishing boat) take you
 		// straight to the helm.
 		public void boardBoat( BoatController b = null )
 		{
 			b = b ?? _boardable;
 			boat = b;
-			if ( b.boatModel.lines == null ) { takeHelm(); return; }
+			if ( b.boatModel.deck == null ) { takeHelm(); return; }
 
 			mode = "deck";
 			deckPos.copy( b.boatModel.boardPoint );
@@ -440,10 +440,10 @@ namespace Tidewater.Player
 			var b = boat;
 			b.driven = false;
 			b.throttle = 0;
-			if ( b.boatModel.lines == null ) { exitBoat(); return; }
+			if ( b.boatModel.deck == null ) { exitBoat(); return; }
 
 			mode = "deck";
-			deckPos.set( b.boatModel.helmPointX + 0.45, b.boatModel.lines.deckY, b.boatModel.helmPointZ - 0.1 );
+			deckPos.set( b.boatModel.helmPointX + 0.45, b.boatModel.deck.deckY, b.boatModel.helmPointZ - 0.1 );
 			deckVel.set( 0, 0, 0 );
 			deckYaw = cam.helmYaw;
 			pitch = cam.helmPitch;
@@ -547,7 +547,7 @@ namespace Tidewater.Player
 		// highest walkable box top under the point (boat frame), not above maxY; the sole otherwise
 		double deckGroundAt( double x, double z, double maxY )
 		{
-			var L = boat.boatModel.lines;
+			var L = boat.boatModel.deck;
 			double g = L.deckY;
 			foreach ( var c in boat.boatModel.colliders )
 			{
@@ -565,7 +565,7 @@ namespace Tidewater.Player
 			var inp = input;
 			var b = boat;
 			var model = b.boatModel;
-			var L = model.lines;
+			var L = model.deck;
 			var look = inp.consumeLook();
 			deckYaw -= look.x * 0.0022;
 			pitch = clamp( pitch - look.y * 0.0022, - 1.5, 1.5 );
@@ -611,7 +611,7 @@ namespace Tidewater.Player
 			}
 
 			// stay inside the hull (the bulwarks, plus a margin fore and aft)
-			p.z = clamp( p.z, L.zAft + L.shell + DECK_RADIUS, 4.0 ); // (JS: L.zFwd ?? 4.0: the hull lines have no zFwd)
+			p.z = clamp( p.z, L.zAft + L.shell + DECK_RADIUS, L.zFwd ?? 4.0 );
 			double halfIn = Math.Max( 0.15, L.halfBreadth( L.tAtSheerZ( p.z ), Math.Max( p.y, L.deckY ) ) - L.shell - DECK_RADIUS );
 			p.x = clamp( p.x, - halfIn, halfIn );
 

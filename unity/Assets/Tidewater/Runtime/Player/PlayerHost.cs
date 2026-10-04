@@ -21,6 +21,7 @@ namespace Tidewater.Player
 		public FlyCamera fly { get; private set; }
 		public SimCamera simCamera { get; } = new SimCamera();
 		public BoatDriver driver { get; private set; }
+		public Pelagic30Driver pelagicDriver { get; private set; } // the second boat (null when the scene has none)
 		public MiniBoatDriver miniDriver { get; private set; } // the third boat (null when the scene has none)
 		Colliders colliders;
 		TerrainRenderer terrain;
@@ -39,8 +40,10 @@ namespace Tidewater.Player
 			driver.external = true; // the player drives the boat now (Player.updateBoat)
 			input = new GameInput();
 			colliders = driver.colliders;
-			// the boats the player can board: the lobster boat and, when the scene has it, the mini fishing boat
+			// the boats the player can board (App.js order): the lobster boat and, when the scene has them, the Pelagic 30 and the mini fishing boat
 			var boats = new System.Collections.Generic.List<BoatController> { driver.controller };
+			pelagicDriver = FindAnyObjectByType<Pelagic30Driver>();
+			if ( pelagicDriver != null && pelagicDriver.Ensure() ) boats.Add( pelagicDriver.controller );
 			miniDriver = FindAnyObjectByType<MiniBoatDriver>();
 			if ( miniDriver != null && miniDriver.Ensure() ) boats.Add( miniDriver.controller );
 			player = new Player( simCamera, input, terrain.data.HeightAt, colliders, ocean.query, driver.controller, boats );
@@ -53,8 +56,13 @@ namespace Tidewater.Player
 		void Update()
 		{
 			if ( ! Application.isPlaying ) return;
+			Step( Mathf.Min( Time.deltaTime, 0.1f ) );
+		}
+
+		// one frame of App.frame (Update's body; the Editor tools call it directly, since the Editor does not tick Update when it is not playing)
+		public void Step( double dt )
+		{
 			if ( player == null && ! Build() ) return;
-			double dt = Mathf.Min( Time.deltaTime, 0.1f );
 			input.Poll( dt );
 			// a click captures the mouse (the pointer lock)
 			if ( ! input.locked && input.mouseDown && input.enabled && ! input.menuMode ) input.RequestLock();
@@ -76,6 +84,7 @@ namespace Tidewater.Player
 
 			// App.frame: the boats step, then the player (which sets the boat's controls) or the free camera
 			driver.Tick( dt );
+			if ( pelagicDriver != null ) pelagicDriver.Tick( dt );
 			if ( miniDriver != null ) miniDriver.Tick( dt );
 			if ( freeCam ) fly.update( dt );
 			else player.update( dt );

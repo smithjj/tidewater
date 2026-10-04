@@ -1,4 +1,5 @@
-// The boat's glass (BoatMaterials.createGlass): a transparent forward Lit surface, double sided, no depth write.
+// The boat's glass (BoatMaterials.createGlass): a transparent forward Lit surface, double sided, no depth write. Kind 7 is the factor-based
+// windshield of the glTF boats (Pelagic30.js _material: the glTF colour at opacity 0.25).
 Shader "Tidewater/BoatGlass"
 {
     Properties
@@ -7,6 +8,9 @@ Shader "Tidewater/BoatGlass"
         [HideInInspector] _StencilWriteMask("_StencilWriteMask", Int) = 3
         [HideInInspector] _BlendMode("Blend mode", Float) = 0
         [HideInInspector] _BoatKind("Kind", Float) = 4
+        [HideInInspector] _FacColor("Factor colour (alpha: opacity)", Color) = (0.8, 0.8, 0.8, 0.25)
+        [HideInInspector] _FacPbr("Factor roughness, metalness, clear coat, coat roughness", Vector) = (0.05, 0, 0, 0.1)
+        [HideInInspector] _FacEmissive("Factor emissive", Color) = (0, 0, 0, 0)
         [HideInInspector] _AlphaCutoff("Alpha cutoff", Float) = 0.5
         [HideInInspector] _FlagPivot("Flag pivot", Vector) = (0,0,0,0)
         [HideInInspector] _FlagDir("Flag direction", Vector) = (0,0,-1,0)

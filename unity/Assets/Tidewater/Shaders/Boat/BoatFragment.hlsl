@@ -13,7 +13,7 @@
 #include "Packages/com.unity.render-pipelines.core/ShaderLibrary/AmbientProbe.hlsl"
 #include "BoatSurface.hlsl"
 
-float _BoatKind;              // 0 hull, 1 gelcoat, 2 wood, 3 fittings, 4 glass, 5 glow, 6 trap, 7 glTF factors (the mini fishing boat)
+float _BoatKind;              // 0 hull, 1 gelcoat, 2 wood, 3 fittings, 4 glass, 5 glow, 6 trap, 7 glTF factors (the mini fishing boat, the Pelagic 30)
 float4 _FacColor;             // kind 7: base colour (linear)
 float4 _FacPbr;               // kind 7: roughness, metalness, clear coat, clear coat roughness
 float4 _FacEmissive;          // kind 7: emissive colour (linear, emissive strength applied)
@@ -103,9 +103,10 @@ void GetSurfaceAndBuiltinData( inout FragInputs input, float3 V, inout PositionI
 	BoatOut s = BoatSurface( kind, bi );
 	if ( kind == 7 )
 	{
-		// a factor-based glTF material (MiniFishingBoat.js _material): colour, roughness, metalness, emissive, clear coat
+		// a factor-based glTF material (MiniFishingBoat.js / Pelagic30.js _material): colour (its alpha is the opacity of the windshield glass, 1
+		// otherwise), roughness, metalness, emissive, clear coat
 		s = BoatDefaults( bi, _FacPbr.x );
-		s.albedo = _FacColor.rgb; s.metalness = _FacPbr.y; s.emissive = _FacEmissive.rgb; s.clearcoat = _FacPbr.z; s.coatRoughness = _FacPbr.w;
+		s.albedo = _FacColor.rgb; s.alpha = _FacColor.a; s.metalness = _FacPbr.y; s.emissive = _FacEmissive.rgb; s.clearcoat = _FacPbr.z; s.coatRoughness = _FacPbr.w;
 	}
 
 #if defined(_ALPHATEST_ON)

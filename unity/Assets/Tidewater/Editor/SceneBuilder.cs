@@ -61,6 +61,11 @@ namespace Tidewater.EditorTools
 			if ( boat.GetComponent<Tidewater.World.Boat.BoatView>() == null ) boat.AddComponent<Tidewater.World.Boat.BoatView>();
 			if ( boat.GetComponent<Tidewater.Player.BoatDriver>() == null ) boat.AddComponent<Tidewater.Player.BoatDriver>();
 
+			// the Pelagic 30 at its mooring west of the pier head (Pelagic30Driver hosts its controller; PlayerHost steps it and lets the player board it)
+			var pelagic = GameObject.Find( "Pelagic 30" ) ?? new GameObject( "Pelagic 30" );
+			if ( pelagic.GetComponent<Tidewater.World.Boat.Pelagic30View>() == null ) pelagic.AddComponent<Tidewater.World.Boat.Pelagic30View>();
+			if ( pelagic.GetComponent<Tidewater.Player.Pelagic30Driver>() == null ) pelagic.AddComponent<Tidewater.Player.Pelagic30Driver>();
+
 			// the mini fishing boat at its mooring (MiniBoatDriver hosts its controller; PlayerHost steps it and lets the player board it)
 			var mini = GameObject.Find( "Mini Fishing Boat" ) ?? new GameObject( "Mini Fishing Boat" );
 			if ( mini.GetComponent<Tidewater.World.Boat.MiniBoatView>() == null ) mini.AddComponent<Tidewater.World.Boat.MiniBoatView>();

@@ -14,6 +14,7 @@ const { BoatModel } = await import( root + '/src/world/BoatModel.js' );
 const { BoatController } = await import( root + '/src/player/BoatController.js' );
 const { Colliders } = await import( root + '/src/world/Colliders.js' );
 const { MiniFishingBoat } = await import( root + '/src/world/boats/MiniFishingBoat.js' );
+const { Pelagic30 } = await import( root + '/src/world/boats/Pelagic30.js' );
 
 const sstep = THREE.MathUtils.smoothstep;
 const tri = ( p ) => { const q = p - Math.floor( p ); const k = q < 0.5 ? 2 * q : 2 - 2 * q; return k * k * ( 3 - 2 * k ); };
@@ -79,12 +80,22 @@ const scenarios = {
 		],
 	},
 	'mini-shoal': { model: 'mini', dock: { position: [ 70, 0, 70 ], heading: 0 }, seconds: 25, events: [ { t: 0.5, driven: true, moored: false }, { t: 1, throttle: 1 } ] },
+	// the Pelagic 30 (Pelagic30.js: outboards, a deck facade standing in for the hull lines)
+	'pelagic-moored': { model: 'pelagic', dock: { position: [ 43.5, 0, 38 ], heading: - 0.35 }, seconds: 20, events: [] },
+	'pelagic-drive': {
+		model: 'pelagic', dock: { position: [ 0, 0, 0 ], heading: 0.3 }, seconds: 72,
+		events: [
+			{ t: 1, driven: true, moored: false }, { t: 2, throttle: 1 }, { t: 10, steer: 0.4 }, { t: 20, steer: - 0.7 }, { t: 25, throttle: 0.3 },
+			{ t: 28, throttle: - 1, steer: - 1 }, { t: 33, throttle: 0, steer: 0 }, { t: 50, drop: 5 }, { t: 51, throttle: 0.6 }, { t: 66, weigh: true },
+		],
+	},
+	'pelagic-shoal': { model: 'pelagic', dock: { position: [ 70, 0, 70 ], heading: 0 }, seconds: 25, events: [ { t: 0.5, driven: true, moored: false }, { t: 1, throttle: 1 } ] },
 };
 
 const result = {};
 for ( const [ name, sc ] of Object.entries( scenarios ) ) {
 
-	const model = sc.model === 'mini' ? new MiniFishingBoat() : new BoatModel();
+	const model = sc.model === 'mini' ? new MiniFishingBoat() : sc.model === 'pelagic' ? new Pelagic30() : new BoatModel();
 	const query = new FakeQuery();
 	const dock = { position: new THREE.Vector3( ...sc.dock.position ), heading: sc.dock.heading };
 	const c = new BoatController( { model, query, terrain, colliders, dock } );

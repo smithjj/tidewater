@@ -19,7 +19,7 @@ namespace Tidewater.Ocean
 	[ExecuteAlways]
 	public sealed class OceanRenderer : MonoBehaviour
 	{
-		public ComputeShader fftShader, foamShader, queryShader, shoreSimShader, underwaterLightShader, sprayShader;
+		public ComputeShader fftShader, foamShader, queryShader, shoreSimShader, underwaterLightShader, sprayShader, breakersShader;
 		public Material material;
 		public Light sun;
 		public int gridSize = 32;
@@ -54,6 +54,9 @@ namespace Tidewater.Ocean
 		public UnderwaterLighting underwaterLighting { get; private set; }
 		// spray particles (drops, mist, bow sheets); created with the shore sim once the terrain exists
 		public Tidewater.Fx.Spray spray { get; private set; }
+		// plunging breakers along the main beach: crest finder, spray emitters and the thrown lip sheet
+		public Breakers breakers { get; private set; }
+		Vector3 cameraSim;
 		Tidewater.World.TerrainGPU terrainGpu;
 		public CDLOD lod { get; private set; }
 		RenderTexture foamTexture;
@@ -76,6 +79,7 @@ namespace Tidewater.Ocean
 			if ( shoreSimShader == null ) shoreSimShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/ShoreSim.compute" );
 			if ( underwaterLightShader == null ) underwaterLightShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/UnderwaterLight.compute" );
 			if ( sprayShader == null ) sprayShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Fx/Spray.compute" );
+			if ( breakersShader == null ) breakersShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/Breakers.compute" );
 #endif
 		}
 
@@ -94,7 +98,7 @@ namespace Tidewater.Ocean
 		{
 			instance = this;
 			FillDefaults();
-			if ( fftShader == null || foamShader == null || queryShader == null || shoreSimShader == null || underwaterLightShader == null || sprayShader == null ) { enabled = false; Debug.LogError( "OceanRenderer: compute shaders not assigned" ); return; }
+			if ( fftShader == null || foamShader == null || queryShader == null || shoreSimShader == null || underwaterLightShader == null || sprayShader == null || breakersShader == null ) { enabled = false; Debug.LogError( "OceanRenderer: compute shaders not assigned" ); return; }
 			Build();
 			RenderPipelineManager.beginCameraRendering += OnBeginCamera;
 		}
@@ -133,6 +137,8 @@ namespace Tidewater.Ocean
 		{
 			if ( query != null ) query.Dispose();
 			query = null;
+			if ( breakers != null ) breakers.Dispose();
+			breakers = null;
 			if ( spray != null ) spray.Dispose();
 			spray = null;
 			if ( underwaterLighting != null ) underwaterLighting.Dispose();
@@ -162,9 +168,18 @@ namespace Tidewater.Ocean
 			appliedSeaState = seaState;
 		}
 
+		// the surf the sea state asks for, on the shore waves: before anything evaluates them this frame (the sim, the crest finder and
+		// the water shader must see the same period and amplitude, or the crests they find are not the crests that are drawn)
+		void SyncShore()
+		{
+			if ( shore == null ) return;
+			shore.amplitude = shoreAmplitude; shore.period = shorePeriod;
+		}
+
 		void Update()
 		{
 			if ( fft == null ) return;
+			SyncShore();
 			// a changed slider is a jump in the sea (clears the foam); the weather will drift it instead
 			if ( ! Mathf.Approximately( seaState, appliedSeaState ) ) ApplySeaState( true );
 			if ( Application.isPlaying )
@@ -175,6 +190,7 @@ namespace Tidewater.Ocean
 				if ( shore != null ) shore.Update( G.dt );
 				if ( shoreSim != null ) shoreSim.Update( G.dt, G.time, G.seaLevel );
 				seaDetail.Update( G.dt );
+				if ( breakers != null ) breakers.Update( cameraSim, amplitude, G.dt, G.time );
 				if ( spray != null ) spray.Update( G.dt, G.time, amplitude );
 				PublishSun();
 				fft.SetGlobals();
@@ -186,6 +202,7 @@ namespace Tidewater.Ocean
 		public void Advance( float seconds, float step = 1f / 30f )
 		{
 			if ( fft == null ) return;
+			SyncShore();
 			for ( float t = 0; t < seconds; t += step )
 			{
 				G.dt = step; G.time += step;
@@ -193,6 +210,7 @@ namespace Tidewater.Ocean
 				if ( shore != null ) shore.Update( step );
 				if ( shoreSim != null ) shoreSim.Update( step, G.time, G.seaLevel );
 				seaDetail.Update( step );
+				if ( breakers != null ) breakers.Update( cameraSim, amplitude, step, G.time );
 				if ( spray != null ) spray.Update( step, G.time, amplitude );
 			}
 
@@ -241,6 +259,7 @@ namespace Tidewater.Ocean
 
 			// everything the water shader reads, in sim space (WaterSurface params, the sun, the water volume)
 			var cp = cam.transform.position;
+			cameraSim = new Vector3( cp.x, cp.y, - cp.z );
 			fft.SetGlobals();
 			seaDetail.SetGlobals();
 			Shader.SetGlobalTexture( "_TWFoamTex", foamTexture );
@@ -268,13 +287,14 @@ namespace Tidewater.Ocean
 					terrainGpu = tr.gpu;
 					underwaterLighting = new UnderwaterLighting( underwaterLightShader );
 					spray = new Tidewater.Fx.Spray( sprayShader, Shader.Find( "Tidewater/Spray" ), fft, terrainGpu, shore, shoreSim );
+					breakers = new Breakers( breakersShader, Shader.Find( "Tidewater/BreakersLip" ), fft, terrainGpu, shore, tr.data, spray );
 				}
 				query = new WaterQuery( queryShader, fft, tr != null ? tr.gpu : null, shore ) { amplitude = amplitude };
 			}
 
 			if ( shore != null )
 			{
-				shore.amplitude = shoreAmplitude; shore.period = shorePeriod;
+				SyncShore();
 				shore.SetGlobals( G.time, G.seaLevel );
 			}
 			else ShoreWaves.SetDisabledGlobals();
@@ -304,6 +324,7 @@ namespace Tidewater.Ocean
 				Graphics.DrawMeshInstanced( lod.gridMesh, 0, material, identity, n, block, ShadowCastingMode.Off, false, gameObject.layer, cam );
 			}
 
+			if ( breakers != null ) breakers.Draw( cam );
 			if ( spray != null ) spray.Draw( cam );
 		}
 	}

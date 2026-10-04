@@ -62,6 +62,8 @@ namespace Tidewater.Fx
 		Vector3 bodyBoxMin, bodyBoxMax;
 
 		public ComputeBuffer positionBuffer => pos;
+		// the GPU head of the ring (particles emitted so far, wraps): Breakers steers its emission by how fast it grows
+		public ComputeBuffer headBuffer => head;
 
 		public Spray( ComputeShader shader, Shader renderShader, OceanFFT fft, TerrainGPU terrain, ShoreWaves shore, ShoreSim shoreSim, int gpuCapacity = 32768, int cpuCapacity = 8192 )
 		{

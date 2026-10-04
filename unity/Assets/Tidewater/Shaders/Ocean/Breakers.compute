@@ -1,0 +1,399 @@
+// Port of the crest finder and the spray emitters of src/ocean/Breakers.js: plunging breakers along the main beach.
+//
+// Stations are laid out every ~0.6 m along the shoreline (CPU, once: Breakers.cs). Each frame a compute pass marches every station's
+// transect through the surf zone and finds the crests of the breaking waves as crossings of the wave phase
+// s = (t - T) / period + wobble with integers (the same analytic field that drives the water surface, so the crest found here is
+// exactly the crest of the rendered surface). For every crest it stores the lip root, the breaking progress and the wave height, and
+// emits spray where a real breaker makes it (rates ~ the energy released there):
+//  * nothing while the face steepens: the face and the lip are clean, glassy water
+//  * a few drops and ligaments torn off the leading edge of the falling lip, falling with it
+//  * the splash-up where the lip hits the trough (the plunge point): a burst of drops, ligaments and dense spray thrown up (up to
+//    ~H) and forward, falling back within 1-2 s, a puff blown out of the collapsing barrel, and a mist that drifts off with the wind
+//  * the turbulent front of the roller: small drops and a low mist, all the way to the shore, and a splash where the bore runs into
+//    the backwash of the previous wave
+//  * spindrift (fine drops blown back over the crest) only in a strong offshore wind
+// Drops falling back into the water leave foam there (ShoreSim, via the spray update).
+
+#pragma kernel SurfCrests
+#pragma multi_compile _ TW_SHORE_ORACLE
+
+#define TW_NO_NORMAL_ROCK
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "../Terrain/TerrainHeight.hlsl"
+#include "../Common/Noise.hlsl"
+#include "ShoreWaves.hlsl"
+#include "WaterQueryHeight.hlsl"
+#include "../Fx/SprayEmit.hlsl"
+
+#define BRK_GRAVITY 9.81
+#define STEP_LEN 2.0
+#define TRANSECT_K 64
+
+float4 _BrkP0;                 // camera pos.xyz (sim), amplitude (WaterSurface FFT displacement scale)
+float4 _BrkP1;                 // spray (emission multiplier), sheet, emit range, budget (emission scale that keeps the ring from wrapping)
+float4 _BrkP2;                 // sea level, dt, wind dir x, wind dir z
+float4 _BrkP3;                 // wind speed, number of stations, spacing, 0
+StructuredBuffer<float4> _BrkStations;      // (x, z, nx, nz) toward the sea
+// per station and slot (wave parity): 3 x float4
+//   (root.xyz, b) (back.xyz, H) (dir.xz, trough y, wave id 1..1024 or 0 = none)
+RWStructuredBuffer<float4> _BrkCrestW;
+
+// FFT displacement at a Lagrangian point (the short cascades that survive in the surf zone), with the cascade attenuation (inlined:
+// the long cascades vanish in shallow water)
+float3 BrkFftDisp( float2 p, float depth )
+{
+	const float floorAmts[ 4 ] = { 0.0, 0.05, 0.25, 0.5 };
+	float3 d = 0.0;
+	[unroll]
+	for ( int c = 1; c < 4; c ++ )
+	{
+		float L = _TWOceanSizes[ c ].x;
+		float texel = L / 256.0;
+		float level = max( log2( 0.35 / texel ) + 0.7, 0.0 );
+		float d0 = min( 40.0, L * 0.08 );
+		d += _TWOceanDisp.SampleLevel( sampler_LinearRepeat, float3( p / L, c ), level ).xyz * lerp( floorAmts[ c ] * smoothstep( 0.0, 0.6, depth ), 1.0, smoothstep( 0.0, d0, depth ) );
+	}
+
+	return d * _BrkP0.w;
+}
+
+struct BrkCtx
+{
+	float3 root;
+	float3 d3;
+	float3 tg;
+	float Yi;
+	float Wt;
+	float wB;
+	float trough;
+	float xr;
+	float Xi;
+	float q;
+};
+
+struct BrkPN { float3 p; float3 n; };
+
+// A point on the front of the wave, on the water surface (the same curve as ShoreWaves' profile: concave tube face while plunging,
+// convex roller front of the bore), and its outward normal. s: 0 = crest top .. 1 = foot. Everything the breaker throws starts just
+// outside it.
+BrkPN BrkFacePoint( BrkCtx C, float sp )
+{
+	float3 up = float3( 0.0, 1.0, 0.0 );
+	float th = sp * 1.5707963267948966;
+	float ct = cos( th );
+	float st = sin( th );
+	float fx = lerp( 1.0 - ct, st, C.wB );
+	float fy = lerp( 1.0 - st, ct, C.wB );
+	float3 n = normalize( C.d3 * ( C.Yi * lerp( ct, st, C.wB ) ) + up * ( C.Wt * lerp( st, ct, C.wB ) + 0.02 ) );
+	float3 p = C.root + C.d3 * ( C.Wt * fx );
+	BrkPN o; o.p = float3( p.x, C.trough + C.Yi * fy, p.z ); o.n = n;
+	return o;
+}
+
+// the plunge point: in the trough ahead of the face while the tube is open; once the bore front has formed over it, on the lower part
+// of that front
+BrkPN BrkPlunge( BrkCtx C, float r, float r2 )
+{
+	BrkPN f = BrkFacePoint( C, r2 * 0.45 + 0.55 );
+	float3 t = C.root + C.d3 * ( C.xr + ( r - 0.5 ) * 0.5 );
+	float3 inTrough = float3( t.x, C.trough + 0.03, t.z );
+	bool isOpen = C.xr > C.Wt + 0.1;
+	BrkPN o;
+	o.p = isOpen ? inTrough : f.p + f.n * 0.04;
+	o.n = isOpen ? float3( 0.0, 1.0, 0.0 ) : f.n;
+	return o;
+}
+
+// the leading edge of the falling lip
+float3 BrkTipAt( BrkCtx C, float r )
+{
+	return C.root + C.d3 * ( C.Xi * C.q * ( r * 0.12 + 0.88 ) ) - float3( 0.0, 1.0, 0.0 ) * ( C.Yi * C.q * C.q );
+}
+
+float3 BrkAlong( BrkCtx C, float r )
+{
+	return C.tg * ( ( r - 0.5 ) * ( _BrkP3.z * 1.15 ) );
+}
+
+uint BrkCount( float rate, float gain, uint seed, uint salt )
+{
+	return ( uint ) floor( rate * gain + SprayRand( seed, salt ) );
+}
+
+// Spray from one crest (station i, crest slot `slot`), per frame. Positions and velocities come from the analytic wave state; rates
+// are per station (0.6 m of crest) and scale with the energy the breaker releases (~ H^2.5 for the plunge, ~ Hb^2.5 for the roller).
+void BrkEmit( uint i, uint slot, float3 root, float2 dir, float b, float H, float trough, float c, float m, float depth, float4 bore )
+{
+	float camFade = smoothstep( _BrkP1.z, _BrkP1.z * 0.35, length( root - _BrkP0.xyz ) );
+	float gain = _BrkP1.x * camFade * _BrkP2.y;
+	// the many sub-pixel drops and ligaments take the ring budget; the few, visible spray and mist sprites always get their full rate
+	float gainD = gain * _BrkP1.w;
+	float3 d3 = float3( dir.x, 0.0, dir.y );
+	float3 tg = float3( -dir.y, 0.0, dir.x );
+	float3 up = float3( 0.0, 1.0, 0.0 );
+	float Hc = clamp( H, 0.15, 3.0 );
+	// (the energy released goes as H^2.5, but what reads on screen saturates: bigger breakers make bigger, longer-lived structures,
+	// not ever more particles)
+	float E = pow( Hc, 1.7 );
+	float Hb = max( bore.x, 0.0 );
+	float Eb = pow( min( Hb, 2.0 ) / 0.6, 1.7 );
+	float Wt = bore.y;
+	float q = clamp( b / 0.9, 0.0, 1.0 );
+	float Xi = H * 0.8;
+	float Yi = max( root.y - trough, 0.05 );
+	uint seed = i * 7919u + ( uint ) ( m - floor( m / 64.0 ) * 64.0 ) * 31u;
+	// integer part: which crest made the particle (its wave shadow, see SprayWaveShadow); fraction: random
+	float tag = float( i * 2u + slot + 1u );
+	float2 windDir = float2( _BrkP2.z, _BrkP2.w );
+	float offshore = max( -dot( windDir, dir ), 0.0 ) * _BrkP3.x;
+	float wB = bore.w;
+	float xr = Xi - bore.z; // horizontal distance from the crest top
+	BrkCtx C;
+	C.root = root; C.d3 = d3; C.tg = tg; C.Yi = Yi; C.Wt = Wt; C.wB = wB; C.trough = trough; C.xr = xr; C.Xi = Xi; C.q = q;
+
+	// ---- stages of the breaker (weights 0..1)
+	float lipShed = smoothstep( 0.5, 0.75, b ) * ( 1.0 - smoothstep( 0.86, 0.93, b ) );
+	// the splash-up is a fast burst (~0.15-0.2 s) as the lip hits the trough; its mist lingers
+	float impact = smoothstep( 0.87, 0.92, b ) * ( 1.0 - smoothstep( 1.0, 1.14, b ) );
+	float haze = smoothstep( 0.9, 1.0, b ) * ( 1.0 - smoothstep( 1.2, 1.5, b ) );
+	float spit = smoothstep( 0.98, 1.08, b ) * ( 1.0 - smoothstep( 1.15, 1.3, b ) );
+	float roller = smoothstep( 1.05, 1.3, b ) * smoothstep( 0.06, 0.25, Hb );
+	float clash = roller * smoothstep( 0.1, 0.2, depth ) * smoothstep( 0.7, 0.35, depth );
+	float drift = smoothstep( 9.0, 15.0, offshore ) * smoothstep( -0.4, 0.1, b ) * ( 1.0 - smoothstep( 0.75, 0.9, b ) );
+
+	// ---- drops and ligaments (ballistic)
+	uint n0 = BrkCount( lipShed * 9.0 * E, gainD, seed, 1u ); // drops off the lip
+	uint n1 = n0 + BrkCount( lipShed * 5.0 * E, gainD, seed, 2u ); // ligaments off the lip
+	uint n2 = n1 + BrkCount( impact * 240.0 * E, gainD, seed, 3u ); // splash-up drops
+	uint n3 = n2 + BrkCount( impact * 90.0 * E, gainD, seed, 4u ); // splash-up ligaments (torn strands)
+	uint n4 = n3 + BrkCount( roller * 45.0 * Eb, gainD, seed, 5u ); // roller front (breaks up its silhouette)
+	uint n5 = n4 + BrkCount( clash * 40.0 * Eb, gainD, seed, 6u ); // bore / backwash collision
+	uint n6 = n5 + BrkCount( drift * 24.0 * Hc, gainD, seed, 7u ); // spindrift
+	if ( n6 > 0u )
+	{
+		uint baseIdx = SprayReserve( n6 );
+		for ( uint j = 0u; j < n6; j ++ )
+		{
+			uint ring = SpraySlot( baseIdx, j );
+			uint h = seed + j * 13u;
+			float r0 = SprayRand( h, 11u );
+			float r1 = SprayRand( h, 12u );
+			float r2 = SprayRand( h, 13u );
+			float r3 = SprayRand( h, 14u );
+			float r4 = SprayRand( h, 15u );
+			bool isLip = j < n1;
+			bool isImp = j < n3;
+			bool isRol = j < n4;
+			bool isCl = j < n5;
+			bool lig = ( j >= n0 && j < n1 ) || ( j >= n2 && j < n3 );
+			// lip: moving with the jet (thrown forward a little faster than the wave, falling)
+			float3 vLip = d3 * ( c * ( r2 * 0.2 + 1.05 ) ) - up * ( q * sqrt( Yi * ( 2.0 * BRK_GRAVITY ) ) * ( r3 * 0.3 + 0.7 ) ) + tg * ( ( r4 - 0.5 ) * 0.6 );
+			// splash-up: most drops stay low, some reach ~1.3 H; thrown up and forward, out of the surface
+			BrkPN pl = BrkPlunge( C, r1, r2 );
+			float vUp = sqrt( Hc * ( r3 * r3 * 1.0 + 0.3 ) * ( 2.0 * BRK_GRAVITY ) );
+			float3 vImp = up * vUp + pl.n * ( r4 * 1.5 ) + d3 * ( c * ( r2 * 0.6 + 0.15 ) - 0.3 ) + tg * ( ( r4 - 0.5 ) * 2.0 );
+			// roller: tossed forward and up by the tumbling front (from its upper part)
+			BrkPN fr = BrkFacePoint( C, r1 * r1 * 0.7 ); // mostly from the tumbling top
+			float3 vRol = d3 * ( c * ( r2 * 0.3 + 0.95 ) ) + up * ( ( r3 * 1.6 + 0.6 ) * sqrt( Hb / 0.5 ) ) + fr.n * 0.5 + tg * ( ( r4 - 0.5 ) * 1.2 );
+			// bore running into the backwash: thrown straight up from its front
+			BrkPN fc = BrkFacePoint( C, r1 * 0.5 + 0.3 );
+			float3 vCl = up * ( ( r3 * 1.6 + 0.8 ) * sqrt( Hb / 0.4 ) ) + d3 * ( r2 * 2.0 - 0.6 ) + tg * ( ( r4 - 0.5 ) * 1.5 );
+			// spindrift: fine drops blown back over the crest
+			float3 vDr = d3 * ( -( offshore * ( r2 * 0.3 + 0.35 ) ) ) + up * ( r3 * 1.5 + 0.8 ) + tg * ( ( r4 - 0.5 ) * 0.5 );
+			float3 p = ( isLip ? BrkTipAt( C, r1 ) : ( isImp ? pl.p : ( isRol ? fr.p + fr.n * 0.03 : ( isCl ? fc.p + fc.n * 0.03 : root + up * 0.04 ) ) ) ) + BrkAlong( C, r0 );
+			float3 v = isLip ? vLip : ( isImp ? vImp : ( isRol ? vRol : ( isCl ? vCl : vDr ) ) );
+			// radius (m): drops of a few mm (smaller off the roller, finest in the spindrift), ligaments ~1-2 cm
+			// heavy-tailed drop sizes (many fine drops, a few big ones): r = r0 (1 - u)^-0.7
+			float tail = pow( 1.0 - r4 * 0.98, -0.7 );
+			float rDrop = min( ( ( isImp || isCl ) ? 0.001 : ( isRol ? 0.0008 : ( isLip ? 0.001 : 0.0005 ) ) ) * tail, 0.012 );
+			float rLig = 0.005 + r4 * r4 * ( isImp ? 0.016 : 0.008 );
+			float kind = lig ? SPRAY_LIGAMENT : SPRAY_DROPLET;
+			SprayWrite( ring, p, v, lig ? rLig : rDrop, kind, 2.5, tag + r0 * 0.999 );
+		}
+	}
+
+	// ---- dense spray (clouds of drops: the white of the splash-up), a puff out of the barrel
+	uint c0 = BrkCount( impact * 110.0 * E, gain, seed, 21u );
+	uint c1 = c0 + BrkCount( spit * 10.0 * E, gain, seed, 22u );
+	uint c2 = c1 + BrkCount( roller * 0.6 * Eb, gain, seed, 23u ); // (rare: a row of them reads as cotton puffs)
+	uint c3 = c2 + BrkCount( clash * 2.0 * Eb, gain, seed, 24u );
+	if ( c3 > 0u )
+	{
+		uint baseIdx = SprayReserve( c3 );
+		for ( uint j = 0u; j < c3; j ++ )
+		{
+			uint ring = SpraySlot( baseIdx, j );
+			uint h = seed + j * 29u;
+			float r0 = SprayRand( h, 41u );
+			float r1 = SprayRand( h, 42u );
+			float r2 = SprayRand( h, 43u );
+			float r3 = SprayRand( h, 44u );
+			bool isImp = j < c0;
+			bool isSpit = j < c1;
+			bool isRol = j < c2;
+			// torn sheets of the splash-up (half-width): many small ones, a few big
+			// (heavy-tailed: many small torn sheets, a few big ones; never a row of equal puffs)
+			float sz = isImp ? sqrt( Hc ) * ( r2 * r2 * r2 * 0.18 + 0.05 )
+				: ( isSpit ? sqrt( Hc ) * ( r2 * r2 * 0.14 + 0.05 )
+				: ( isRol ? sqrt( Hb / 0.5 ) * ( r2 * r2 * 0.06 + 0.03 ) : 0.05 + r2 * r2 * 0.08 ) );
+			// splash-up: sheets thrown up and forward out of the plunge line, rising up to ~1.3 H and falling back as curtains
+			BrkPN pl = BrkPlunge( C, r1, r3 );
+			float3 pImp = pl.p + pl.n * ( sz * 0.4 ) + up * ( r2 * Hc * 0.1 );
+			float3 vImp = up * sqrt( Hc * ( r3 * r3 * 0.95 + 0.35 ) * ( 2.0 * BRK_GRAVITY ) ) + pl.n * 0.8 + d3 * ( c * ( r2 * 0.5 + 0.2 ) ) + tg * ( ( r1 - 0.5 ) * 1.2 );
+			// the puff blown out of the collapsing barrel: out of the middle of the front, along the crest
+			BrkPN fs = BrkFacePoint( C, r1 * 0.3 + 0.35 );
+			float3 pSpit = fs.p + fs.n * ( sz * 0.5 );
+			float3 vSpit = d3 * ( c * 0.7 ) + fs.n * 1.2 + tg * ( ( r1 - 0.5 ) * 4.0 );
+			// the tumbling top of the roller
+			BrkPN fr = BrkFacePoint( C, r1 * 0.4 );
+			float3 pRol = fr.p + fr.n * ( sz * 0.4 );
+			float3 vRol = d3 * ( c * 0.85 ) + up * ( r3 * 0.5 + 0.3 );
+			BrkPN fc = BrkFacePoint( C, r1 * 0.5 + 0.3 );
+			float3 pCl = fc.p + fc.n * ( sz * 0.5 );
+			float3 vCl = up * ( ( r3 * 1.2 + 0.8 ) * sqrt( Hb / 0.4 ) ) + d3 * ( r2 - 0.3 );
+			float3 p = ( isImp ? pImp : ( isSpit ? pSpit : ( isRol ? pRol : pCl ) ) ) + BrkAlong( C, r0 );
+			float3 v = isImp ? vImp : ( isSpit ? vSpit : ( isRol ? vRol : vCl ) );
+			float life = isImp ? r3 * 0.5 + 1.0 : ( isSpit ? 0.9 : r3 * 0.3 + 0.5 );
+			SprayWrite( ring, p, v, sz, SPRAY_SPRAY, life, tag + r0 * 0.999 );
+		}
+	}
+
+	// ---- mist: the fine spray that drifts off with the wind (and the air pushed by the wave)
+	// (few, large, faint sprites: mist is the biggest overdraw of the spray)
+	uint m0 = BrkCount( haze * 5.0 * E + spit * 3.0 * E, gain, seed, 31u );
+	// the lip feathers as it throws: a thin wisp torn off the crest and carried by the air (with the wind; the drag toward the air
+	// velocity turns it back over the crest in an offshore wind)
+	uint mL = BrkCount( lipShed * 1.6 * E, gain, seed, 33u );
+	// the churning top of the bore smokes: a thin haze drifting off it softens its silhouette (a bore front isn't a hard white edge),
+	// some of it lingering as it drifts up the beach
+	uint m1 = m0 + BrkCount( roller * 4.5 * Eb, gain, seed, 32u );
+	if ( mL > 0u )
+	{
+		uint baseIdx = SprayReserve( mL );
+		for ( uint j = 0u; j < mL; j ++ )
+		{
+			uint ring = SpraySlot( baseIdx, j );
+			uint h = seed + j * 23u;
+			float r0 = SprayRand( h, 61u );
+			float r1 = SprayRand( h, 62u );
+			float r2 = SprayRand( h, 63u );
+			float3 p = BrkTipAt( C, r1 * 0.4 ) + up * ( r2 * 0.1 ) + BrkAlong( C, r0 );
+			float3 v = d3 * ( c * ( r1 * 0.2 + 0.85 ) ) + up * ( r2 * 0.8 + 0.3 );
+			SprayWrite( ring, p, v, ( r2 * r2 * 0.2 + 0.1 ) * sqrt( Hc ), SPRAY_MIST, r1 * 0.8 + 0.7, tag + r0 * 0.999 );
+		}
+	}
+
+	if ( m1 > 0u )
+	{
+		uint baseIdx = SprayReserve( m1 );
+		for ( uint j = 0u; j < m1; j ++ )
+		{
+			uint ring = SpraySlot( baseIdx, j );
+			uint h = seed + j * 17u;
+			float r0 = SprayRand( h, 51u );
+			float r1 = SprayRand( h, 52u );
+			float r2 = SprayRand( h, 53u );
+			float r3 = SprayRand( h, 54u );
+			bool isImp = j < m0;
+			BrkPN pl = BrkPlunge( C, r1, r3 );
+			BrkPN ft = BrkFacePoint( C, r1 * 0.3 );
+			float3 p = ( isImp ? pl.p + pl.n * 0.2 + up * ( r2 * Hc * 0.4 ) : ft.p + ft.n * 0.15 + up * ( r2 * r2 * Hb * 0.35 ) ) + BrkAlong( C, r0 );
+			float3 v = isImp ? d3 * ( c * ( r1 * 0.3 + 0.4 ) ) + up * ( r3 * 0.9 + 0.4 ) : d3 * ( c * ( r1 * 0.3 + 0.65 ) ) + up * ( r2 * 0.4 + 0.15 );
+			float size = isImp ? sqrt( Hc ) * ( r3 * 0.3 + 0.45 ) : ( r3 * r3 * 0.35 + 0.18 ) * sqrt( max( Hb, 0.2 ) / 0.6 );
+			float life = isImp ? r3 * 1.5 + 2.5 : r3 * r3 * 3.0 + 1.2;
+			SprayWrite( ring, p, v, size, SPRAY_MIST, life, tag + r0 * 0.999 );
+		}
+	}
+}
+
+// One crest of wave m at Lagrangian point pc (station i): store the lip frame and emit spray.
+void BrkProcessCrest( uint i, float2 pc, float m )
+{
+	float seaLevel = _BrkP2.x;
+	ShorePhase ph = ShorePhaseAt( pc );
+	float2 dir = ph.dir;
+	float along = ph.along;
+	float ground = TWHeightAt( pc );
+	float depth = seaLevel - ground;
+	float A = ShoreWaveAmp( m, along );
+	float4 cr = ShoreCrest( A, depth ); // ( b, H, trough, lipThrow )
+	float b = cr.x;
+	float env = smoothstep( 26.0, 13.0, depth ) * saturate( ph.exposure * 1.4 ) * shoreP_enabled;
+
+	// followed from before it breaks until the bore reaches the shore (the lip sheet only uses b < 1.25)
+	if ( b > -0.6 && env > 0.3 && depth > 0.12 )
+	{
+		float c = sqrt( clamp( depth, 0.3, 25.0 ) * BRK_GRAVITY );
+		float lam = c * shoreP_period;
+		float4 s0 = ShoreShape( 0.0, A, depth, lam );
+		float ub = 0.4 / lam;
+		float4 s1 = ShoreShape( ub, A, depth, lam );
+		float3 fd = BrkFftDisp( pc, depth );
+		float3 d3 = float3( dir.x, 0.0, dir.y );
+		float3 root = float3( pc.x, seaLevel, pc.y ) + d3 * ( s0.x * env ) + float3( 0.0, s0.y * env, 0.0 ) + fd;
+		float3 back = float3( pc.x, seaLevel, pc.y ) + d3 * ( s1.x * env - 0.4 ) + float3( 0.0, s1.y * env, 0.0 ) + fd;
+		float H = cr.y * env;
+		float trough = seaLevel + cr.z * env + fd.y;
+		// slot by wave parity (neighbouring stations agree on it), id = wave index mod 1024, + 1 (0 = none)
+		uint slot = ( uint ) ( m - floor( m * 0.5 ) * 2.0 );
+		float id = m - floor( m / 1024.0 ) * 1024.0 + 1.0;
+		uint k = i * 6u + slot * 3u;
+		_BrkCrestW[ k ] = float4( root, b );
+		_BrkCrestW[ k + 1u ] = float4( back, H );
+		_BrkCrestW[ k + 2u ] = float4( dir, trough, id );
+		BrkEmit( i, slot, root, dir, b, H, trough, c, m, depth, ShoreBore( A, depth ) );
+	}
+}
+
+[numthreads( 64, 1, 1 )]
+void SurfCrests( uint3 gid : SV_DispatchThreadID )
+{
+	uint i = gid.x;
+	if ( i >= ( uint ) _BrkP3.y ) { return; }
+	float4 st = _BrkStations[ i ];
+	float2 o = st.xy;
+	float2 n = st.zw; // toward the sea
+	uint baseIdx = i * 6u;
+	// clear both slots
+	_BrkCrestW[ baseIdx + 2u ] = 0.0;
+	_BrkCrestW[ baseIdx + 5u ] = 0.0;
+
+	float sPrev = 0.0;
+	for ( int k = 0; k < TRANSECT_K; k ++ )
+	{
+		float dist = float( k ) * STEP_LEN;
+		float s = ShorePhaseAt( o + n * dist ).s;
+		// s grows seaward: a crest (integer phase) lies between this sample and the previous one
+		if ( k > 0 && floor( s ) > floor( sPrev ) )
+		{
+			float m = floor( s );
+			// secant refinement on the exact phase
+			float lo = dist - STEP_LEN;
+			float hi = dist;
+			float sLo = sPrev;
+			float sHi = s;
+			float x = lo + ( m - sLo ) / max( sHi - sLo, 1e-5 ) * STEP_LEN;
+			for ( int it = 0; it < 2; it ++ )
+			{
+				float sx = ShorePhaseAt( o + n * x ).s;
+				if ( sx < m )
+				{
+					lo = x;
+					sLo = sx;
+				}
+				else
+				{
+					hi = x;
+					sHi = sx;
+				}
+
+				x = lo + ( m - sLo ) / max( sHi - sLo, 1e-5 ) * ( hi - lo );
+			}
+
+			float2 pc = o + n * x;
+			BrkProcessCrest( i, pc, m );
+		}
+
+		sPrev = s;
+	}
+}

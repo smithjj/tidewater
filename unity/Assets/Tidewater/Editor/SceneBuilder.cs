@@ -249,3 +249,58 @@ namespace Tidewater.EditorTools
 		}
 	}
 }
+
+namespace Tidewater.EditorTools
+{
+	public static class BreakersDebug
+	{
+		// Frames the biggest crest whose lip is in the air (b between lo and hi): the camera sits seaward of it, `dist` m out and
+		// `side` m along the crest, `eye` m above the sea, looking at the lip root.
+		public static string Frame( double lo, double hi, double dist, double side, double eye )
+		{
+			var o = Tidewater.Ocean.OceanRenderer.instance;
+			if ( o == null || o.breakers == null ) return "no breakers";
+			var data = new Vector4[ o.breakers.NS * 6 ];
+			o.breakers.crestBuffer.GetData( data );
+			int bestI = -1, bestS = 0; float bestH = 0;
+			for ( int i = 0; i < o.breakers.NS; i ++ ) for ( int s = 0; s < 2; s ++ )
+			{
+				var c0 = data[ i * 6 + s * 3 ]; var c1 = data[ i * 6 + s * 3 + 1 ]; var c2 = data[ i * 6 + s * 3 + 2 ];
+				if ( c2.w < 0.5 || c0.w < lo || c0.w > hi ) continue;
+				if ( c1.w > bestH ) { bestH = c1.w; bestI = i; bestS = s; }
+			}
+
+			if ( bestI < 0 ) return "no crest with b in [" + lo + ", " + hi + "]";
+			var r = data[ bestI * 6 + bestS * 3 ]; var rd = data[ bestI * 6 + bestS * 3 + 2 ];
+			var root = new Vector3( r.x, r.y, r.z );
+			var d3 = new Vector3( rd.x, 0, rd.y ); var tg = new Vector3( -rd.y, 0, rd.x );
+			var cam = root - d3 * ( float ) dist + tg * ( float ) side; cam.y = root.y + ( float ) eye;
+			var c = Camera.main;
+			var look = Tidewater.Util.Sim.ToUnity( root.x, root.y, root.z );
+			c.transform.position = Tidewater.Util.Sim.ToUnity( cam.x, cam.y, cam.z );
+			c.transform.rotation = Quaternion.LookRotation( ( look - c.transform.position ).normalized, Vector3.up );
+			return $"station {bestI} slot {bestS}: root ({root.x:F1},{root.y:F2},{root.z:F1}) b {r.w:F2} H {bestH:F2}, camera at ({cam.x:F1},{cam.y:F2},{cam.z:F1})";
+		}
+
+		// active crests: count, their breaking progress b range, and where the most advanced plunging one is
+		public static string Stats()
+		{
+			var o = Tidewater.Ocean.OceanRenderer.instance;
+			if ( o == null || o.breakers == null ) return "no breakers";
+			var data = new Vector4[ o.breakers.NS * 6 ];
+			o.breakers.crestBuffer.GetData( data );
+			int active = 0, plunging = 0; float bMin = 9, bMax = -9; int bestI = -1; float bestB = -9;
+			for ( int i = 0; i < o.breakers.NS; i ++ ) for ( int s = 0; s < 2; s ++ )
+			{
+				var c0 = data[ i * 6 + s * 3 ]; var c2 = data[ i * 6 + s * 3 + 2 ];
+				if ( c2.w < 0.5 ) continue;
+				active ++;
+				bMin = Mathf.Min( bMin, c0.w ); bMax = Mathf.Max( bMax, c0.w );
+				if ( c0.w > 0.35 && c0.w < 1.25 ) { plunging ++; if ( c0.w > bestB ) { bestB = c0.w; bestI = i; } }
+			}
+			string where = "";
+			if ( bestI >= 0 ) { var r = data[ bestI * 6 ]; var r2 = data[ bestI * 6 + 1 ]; where = $" | most advanced: station {bestI} root ({r.x:F1},{r.y:F2},{r.z:F1}) b {r.w:F2} H {r2.w:F2}"; }
+			return $"{o.breakers.NS} stations, {active} active crests, {plunging} with a lip (b .35..1.25), b {bMin:F2}..{bMax:F2}{where}";
+		}
+	}
+}

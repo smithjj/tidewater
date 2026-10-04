@@ -9,6 +9,9 @@ namespace Tidewater.Core
 		public static float time;
 		public static float dt = 1f / 60f;
 
+		// 0 by day, 1 with the sun well below the horizon (App.js G.night): written by OceanRenderer from the sun
+		public static float night;
+
 		public static float seaLevel = 0;
 		// wind blowing toward (sim xz) and its speed at 10 m (m/s): written by the sea conditions (Conditions.WriteConditions)
 		public static Vector2 windDir = new Vector2( 0.35f, 0.94f ).normalized;

@@ -258,6 +258,7 @@ namespace Tidewater.Ocean
 			Shader.SetGlobalVector( "_TWSunColor", new Vector4( sc.x, sc.y, sc.z, 0 ) );
 			// G.night (App.js): 0 by day, 1 with the sun well below the horizon
 			double night = Tidewater.Engine.MathUtils.smoothstep( - sd.y, 0.02, 0.18 );
+			G.night = ( float ) night;
 			Shader.SetGlobalVector( "_TWFrame", new Vector4( ( float ) G.time, ( float ) G.windSpeed, ( float ) night, 0 ) );
 		}
 

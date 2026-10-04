@@ -28,6 +28,10 @@ namespace Tidewater.EditorTools
 			var vil = GameObject.Find( "Village" ) ?? new GameObject( "Village" );
 			if ( vil.GetComponent<Tidewater.World.Village.VillageView>() == null ) vil.AddComponent<Tidewater.World.Village.VillageView>();
 
+			// the local lights (lanterns, lamp posts, path lights, lit windows) of the village: a pool of HDRP lights picked per camera
+			var ll = GameObject.Find( "Local Lights" ) ?? new GameObject( "Local Lights" );
+			if ( ll.GetComponent<Tidewater.World.LocalLightsView>() == null ) ll.AddComponent<Tidewater.World.LocalLightsView>();
+
 			// the sea (replaces the flat placeholder plane the scene had before the ocean was ported)
 			var old = GameObject.Find( "Sea (placeholder)" );
 			if ( old != null ) Object.DestroyImmediate( old );

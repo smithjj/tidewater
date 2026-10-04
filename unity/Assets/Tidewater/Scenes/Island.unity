@@ -557,7 +557,7 @@ MonoBehaviour:
   rangeFactor: 2
   seed: 7
   material: {fileID: 668202900}
-  stats: 'terrain: generate 2284 ms, village 266 ms, textures 339 ms, total 3137 ms'
+  stats: 'terrain: generate 2278 ms, village 241 ms, textures 357 ms, total 3167 ms'
 --- !u!4 &960527519
 Transform:
   m_ObjectHideFlags: 0
@@ -685,6 +685,51 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1250347386
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1250347388}
+  - component: {fileID: 1250347387}
+  m_Layer: 0
+  m_Name: Local Lights
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &1250347387
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1250347386}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 1976626237}
+  m_Name: 
+  m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.World.LocalLightsView
+  active: 0
+--- !u!4 &1250347388
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1250347386}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &1283713446
 GameObject:
   m_ObjectHideFlags: 0
@@ -714,7 +759,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 61633aa64ca174a4b9d12fd65ef72584, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.World.Village.VillageView
-  stats: 
+  bakeShader: {fileID: 7200000, guid: a5df59ff92ef03d47b42cbf2ec8694ef, type: 3}
+  stats: 'village: 208530 vertices, 134752 triangles, meshes + textures (0 MB, bake 0 ms) in 36 ms'
 --- !u!4 &1283713448
 Transform:
   m_ObjectHideFlags: 0
@@ -1097,6 +1143,21 @@ MonoBehaviour:
       data1: 0
       data2: 0
   defaultFrameSettings: 0
+--- !u!115 &1976626237
+MonoScript:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_Name: 
+  serializedVersion: 7
+  m_DefaultReferences: {}
+  m_Icon: {fileID: 0}
+  m_Type: 0
+  m_ExecutionOrder: 0
+  m_ClassName: LocalLightsView
+  m_Namespace: Tidewater.World
+  m_AssemblyName: Tidewater.Runtime
 --- !u!1 &2013410473
 GameObject:
   m_ObjectHideFlags: 1
@@ -1193,3 +1254,4 @@ SceneRoots:
   - {fileID: 1333748734}
   - {fileID: 1332066836}
   - {fileID: 1105453944}
+  - {fileID: 1250347388}

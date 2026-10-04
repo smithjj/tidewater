@@ -19,7 +19,7 @@ namespace Tidewater.Ocean
 	[ExecuteAlways]
 	public sealed class OceanRenderer : MonoBehaviour
 	{
-		public ComputeShader fftShader, foamShader, queryShader, shoreSimShader, underwaterLightShader;
+		public ComputeShader fftShader, foamShader, queryShader, shoreSimShader, underwaterLightShader, sprayShader;
 		public Material material;
 		public Light sun;
 		public int gridSize = 32;
@@ -52,6 +52,8 @@ namespace Tidewater.Ocean
 		// caustics (photon splatting) and the baked wave maps the underwater lighting pass reads
 		public Caustics caustics { get; private set; }
 		public UnderwaterLighting underwaterLighting { get; private set; }
+		// spray particles (drops, mist, bow sheets); created with the shore sim once the terrain exists
+		public Tidewater.Fx.Spray spray { get; private set; }
 		Tidewater.World.TerrainGPU terrainGpu;
 		public CDLOD lod { get; private set; }
 		RenderTexture foamTexture;
@@ -73,6 +75,7 @@ namespace Tidewater.Ocean
 			if ( queryShader == null ) queryShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/WaterQuery.compute" );
 			if ( shoreSimShader == null ) shoreSimShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/ShoreSim.compute" );
 			if ( underwaterLightShader == null ) underwaterLightShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Ocean/UnderwaterLight.compute" );
+			if ( sprayShader == null ) sprayShader = AssetDatabase.LoadAssetAtPath<ComputeShader>( "Assets/Tidewater/Shaders/Fx/Spray.compute" );
 #endif
 		}
 
@@ -91,7 +94,7 @@ namespace Tidewater.Ocean
 		{
 			instance = this;
 			FillDefaults();
-			if ( fftShader == null || foamShader == null || queryShader == null || shoreSimShader == null || underwaterLightShader == null ) { enabled = false; Debug.LogError( "OceanRenderer: compute shaders not assigned" ); return; }
+			if ( fftShader == null || foamShader == null || queryShader == null || shoreSimShader == null || underwaterLightShader == null || sprayShader == null ) { enabled = false; Debug.LogError( "OceanRenderer: compute shaders not assigned" ); return; }
 			Build();
 			RenderPipelineManager.beginCameraRendering += OnBeginCamera;
 		}
@@ -130,6 +133,8 @@ namespace Tidewater.Ocean
 		{
 			if ( query != null ) query.Dispose();
 			query = null;
+			if ( spray != null ) spray.Dispose();
+			spray = null;
 			if ( underwaterLighting != null ) underwaterLighting.Dispose();
 			underwaterLighting = null;
 			if ( caustics != null ) caustics.Dispose();
@@ -170,6 +175,7 @@ namespace Tidewater.Ocean
 				if ( shore != null ) shore.Update( G.dt );
 				if ( shoreSim != null ) shoreSim.Update( G.dt, G.time, G.seaLevel );
 				seaDetail.Update( G.dt );
+				if ( spray != null ) spray.Update( G.dt, G.time, amplitude );
 				PublishSun();
 				fft.SetGlobals();
 				caustics.Update();
@@ -187,6 +193,7 @@ namespace Tidewater.Ocean
 				if ( shore != null ) shore.Update( step );
 				if ( shoreSim != null ) shoreSim.Update( step, G.time, G.seaLevel );
 				seaDetail.Update( step );
+				if ( spray != null ) spray.Update( step, G.time, amplitude );
 			}
 
 			PublishSun();
@@ -260,6 +267,7 @@ namespace Tidewater.Ocean
 					shoreSim = new ShoreSim( shoreSimShader, tr.gpu, shore );
 					terrainGpu = tr.gpu;
 					underwaterLighting = new UnderwaterLighting( underwaterLightShader );
+					spray = new Tidewater.Fx.Spray( sprayShader, Shader.Find( "Tidewater/Spray" ), fft, terrainGpu, shore, shoreSim );
 				}
 				query = new WaterQuery( queryShader, fft, tr != null ? tr.gpu : null, shore ) { amplitude = amplitude };
 			}
@@ -295,6 +303,8 @@ namespace Tidewater.Ocean
 				block.SetVectorArray( NodeData, batchData );
 				Graphics.DrawMeshInstanced( lod.gridMesh, 0, material, identity, n, block, ShadowCastingMode.Off, false, gameObject.layer, cam );
 			}
+
+			if ( spray != null ) spray.Draw( cam );
 		}
 	}
 }

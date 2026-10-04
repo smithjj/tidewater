@@ -1,0 +1,235 @@
+// Port of the update kernel of src/fx/Spray.js: GPU spray particles, drops, ligaments, dense spray and mist.
+//
+// One ring buffer. The first part is written by GPU emitters (breaking waves) through an atomic head; the tail is owned by the CPU
+// emit API (boat bow spray, splashes), whose requests are expanded here into the slots the CPU reserved. Particles are integrated
+// with gravity + drag toward the air around them (the wind; for mist first the air pushed along by the wave) and die when they fall
+// back into the water, where they leave foam (ShoreSim deposit).
+//
+// Particles collide with one moving body (the boat, Spray.SetBody): its hull (plan outline with an elliptic bow, up to the sheer)
+// and one box (the wheelhouse). They are pushed out through the nearest face, lose the velocity into it (relative to the body), and
+// drops that hit it run off.
+
+#pragma kernel SprayUpdate
+
+#define TW_NO_NORMAL_ROCK
+#include "Packages/com.unity.render-pipelines.core/ShaderLibrary/Common.hlsl"
+#include "../Terrain/TerrainHeight.hlsl"
+#include "../Common/Noise.hlsl"
+#include "../Ocean/ShoreWaves.hlsl"
+#include "../Ocean/ShoreSim.hlsl"
+#include "../Ocean/WaterQueryHeight.hlsl"
+#include "SprayEmit.hlsl"
+
+StructuredBuffer<float4> _SprayReq;      // CPU emit requests (4 float4 each): (a.xyz, prefix end) (b.xyz, size) (vel.xyz, kind) (velSpread, posSpread, life, sizeJitter)
+RWStructuredBuffer<uint> _ShoreSimDeposit;   // foam deposited by spray falling back (drops per texel), consumed by ShoreSim.compute
+
+uint4 _SprayRing;             // cpuStart, cpuCount, reqCount, shore sim deposit enabled
+float4 _SprayFrame;           // time, dt, wind dir x, wind dir z
+float4 _SprayWindSpeed;       // wind speed at 10 m
+
+// one moving body the particles collide with
+float4x4 _SprayBodyMat;       // body -> world
+float4x4 _SprayBodyInv;       // world -> body
+float4 _SprayBodyVel;         // xyz, on
+float4 _SprayBodyHull;        // at the sheer: z aft, z shoulder, z stem, half beam
+float4 _SprayBodyHullWL;      // at y = 0: z shoulder, z stem, half beam
+float4 _SprayBodySheer;       // y sheer aft, y sheer stem, y bottom
+float4 _SprayBodyBoxMin;
+float4 _SprayBodyBoxMax;
+
+// per-kind constants: droplet (a drop of a few mm, ballistic), mist (fine drops that follow the air), ligament (an elongated blob
+// of water, ~1-2 cm, torn off a sheet or jet), spray (a cloud of drops: the white of splashes), sheet (a thin clear sheet of water
+// peeling off a hull, spreading and tearing)
+float SprayByKind( float kind, float a, float b, float c, float d, float e )
+{
+	return kind < 0.5 ? a : ( kind < 1.5 ? b : ( kind < 2.5 ? c : ( kind < 3.5 ? d : e ) ) );
+}
+#define KIND_TAU( k ) SprayByKind( k, 3.0, 0.35, 5.0, 1.8, 2.5 )              // drag time constant toward the air velocity (s): ~ drop size^2
+#define KIND_GRAV( k ) SprayByKind( k, GRAVITY, 0.3, GRAVITY, 8.5, GRAVITY )  // effective gravity (mist barely settles; torn sheets fall back)
+#define KIND_TURB( k ) SprayByKind( k, 0.0, 0.5, 0.0, 0.3, 0.1 )              // turbulent wander (m/s^2, zero mean)
+#define KIND_GROW( k ) SprayByKind( k, 0.0, 0.22, 0.0, 0.3, 0.7 )             // size growth (1/s)
+#define KIND_DIES( k ) SprayByKind( k, 1.0, 0.0, 1.0, 1.0, 1.0 )              // killed when falling into the water (else skims over it)
+#define KIND_DEPOSIT( k ) SprayByKind( k, 1.0, 0.0, 3.0, 4.0, 2.0 )           // foam left where it falls into the water (drops' worth)
+#define GRAVITY 9.81
+
+// drops falling into the water leave foam there: n drops at world xz
+void ShoreSimDepositAt( float2 xz, uint n )
+{
+	float2 uv = ShoreSimUvOf( xz );
+	if ( uv.x > 0.0 && uv.x < 1.0 && uv.y > 0.0 && uv.y < 1.0 )
+	{
+		uint2 ij = ( uint2 ) ( uv * SHORE_SIM_RES );
+		uint old;
+		InterlockedAdd( _ShoreSimDeposit[ ij.y * ( uint ) SHORE_SIM_RES + ij.x ], n, old );
+	}
+}
+
+// Push a particle out of the body (hull or box) through the nearest face; the velocity into it (relative to the body) is removed
+// and the rest damped (the water runs off as a film); drops that hit it die soon after.
+void SprayCollideBody( inout float3 p, inout float3 v, float age, inout float life, bool isMist )
+{
+	if ( _SprayBodyVel.w < 0.5 ) { return; }
+	float3 q = mul( _SprayBodyInv, float4( p, 1.0 ) ).xyz;
+	float4 H = _SprayBodyHull; float4 W = _SprayBodyHullWL; float4 S = _SprayBodySheer;
+	// hull: the outline at this height (waterline -> sheer), half breadth at q.z (elliptic bow)
+	float sheer = lerp( S.x, S.y, saturate( ( q.z - H.x ) / max( H.z - H.x, 0.01 ) ) );
+	float fh = saturate( q.y / max( sheer, 0.1 ) );
+	float zSh = lerp( W.x, H.y, fh ); float zSt = lerp( W.y, H.z, fh ); float HB = lerp( W.z, H.w, fh );
+	float bowL = max( zSt - zSh, 0.01 );
+	float e = saturate( ( q.z - zSh ) / bowL );
+	float c = sqrt( max( 1.0 - e * e, 0.02 ) );
+	float hb = HB * c;
+	bool inHull = q.z > H.x && q.z < zSt && abs( q.x ) < hb && q.y < sheer && q.y > S.z;
+	float3 b0 = _SprayBodyBoxMin.xyz; float3 b1 = _SprayBodyBoxMax.xyz;
+	bool inBox = q.x > b0.x && q.x < b1.x && q.y > b0.y && q.y < b1.y && q.z > b0.z && q.z < b1.z;
+	if ( inHull || inBox )
+	{
+		float3 n = float3( 0.0, 1.0, 0.0 );
+		if ( inHull )
+		{
+			float sx = q.x > 0.0 ? 1.0 : -1.0;
+			if ( hb - abs( q.x ) < sheer - q.y )
+			{
+				// through the side; on the bow the side faces forward too (- d hb / dz)
+				n = normalize( float3( sx, 0.0, HB * e / ( c * bowL ) ) );
+				q.x = sx * ( hb + 0.02 );
+			}
+			else
+			{
+				q.y = sheer + 0.02;
+			}
+		}
+		else
+		{
+			float dx = min( q.x - b0.x, b1.x - q.x );
+			float dz = min( q.z - b0.z, b1.z - q.z );
+			float dy = b1.y - q.y;
+			if ( dy < dx && dy < dz )
+			{
+				q.y = b1.y + 0.02;
+			}
+			else if ( dx < dz )
+			{
+				bool right = q.x > ( b0.x + b1.x ) * 0.5;
+				n = float3( right ? 1.0 : -1.0, 0.0, 0.0 );
+				q.x = right ? b1.x + 0.02 : b0.x - 0.02;
+			}
+			else
+			{
+				bool front = q.z > ( b0.z + b1.z ) * 0.5;
+				n = float3( 0.0, 0.0, front ? 1.0 : -1.0 );
+				q.z = front ? b1.z + 0.02 : b0.z - 0.02;
+			}
+		}
+
+		float3 nw = normalize( mul( _SprayBodyMat, float4( n, 0.0 ) ).xyz );
+		float3 vr = v - _SprayBodyVel.xyz;
+		float vn = dot( vr, nw );
+		if ( vn < 0.0 ) { vr -= nw * vn; }
+		v = _SprayBodyVel.xyz + vr * 0.5;
+		p = mul( _SprayBodyMat, float4( q, 1.0 ) ).xyz;
+		// water that hits it wets it and runs off (gone); mist flows around it and settles
+		life = min( life, isMist ? age + 0.25 : age );
+	}
+}
+
+[numthreads( 64, 1, 1 )]
+void SprayUpdate( uint3 gid : SV_DispatchThreadID )
+{
+	uint i = gid.x;
+	uint NG = _SprayCap.x, NC = _SprayCap.y, N = _SprayCap.z;
+	if ( i >= N ) { return; }
+
+	// ---- CPU-owned slots: spawn from this frame's requests
+	if ( i >= NG )
+	{
+		uint k = ( i - NG + NC - _SprayRing.x ) % NC;
+		if ( k < _SprayRing.y )
+		{
+			uint r = 0u;
+			for ( uint j = 0u; j < _SprayRing.z; j ++ )
+			{
+				r = j;
+				if ( float( k ) < _SprayReq[ j * 4u ].w ) { break; }
+			}
+			float4 r0 = _SprayReq[ r * 4u ];
+			float4 r1 = _SprayReq[ r * 4u + 1u ];
+			float4 r2 = _SprayReq[ r * 4u + 2u ];
+			float4 r3 = _SprayReq[ r * 4u + 3u ];
+			float h0 = SprayRand( i, 11u ); float h1 = SprayRand( i, 12u ); float h2 = SprayRand( i, 13u );
+			float h3 = SprayRand( i, 14u ); float h4 = SprayRand( i, 15u ); float h5 = SprayRand( i, 16u );
+			float h6 = SprayRand( i, 17u );
+			float3 along = lerp( r0.xyz, r1.xyz, h0 );
+			float3 jit = float3( h1 - 0.5, h2 - 0.5, h3 - 0.5 ) * ( r3.y * 2.0 );
+			float3 vj = float3( h4 - 0.5, h5 - 0.5, h6 - 0.5 ) * ( r3.x * 2.0 );
+			float size = r1.w * ( 1.0 + ( h2 - 0.5 ) * r3.w );
+			float life = r3.z * ( h3 * 0.5 + 0.75 );
+			SprayWrite( i, along + jit, r2.xyz + vj, size, r2.w, life, h5 );
+		}
+	}
+
+	// ---- integrate live particles
+	float4 P = _SprayPos[ i ];
+	float4 Vv = _SprayVel[ i ];
+	float4 info = _SprayInfo[ i ];
+	if ( info.y > 0.0 )
+	{
+		float dt = _SprayFrame.y;
+		float3 p = P.xyz;
+		float3 v = Vv.xyz;
+		float age = P.w + dt;
+		float kind = info.x;
+
+		// wind near the surface (~70% of the 10 m wind), gusty
+		float gust = sin( _SprayFrame.x * 0.7 + p.x * 0.05 ) * 0.25 + 0.85;
+		float3 wind = float3( _SprayFrame.z, 0.0, _SprayFrame.w ) * ( _SprayWindSpeed.x * 0.7 * gust );
+		// drag toward the wind: small drops follow the air, mist drifts with it
+		// mist first keeps moving with the air the wave pushes ahead of it, then joins the wind
+		bool isMist = kind > 0.5 && kind < 1.5;
+		float tau = KIND_TAU( kind ) * ( isMist ? exp( age * -1.2 ) * 4.0 + 1.0 : 1.0 );
+		float grav = KIND_GRAV( kind );
+		float3 turb = float3(
+			sin( age * 2.1 + frac( info.w ) * 40.0 ),
+			sin( age * 1.7 + frac( info.w ) * 17.0 ) * 0.5,
+			cos( age * 1.9 + frac( info.w ) * 29.0 ) ) * KIND_TURB( kind );
+		v += ( ( wind - v ) / tau + turb ) * dt;
+		v.y -= grav * dt;
+		p += v * dt;
+
+		float life = info.y;
+		SprayCollideBody( p, v, age, life, isMist );
+
+		// water surface and ground below
+		float hw = WaterQueryHeightAtXZ( p.xz );
+		float ground = TWHeightAt( p.xz );
+		float top = max( hw, ground );
+
+		// drops die in the water / on the sand; mist and foam skim over it
+		if ( p.y < top && v.y < 0.0 && age > 0.04 )
+		{
+			if ( KIND_DIES( kind ) > 0.5 )
+			{
+				life = 0.0;
+				// fell into the water (not onto the sand): its bubbles add to the foam there
+				if ( _SprayRing.w > 0u && hw > ground + 0.02 )
+				{
+					ShoreSimDepositAt( p.xz, ( uint ) KIND_DEPOSIT( kind ) );
+				}
+			}
+			else
+			{
+				p.y = top + 0.02;
+				v.y = max( v.y, 0.0 );
+				v = float3( v.x * 0.95, v.y, v.z * 0.95 );
+			}
+		}
+
+		if ( age > life ) { life = 0.0; }
+
+		// mist and spray clouds grow as they dilute
+		float size = Vv.w * ( 1.0 + dt * KIND_GROW( kind ) );
+		_SprayPos[ i ] = float4( p, age );
+		_SprayVel[ i ] = float4( v, size );
+		_SprayInfo[ i ] = float4( info.x, life, hw, info.w );
+	}
+}

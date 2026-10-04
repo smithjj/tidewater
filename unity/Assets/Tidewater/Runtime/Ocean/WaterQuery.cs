@@ -96,17 +96,16 @@ namespace Tidewater.Ocean
 			return new WaterSample { height = cpu[ i * 4 ], nx = cpu[ i * 4 + 1 ], nz = cpu[ i * 4 + 2 ], floor = cpu[ i * 4 + 3 ] };
 		}
 
-		// Dispatch the queries for the points set so far and start a read-back if none is in flight.
-		public void Update()
+		// The inputs of WaterQueryHeight.hlsl (the Eulerian height of the full surface) on a compute shader that includes it:
+		// the FFT cascades, the sea level, the terrain and the shore waves
+		public static void SetHeightInputs( ComputeShader cs, int kernel, OceanFFT fft, TerrainGPU terrain, ShoreWaves shore, float amplitude )
 		{
-			for ( int i = 0; i < MAX; i ++ ) inputsGpu[ i ] = new Vector4( inputs[ i * 4 ], inputs[ i * 4 + 1 ], inputs[ i * 4 + 2 ], inputs[ i * 4 + 3 ] );
-			inputBuffer.SetData( inputsGpu );
-
 			cs.SetTexture( kernel, "_TWOceanDisp", fft.displacementTexture );
 			var sizes = new Vector4[ 4 ];
 			for ( int c = 0; c < 4; c ++ ) sizes[ c ] = new Vector4( c < fft.cascades ? ( float ) fft.sizes[ c ] : 1, 0, 0, 0 );
 			cs.SetVectorArray( "_TWOceanSizes", sizes );
-			cs.SetVector( "_QAmp", new Vector4( amplitude, G.seaLevel, terrain != null ? 1 : 0, shore != null ? 1 : 0 ) );
+			bool hasShore = terrain != null && shore != null;
+			cs.SetVector( "_QAmp", new Vector4( amplitude, G.seaLevel, terrain != null ? 1 : 0, hasShore ? 1 : 0 ) );
 			if ( terrain != null )
 			{
 				cs.SetTexture( kernel, "_TWHeightTex", terrain.heightTexture );
@@ -121,8 +120,17 @@ namespace Tidewater.Ocean
 				cs.SetTexture( kernel, "_TWShoreTex", Texture2D.blackTexture );
 			}
 
-			if ( shore != null ) shore.SetCompute( cs, kernel, G.time, G.seaLevel );
+			if ( hasShore ) shore.SetCompute( cs, kernel, G.time, G.seaLevel );
 			else cs.SetTexture( kernel, "_TWShoreDirTex", Texture2D.blackTexture );
+		}
+
+		// Dispatch the queries for the points set so far and start a read-back if none is in flight.
+		public void Update()
+		{
+			for ( int i = 0; i < MAX; i ++ ) inputsGpu[ i ] = new Vector4( inputs[ i * 4 ], inputs[ i * 4 + 1 ], inputs[ i * 4 + 2 ], inputs[ i * 4 + 3 ] );
+			inputBuffer.SetData( inputsGpu );
+
+			SetHeightInputs( cs, kernel, fft, terrain, shore, amplitude );
 
 			cs.SetBuffer( kernel, "_QueryInputs", inputBuffer );
 			cs.SetBuffer( kernel, "_QueryResults", results );

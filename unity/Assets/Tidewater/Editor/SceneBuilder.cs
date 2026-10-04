@@ -225,3 +225,27 @@ namespace Tidewater.EditorTools
 		}
 	}
 }
+
+namespace Tidewater.EditorTools
+{
+	// Editor test bursts of spray (the Editor does not tick the ocean when not playing: Advance steps it)
+	public static class SprayDebug
+	{
+		// one of each kind above sim position (x, y, z), then run the sea forward `after` seconds
+		public static string Burst( double x, double y, double z, double after )
+		{
+			var o = Tidewater.Ocean.OceanRenderer.instance;
+			if ( o == null || o.spray == null ) return "no spray";
+			var sp = o.spray;
+			var p = new Vector3( ( float ) x, ( float ) y, ( float ) z );
+			var up = new Vector3( 0, 5, 0 );
+			sp.Emit( p + new Vector3( -3, 0, 0 ), up, 600, 0.012f, Tidewater.Fx.SprayKind.DROPLET, new Tidewater.Fx.SprayEmitOptions { spread = 2.5f, jitter = 0.4f } );
+			sp.Emit( p + new Vector3( -1, 0, 0 ), up, 120, 0.03f, Tidewater.Fx.SprayKind.LIGAMENT, new Tidewater.Fx.SprayEmitOptions { spread = 2.0f, jitter = 0.3f } );
+			sp.Emit( p + new Vector3( 1, 0, 0 ), up * 0.6f, 60, 0.35f, Tidewater.Fx.SprayKind.SPRAY, new Tidewater.Fx.SprayEmitOptions { spread = 1.5f, jitter = 0.5f } );
+			sp.Emit( p + new Vector3( 3, 0, 0 ), up * 0.2f, 40, 0.8f, Tidewater.Fx.SprayKind.MIST, new Tidewater.Fx.SprayEmitOptions { spread = 0.8f, jitter = 0.8f } );
+			sp.Emit( p + new Vector3( 5, 0, 0 ), new Vector3( 0, 3, 0 ), 30, 0.5f, Tidewater.Fx.SprayKind.SHEET, new Tidewater.Fx.SprayEmitOptions { spread = 1.2f, jitter = 0.3f } );
+			o.Advance( ( float ) after );
+			return "burst at " + p;
+		}
+	}
+}

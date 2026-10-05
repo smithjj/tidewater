@@ -192,8 +192,23 @@ namespace Tidewater.Game
 			// Joe: a blue work shirt and an apron; Marta (Chandlery.js look): a red shirt, green apron, dark hat
 			v.figureJoe = v.BuildFigure( joe, heightAt, 0x5d7a8c, 0x3f4a3c, 0xd8b24a, 0xc9a86a, 0xb8b2a6 );
 			v.figureMarta = v.BuildFigure( marta, heightAt, 0x8a3b32, 0x2f3b4a, 0x3d5a4a, 0x2c3a44, 0x3a2c22 );
+			v.Character( v.figureJoe, joe, "joe" );
+			v.Character( v.figureMarta, marta, "marta" );
 			foreach ( var t in go.GetComponentsInChildren<Transform>( true ) ) t.gameObject.hideFlags = HideFlags.DontSave;
 			return v;
+		}
+
+		// the Rocketbox character replaces the stand-in figure (Vendor.loadCharacter): the figure keeps its place (the character is its child, turned to face sim +z,
+		// which is -z in Unity) and its primitives are hidden
+		void Character( Transform figure, Vendor v, string name )
+		{
+			if ( figure == null || v == null ) return;
+			var m = CharacterModel.Create( name, figure );
+			if ( m == null ) return;
+			m.group.transform.localRotation = Quaternion.Euler( 0, 180, 0 );
+			foreach ( Transform c in figure ) if ( c.gameObject != m.group ) c.gameObject.SetActive( false );
+			foreach ( var t in m.group.GetComponentsInChildren<Transform>( true ) ) t.gameObject.hideFlags = HideFlags.DontSave;
+			v.SetCharacter( m );
 		}
 
 		void Pose( Transform f, Vendor v )
@@ -204,5 +219,8 @@ namespace Tidewater.Game
 		}
 
 		void LateUpdate() { Pose( figureJoe, joe ); Pose( figureMarta, marta ); }
+
+		// the animation graphs are not garbage collected
+		void OnDestroy() { foreach ( var v in new[] { joe, marta } ) if ( v != null && v.character != null ) { v.character.Dispose(); v.character = null; } }
 	}
 }

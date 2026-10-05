@@ -60,6 +60,8 @@ idle, talk, wave and shrug animations from the [Microsoft Rocketbox Avatar Libra
 et al., "The Rocketbox Library and the Utility of Freely Available Rigged Avatars", Frontiers in
 Virtual Reality, 2020.
 
+The Unity port ships the same avatars as FBX (`unity/Assets/Tidewater/Resources/characters/`, converted from the GLBs by `unity/tools/characters-to-fbx.py`, licence beside them).
+
 ## Fonts
 
 [Inter](https://rsms.me/inter/), [JetBrains Mono](https://www.jetbrains.com/lp/mono/),

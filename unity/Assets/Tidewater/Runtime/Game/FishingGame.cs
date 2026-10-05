@@ -20,8 +20,8 @@ using Engine3 = Tidewater.Engine.Vector3;
 // 2.4 - fight * 0.5 s. A strike starts the fight (the line-tension minigame); caught, the fish swings in on the line and the catch card comes up.
 //
 // The HUD (the fight meter, the cast power bar, the strike cue, the aiming dot) and the catch card are IMGUI until the HTML UI (GameHUD.js) is
-// ported. Not ported with them: the card's studio fish portrait (the landed fish hangs on the line while the card is up instead), the splash
-// burst, the pad rumble and the sounds (every IGameAudio hook is optional).
+// ported. The card is CatchCard (the full-screen layout, the splash burst) around FishPortrait (the studio portrait of the fish); the landed fish hangs
+// on the line only until the card is up. Not ported: the pad rumble (every IGameAudio hook is optional).
 namespace Tidewater.Game
 {
 	public sealed class Bite
@@ -55,6 +55,7 @@ namespace Tidewater.Game
 		public readonly FishingRod rod;
 		public FishingRodView view { get; private set; }
 		public CatchDisplay display { get; private set; }
+		public CatchCard card { get; private set; }
 		readonly Transform parent;
 		public CatchMinigame fight;           // while a fish is on
 		public Bite bite;
@@ -76,6 +77,7 @@ namespace Tidewater.Game
 			rod.onLand = where => OnBobberLanded( where );
 			view = FishingRodView.Create( parent );
 			display = new CatchDisplay( parent );
+			card = new CatchCard( parent );
 			ApplyGear();
 		}
 
@@ -83,6 +85,7 @@ namespace Tidewater.Game
 		{
 			view.Dispose();
 			display.Dispose();
+			card.Dispose();
 		}
 
 		// Game.applyGear: the rod's cast distance and reel speed from the gear
@@ -107,6 +110,7 @@ namespace Tidewater.Game
 			// the Editor destroys the scene objects it made when Play starts; build them again
 			if ( ! view.Alive ) { view.Dispose(); view = FishingRodView.Create( parent ); }
 			if ( ! display.Alive ) { display.Dispose(); display = new CatchDisplay( parent ); }
+			if ( ! card.Alive ) { card.Dispose(); card = new CatchCard( parent ); if ( catchOpen && landing != null && landing.card != null ) ShowCard( landing ); }
 			cardDismissed = false;
 			bool can = CanFish;
 			lastCan = can;
@@ -155,7 +159,8 @@ namespace Tidewater.Game
 			view.Sync( rod, host.simCamera );
 
 			// the landed fish hangs on the end of the line, turned to face you, then goes in the cooler. The catch card comes up once the fish has
-			// swung in, and the fish stays (slowly turning) until the card is dismissed (click, E, Esc) or times out.
+			// swung in; while it is up the fish is on the card's studio portrait (as in the JS, the hanging fish is hidden then) until the card is
+			// dismissed (click, E, Esc) or times out. Should the portrait not draw, the fish stays on the line, slowly turning.
 			var L = landing;
 			if ( L != null && rod.state == "landing" && can )
 			{
@@ -163,11 +168,12 @@ namespace Tidewater.Game
 				double yaw = Math.Atan2( c.x - m.x, c.z - m.z );
 				if ( L.card != null )
 				{
-					if ( ! L.shown && rod.t > 0.3 ) { L.shown = true; catchOpen = true; }
+					if ( ! L.shown && rod.t > 0.3 ) { L.shown = true; catchOpen = true; ShowCard( L ); }
 					if ( L.shown )
 					{
 						// a slow turn so both flanks show
 						L.cardT += dt;
+						card.Tick( dt );
 						yaw += Math.Sin( L.cardT * 0.7 ) * 0.55;
 						if ( lDown || inp.actHit( "interact" ) || inp.actHit( "cancel" ) || L.cardT > CATCH_CARD_S )
 						{
@@ -179,8 +185,8 @@ namespace Tidewater.Game
 
 				if ( landing != null )
 				{
-					// (the JS shows the fish on the card's studio portrait while the card is up; here it stays on the line)
-					display.show( L.species, L.kg, m, yaw, dt );
+					if ( L.shown && card.PortraitOk ) display.hide();
+					else display.show( L.species, L.kg, m, yaw, dt );
 					if ( L.card == null && rod.t > 2.8 ) EndLanding();
 				}
 			}
@@ -350,16 +356,7 @@ namespace Tidewater.Game
 			rod.dip = 0;
 			string name = FishTable.Get( f.species ).name;
 			var s = game.state;
-			if ( st == "caught" )
-			{
-				var entry = s.addFish( f.species, f.kg, hour, new CatchSpot { x = rod.bobber.x, z = rod.bobber.z, hab = Codex.dominantHabitat( HabitatHere() ) } );
-				var info = s.lastCatch;
-				// the catch card while the fish hangs on the line
-				Audio?.fishSplash( rod.bobber, 0.8 );
-				Audio?.fishFlop();
-				landing = new Landing { species = f.species, kg = f.kg, card = info };
-				rod.land();
-			}
+			if ( st == "caught" ) Land( f.species, f.kg );
 			else if ( st == "snapped" )
 			{
 				game.Toast( "Snap! The line broke", 2.4f );
@@ -372,11 +369,24 @@ namespace Tidewater.Game
 			}
 		}
 
+		// the fish is in: it goes in the log, splashes, and comes up on the line for its card (also GameDebug.Land)
+		public void Land( string species, double kg )
+		{
+			var s = game.state;
+			var entry = s.addFish( species, kg, hour, new CatchSpot { x = rod.bobber.x, z = rod.bobber.z, hab = Codex.dominantHabitat( HabitatHere() ) } );
+			var info = s.lastCatch;
+			Audio?.fishSplash( rod.bobber, 0.8 );
+			Audio?.fishFlop();
+			landing = new Landing { species = species, kg = kg, card = info };
+			rod.land();
+		}
+
 		// the landed fish goes in the cooler: card, fish and line away
 		void EndLanding()
 		{
 			landing = null;
 			display.hide();
+			card.Hide();
 			catchOpen = false;
 			if ( rod.state == "landing" ) rod.setState( "idle" );
 		}
@@ -392,17 +402,14 @@ namespace Tidewater.Game
 
 		// ---- the HUD (GameHUD.js: the fight meter, the cast bar, the strike cue, the aiming dot, the catch card)
 
-		GUIStyle callStyle, bigStyle, cardTitle, cardSmall, cardStat, cardNote;
+		GUIStyle callStyle, bigStyle, cardSmall;
 
 		void Styles()
 		{
 			if ( callStyle != null && callStyle.fontSize == 15 ) return; // (see GameHost.Styles: the Editor resets GUI styles between Play sessions)
 			callStyle = new GUIStyle( GUI.skin.label ) { fontSize = 15, fontStyle = FontStyle.Bold };
 			bigStyle = new GUIStyle( GUI.skin.label ) { fontSize = 92, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-			cardTitle = new GUIStyle( GUI.skin.label ) { fontSize = 26, fontStyle = FontStyle.Bold }; cardTitle.normal.textColor = Color.white;
 			cardSmall = new GUIStyle( GUI.skin.label ) { fontSize = 12, wordWrap = true }; cardSmall.normal.textColor = new Color( 1, 1, 1, 0.75f );
-			cardStat = new GUIStyle( GUI.skin.label ) { fontSize = 20, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter }; cardStat.normal.textColor = Color.white;
-			cardNote = new GUIStyle( GUI.skin.label ) { fontSize = 13, wordWrap = true }; cardNote.normal.textColor = Color.white;
 		}
 
 		static void Fill( Rect r, Color c ) { var o = GUI.color; GUI.color = c; GUI.DrawTexture( r, Texture2D.whiteTexture ); GUI.color = o; }
@@ -433,7 +440,7 @@ namespace Tidewater.Game
 
 			// the fight: line tension with its safe band, the fish's stamina, line out
 			if ( fight != null ) DrawFight( fight, w, h );
-			if ( catchOpen && landing != null && landing.card != null ) DrawCatch( landing, w, h );
+			if ( catchOpen && landing != null && landing.card != null ) card.OnGUI( ( float ) Math.Max( 0, 1 - landing.cardT / CATCH_CARD_S ), host.input.label( "rodUse" ), host.input.label( "interact" ) );
 		}
 
 		void DrawFight( CatchMinigame f, float w, float h )
@@ -466,49 +473,19 @@ namespace Tidewater.Game
 
 		static string Fmt( double v, string f = "F2" ) => v.ToString( f, System.Globalization.CultureInfo.InvariantCulture );
 
-		// GameHUD.showCatch: the species, the badge, the length / weight / value, and what it means for the log
-		void DrawCatch( Landing L, float w, float h )
+		// GameHUD.showCatch: the card's text (the note about the log, the price) and its start; the card itself (CatchCard) draws the layout and the fish portrait
+		void ShowCard( Landing L )
 		{
-			var info = L.card; var f = FishTable.Get( info.species ); var st = game.state;
-			double inch = info.cm / 2.54, lb = info.kg * 2.20462;
-			string badge = info.record ? "★ New record" : info.newSpecies ? "New species" : "Catch";
+			var info = L.card; var st = game.state;
 			string note;
 			if ( ! info.kept ) note = $"No room in the {( st.upgrades[ "hold" ] > 0 ? "hold" : "cooler" )} · you let it go";
-			else if ( info.record ) note = $"Previous best {Fmt( info.prevBestKg )} kg · {info.prevBestCm} cm. Beaten by {Fmt( info.kg - info.prevBestKg )} kg.";
+			else if ( info.record ) note = $"Previous best <color=#f0c46a><b>{Fmt( info.prevBestKg )} kg</b></color> · {info.prevBestCm} cm. Beaten by {Fmt( info.kg - info.prevBestKg )} kg.";
 			else if ( info.newSpecies ) note = "First one in your fish log.";
 			else note = $"Your best: {Fmt( info.prevBestKg )} kg · {info.prevBestCm} cm";
 			var probe = new InventoryFish { species = info.species, kg = info.kg, value = info.value };
 			double price = st.priceOf( probe );
-			if ( info.kept && st.orderMulFor( probe ) > 1 ) note += $"\n★ Joe's order: he pays ×{Orders.ORDER_MULT} for this one today.";
-
-			var r = new Rect( w - 360, h * 0.16f, 330, 330 );
-			GUI.Box( r, GUIContent.none );
-			GUILayout.BeginArea( new Rect( r.x + 16, r.y + 12, r.width - 32, r.height - 24 ) );
-			GUILayout.Label( badge.ToUpperInvariant(), cardSmall );
-			GUILayout.Label( f.name, cardTitle );
-			GUILayout.Label( f.sci ?? "", cardSmall );
-			GUILayout.Space( 10 );
-			GUILayout.BeginHorizontal();
-			StatBox( "Length", $"{info.cm:F0} cm", $"{Fmt( inch, "F1" )} in" );
-			StatBox( "Weight", $"{( info.kg < 1 ? Fmt( info.kg ) : Fmt( info.kg, "F1" ) )} kg", $"{Fmt( lb, "F1" )} lb" );
-			StatBox( "Value", $"${price:F0}", info.kept ? "in the cooler" : "let go" );
-			GUILayout.EndHorizontal();
-			GUILayout.Space( 8 );
-			GUILayout.Label( note, cardNote );
-			GUILayout.FlexibleSpace();
-			GUILayout.Label( $"{host.input.label( "rodUse" )} or {host.input.label( "interact" )} to continue", cardSmall );
-			GUILayout.EndArea();
-			// the time left on the card
-			Fill( new Rect( r.x + 16, r.yMax - 12, ( r.width - 32 ) * ( float ) Math.Max( 0, 1 - L.cardT / CATCH_CARD_S ), 3 ), new Color( 1, 1, 1, 0.5f ) );
-		}
-
-		void StatBox( string label, string value, string sub )
-		{
-			GUILayout.BeginVertical( GUILayout.Width( 96 ) );
-			GUILayout.Label( label, cardSmall );
-			GUILayout.Label( value, cardStat );
-			GUILayout.Label( sub, cardSmall );
-			GUILayout.EndVertical();
+			if ( info.kept && st.orderMulFor( probe ) > 1 ) note += $"\n<color=#f0c46a>★</color> Joe's order: he pays ×{Orders.ORDER_MULT} for this one today.";
+			card.Show( info, price, note );
 		}
 	}
 }

@@ -96,7 +96,7 @@ namespace Tidewater.Ocean
 		// the game camera has a query), so a margin covers the waves: above it the underwater composite has nothing to do
 		public bool MayBeUnderwater( Camera cam )
 		{
-			if ( cam.cameraType != CameraType.Game || query == null ) return false;
+			if ( cam.cameraType != CameraType.Game || query == null || Studio.Is( cam ) ) return false;
 			return cam.transform.position.y < G.cameraWaterHeight + 2f;
 		}
 
@@ -282,6 +282,7 @@ namespace Tidewater.Ocean
 		{
 			if ( fft == null || ! isActiveAndEnabled ) return;
 			if ( cam.cameraType != CameraType.Game && cam.cameraType != CameraType.SceneView ) return;
+			if ( Studio.Is( cam ) ) return; // the fish portrait's studio
 
 			// everything the water shader reads, in sim space (WaterSurface params, the sun, the water volume)
 			var cp = cam.transform.position;

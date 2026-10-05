@@ -309,7 +309,7 @@ namespace Tidewater.World
 
 		void OnBeginCamera( ScriptableRenderContext ctx, Camera cam )
 		{
-			if ( cam.cameraType != CameraType.Game ) return;
+			if ( cam.cameraType != CameraType.Game || Tidewater.Util.Studio.Is( cam ) ) return;
 			var terrain = FindAnyObjectByType<TerrainRenderer>();
 			var driver = FindAnyObjectByType<Tidewater.Player.BoatDriver>();
 			Sync( terrain != null ? terrain.village : null, driver != null ? driver.controller : null );

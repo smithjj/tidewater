@@ -163,6 +163,8 @@ struct FishOut
 	float metalness;
 	float coat;
 	float3 normal;
+	float spec;
+	float transl;
 };
 
 FishOut FishSurface( FishIn I_ )
@@ -210,6 +212,8 @@ FishOut FishSurface( FishIn I_ )
 	float rough = 0.4;
 	float metal = 0.0;
 	float coat = 0.0;
+	float spec = 0.5;   // the JS specularIntensity: used by the portrait studio (FishStudio.shader); the world's HDRP lit keeps its fixed 4 %
+	float transl = 0.0; // thin-surface translucency: only the fins' share is ported, only the portrait studio uses it
 	float seed = I.y; float L = I.z;
 	float pat = pattern;
 	float P = part;
@@ -257,10 +261,11 @@ FishOut FishSurface( FishIn I_ )
 		// thicker and darker where the fin joins the body, thinnest at the edge
 		fin *= sm( 0.0, 0.15, t ) * 0.2 + 0.8;
 		c = fin;
-		// (translucency: lit through from behind in the JS, see PORTING.md)
+		transl = lerp( 0.8, 0.55, ray ) * ( sm( 0.0, 0.3, t ) * 0.4 + 0.6 );
 		// paired fins: the fin colour, a little lighter toward the edge (thin membrane)
 		bool paired = P == PA_PECTORAL || P == PA_PELVIC;
 		c = paired ? c * lerp( 0.85, 1.1, sm( 0.2, 1.0, t ) ) : c;
+		transl *= paired ? 0.45 : 1.0;
 		rough = 0.4;
 	}
 
@@ -480,6 +485,7 @@ FishOut FishSurface( FishIn I_ )
 		c = fishEyeCol( r, atan2( w, t ), irisC, flags.x );
 		c = lerp( c, flank * 0.6, sm( 0.93, 1.0, r ) );
 		rough = lerp( 0.04, 0.3, flags.x );
+		spec = 1.0;
 		metal = 0.0;
 	}
 	else if ( P == PA_MOUTH )
@@ -525,6 +531,8 @@ FishOut FishSurface( FishIn I_ )
 		c = float3( 0.3, 0.4, 0.46 ) * lerp( 0.8, 1.15, frac( t * 7.3 ) );
 		rough = lerp( 0.04, 0.2, frac( w * 5.1 ) );
 		metal = 0.0;
+		transl = 0.9;
+		spec = 1.0;
 	}
 	else if ( P == PA_LEAF )
 	{
@@ -625,6 +633,8 @@ FishOut FishSurface( FishIn I_ )
 	o.roughness = rough;
 	o.metalness = metal;
 	o.coat = coat;
+	o.spec = spec;
+	o.transl = transl;
 	o.normal = fishPerturbNormalByHeight( I_.P, I_.N, dhdx, dhdy, 1.0 );
 	return o;
 }

@@ -85,6 +85,15 @@ namespace Tidewater.EditorTools
 			return State();
 		}
 
+		// land a fish as if the fight had been won: the catch card with its portrait comes up (the rod is taken out first, the player must be on foot)
+		public static string Land( string species, double kg )
+		{
+			var f = Game().fishing;
+			if ( ! f.rod.equipped ) f.rod.equip( true );
+			f.Land( species, kg );
+			return $"landing {species} {kg} kg: rod {f.rod.state}";
+		}
+
 		public static string Give( string species, double kg, double hour = 12 ) { var f = Game().state.addFish( species, kg, hour ); return f == null ? "hold full" : $"#{f.id} {f.species} {f.kg} kg ${f.value}"; }
 		public static string Money( double v ) { Game().state.money = v; Game().state.emit(); return State(); }
 		// the boats you own; with ids ("all" or "pelagic,lobster") hand them over without paying (the browser's __tw.boats)

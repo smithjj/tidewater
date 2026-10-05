@@ -106,6 +106,7 @@ namespace Tidewater.World
 		{
 			if ( lod == null || ! isActiveAndEnabled ) return;
 			if ( cam.cameraType != CameraType.Game && cam.cameraType != CameraType.SceneView ) return;
+			if ( Tidewater.Util.Studio.Is( cam ) ) return; // the fish portrait's studio
 
 			// Morph toward the view camera in every pass: the shadow passes render the same surface
 			// (with the pass camera they would morph toward the light camera instead).

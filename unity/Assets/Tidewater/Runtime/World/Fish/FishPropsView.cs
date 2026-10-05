@@ -144,6 +144,7 @@ namespace Tidewater.World.Fish
 		void OnBeginCamera( ScriptableRenderContext ctx, Camera cam )
 		{
 			if ( cam.cameraType != CameraType.Game && cam.cameraType != CameraType.SceneView ) return;
+			if ( Tidewater.Util.Studio.Is( cam ) ) return; // the fish portrait's studio
 			Cull( cam );
 		}
 

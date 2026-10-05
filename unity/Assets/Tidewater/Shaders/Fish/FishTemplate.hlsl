@@ -60,7 +60,9 @@ float _BlendMode;
 #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/ShaderPass/VaryingMesh.hlsl"
 #include "FishFragment.hlsl"
 
-#if SHADERPASS == SHADERPASS_GBUFFER
+#if defined(FISH_STUDIO)
+#include "FishStudioPass.hlsl"
+#elif SHADERPASS == SHADERPASS_GBUFFER
 #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/ShaderPass/ShaderPassGBuffer.hlsl"
 #elif SHADERPASS == SHADERPASS_SHADOWS || SHADERPASS == SHADERPASS_DEPTH_ONLY
 #include "Packages/com.unity.render-pipelines.high-definition/Runtime/RenderPipeline/ShaderPass/ShaderPassDepthOnly.hlsl"

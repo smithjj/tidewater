@@ -402,73 +402,100 @@ namespace Tidewater.Game
 
 		// ---- the HUD (GameHUD.js: the fight meter, the cast bar, the strike cue, the aiming dot, the catch card)
 
-		GUIStyle callStyle, bigStyle, cardSmall;
-
-		void Styles()
-		{
-			if ( callStyle != null && callStyle.fontSize == 15 ) return; // (see GameHost.Styles: the Editor resets GUI styles between Play sessions)
-			callStyle = new GUIStyle( GUI.skin.label ) { font = UIFonts.InterBold, fontSize = 15 };
-			bigStyle = new GUIStyle( GUI.skin.label ) { font = UIFonts.InterBold, fontSize = 92, alignment = TextAnchor.MiddleCenter };
-			cardSmall = new GUIStyle( GUI.skin.label ) { font = UIFonts.Inter, fontSize = 12, wordWrap = true }; cardSmall.normal.textColor = new Color( 1, 1, 1, 0.75f );
-		}
-
-		static void Fill( Rect r, Color c ) { var o = GUI.color; GUI.color = c; GUI.DrawTexture( r, Texture2D.whiteTexture ); GUI.color = o; }
+		// the fight meter and the cue fade in and out like the DOM's opacity transitions; the last fight is kept for the fade out
+		float fightFade, biteFade, castFade;
+		float lastTension, lastStamina, lastDistance, lastSurge; double[] lastBand = { 0.4, 0.7 };
 
 		public void OnGUI()
 		{
-			Styles();
-			float w = Screen.width, h = Screen.height;
+			float w = Screen.width, h = Screen.height, u = UIKit.U;
 			bool panels = game.inventoryOpen || game.openVendor != null;
+			bool repaint = Event.current.type == EventType.Repaint;
+			float dt = Time.unscaledDeltaTime;
 
-			// the aiming dot
-			if ( rod.equipped && ! panels ) Fill( new Rect( w / 2 - 2, h / 2 - 2, 4, 4 ), new Color( 1, 1, 1, 0.7f ) );
-
-			// the cast power bar
-			if ( rod.state == "windup" )
+			if ( repaint )
 			{
-				var r = new Rect( w / 2 - 120, h * 0.8f, 240, 10 );
-				Fill( r, new Color( 0, 0, 0, 0.5f ) );
-				Fill( new Rect( r.x, r.y, r.width * ( float ) rod.power, r.height ), Color.Lerp( new Color( 0.45f, 0.85f, 1f ), new Color( 1f, 0.7f, 0.25f ), ( float ) rod.power ) );
+				// the aiming dot (.gm-dot)
+				if ( rod.equipped && ! panels )
+				{
+					UIKit.Rounded( new Rect( w / 2 - 3.5f, h / 2 - 3.5f, 7, 7 ), new Color( 0, 0, 0, 0.25f ), 3.5f );
+					UIKit.Rounded( new Rect( w / 2 - 2, h / 2 - 2, 4, 4 ), new Color( 1, 1, 1, 0.7f ), 2 );
+				}
+
+				// the cast power bar (.gm-cast): 140u by 5u at 58 %, aqua to sun over what is filled
+				castFade = UIKit.Approach( castFade, rod.state == "windup" ? 1 : 0, 0.14f, dt );
+				if ( castFade > 0.001f )
+				{
+					var r = new Rect( w / 2 - 70 * u, h * 0.58f, 140 * u, 5 * u );
+					UIKit.Rounded( r, UIKit.FILL2.WithAlpha( castFade ), 3 * u );
+					if ( rod.state == "windup" || castFade > 0 ) UIKit.RampPill( new Rect( r.x, r.y, r.width * ( float ) Math.Min( 1, Math.Max( 0, rod.power ) ), r.height ), UIKit.AQUA, UIKit.SUN, castFade );
+				}
+
+				// the strike cue (.gm-bite): "!" when a fish takes the bobber, scaling in from 0.6
+				bool take = bite != null && bite.phase == "take";
+				biteFade = UIKit.Approach( biteFade, take ? 1 : 0, take ? 0.2f : 0.12f, dt );
+				if ( biteFade > 0.001f )
+				{
+					float sc = 0.6f + 0.4f * UIScale.Ease( biteFade ), px = 56 * u * sc;
+					var bs = UIKit.Style( UIFonts.InterBold, 56 * sc, TextAnchor.MiddleCenter );
+					var rr = new Rect( 0, h * 0.42f - px, w, px * 2 );
+					for ( int i = 0; i < 8; i ++ ) { float an = i * Mathf.PI / 4; bs.normal.textColor = UIKit.SUN.WithAlpha( 0.1f * biteFade ); GUI.Label( new Rect( rr.x + Mathf.Cos( an ) * 4 * u, rr.y + Mathf.Sin( an ) * 4 * u, rr.width, rr.height ), "!", bs ); }
+					bs.normal.textColor = new Color( 0, 0, 0, 0.5f * biteFade ); GUI.Label( new Rect( rr.x, rr.y + 2 * u, rr.width, rr.height ), "!", bs );
+					bs.normal.textColor = UIKit.SUN.WithAlpha( biteFade ); GUI.Label( rr, "!", bs );
+				}
+
+				// the fight: line tension with its safe band, the fish's stamina, line out
+				if ( fight != null ) { lastTension = ( float ) fight.tension; lastStamina = ( float ) fight.stamina; lastDistance = ( float ) fight.distance; lastSurge = ( float ) fight.surge; lastBand = fight.band; }
+				fightFade = UIKit.Approach( fightFade, fight != null ? 1 : 0, 0.24f, dt );
+				if ( fightFade > 0.001f ) DrawFight( w, h, UIScale.Ease( fightFade ) );
 			}
 
-			// the strike cue: "!" when a fish takes the bobber
-			if ( bite != null && bite.phase == "take" )
-			{
-				bigStyle.normal.textColor = new Color( 1f, 0.82f, 0.2f );
-				GUI.Label( new Rect( 0, h * 0.28f, w, 120 ), "!", bigStyle );
-			}
-
-			// the fight: line tension with its safe band, the fish's stamina, line out
-			if ( fight != null ) DrawFight( fight, w, h );
 			if ( catchOpen && landing != null && landing.card != null ) card.OnGUI( ( float ) Math.Max( 0, 1 - landing.cardT / CATCH_CARD_S ), host.input.label( "rodUse" ), host.input.label( "interact" ) );
 		}
 
-		void DrawFight( CatchMinigame f, float w, float h )
+		// .gm-fight: 360u wide, 58u above the prompt line; the call, the line out, the tension bar and the fish's stamina
+		void DrawFight( float w, float h, float a )
 		{
-			var r = new Rect( w / 2 - 190, h * 0.58f, 380, 84 );
-			GUI.Box( r, GUIContent.none );
-			string call = "Reel in"; Color col = Color.white;
-			if ( f.tension > 0.88 ) { call = "Ease off!"; col = new Color( 1f, 0.55f, 0.3f ); }
-			else if ( f.surge > 0.55 ) { call = "It's running!"; col = new Color( 1f, 0.55f, 0.3f ); }
-			else if ( f.tension < 0.15 ) { call = "Slack line!"; col = new Color( 1f, 0.55f, 0.3f ); }
-			else if ( f.tension >= f.band[ 0 ] && f.tension <= f.band[ 1 ] ) { call = "Good pressure"; col = new Color( 0.5f, 0.95f, 0.55f ); }
-			callStyle.normal.textColor = col;
-			GUI.Label( new Rect( r.x + 14, r.y + 6, 220, 24 ), call, callStyle );
-			var right = new GUIStyle( callStyle ) { alignment = TextAnchor.MiddleRight }; right.normal.textColor = Color.white;
-			GUI.Label( new Rect( r.x + r.width - 134, r.y + 6, 120, 24 ), $"{f.distance:F1} m", right );
-			// the tension bar: the band the line is safe in, the danger zone above it, the needle
-			var bar = new Rect( r.x + 14, r.y + 36, r.width - 28, 12 );
-			Fill( bar, new Color( 1, 1, 1, 0.12f ) );
-			float s = bar.width / 1.05f;
-			Fill( new Rect( bar.x + ( float ) f.band[ 0 ] * s, bar.y, ( float ) ( f.band[ 1 ] - f.band[ 0 ] ) * s, bar.height ), new Color( 0.35f, 0.85f, 0.45f, 0.45f ) );
-			Fill( new Rect( bar.x + ( float ) f.band[ 1 ] * s, bar.y, bar.width - ( float ) f.band[ 1 ] * s, bar.height ), new Color( 0.95f, 0.3f, 0.25f, 0.4f ) );
-			bool hot = f.tension > f.band[ 1 ];
-			Fill( new Rect( bar.x + ( float ) Math.Min( f.tension, 1.05 ) * s - 1.5f, bar.y - 3, 3, bar.height + 6 ), hot ? new Color( 1f, 0.3f, 0.25f ) : Color.white );
+			float u = UIKit.U;
+			float ph = 12 * u + 12.5f * u * 1.21f + 8 * u + 12 * u + 8 * u + 11.5f * u * 1.21f + 12 * u;
+			var r = new Rect( w / 2 - 180 * u, h - ( Mathf.Max( 72 * u, 0.13f * h ) + 58 * u ) - ph, 360 * u, ph );
+			UIKit.Glass( r, 16 * u, a );
+			float x = r.x + 16 * u, iw = r.width - 32 * u, y = r.y + 12 * u;
+			string call = "Reel in"; Color col = UIKit.INK;
+			if ( lastTension > 0.88 ) { call = "Ease off!"; col = UIKit.CORAL; }
+			else if ( lastSurge > 0.55 ) { call = "It's running!"; col = UIKit.CORAL; }
+			else if ( lastTension < 0.15 ) { call = "Slack line!"; col = UIKit.CORAL; }
+			else if ( lastTension >= lastBand[ 0 ] && lastTension <= lastBand[ 1 ] ) { call = "Good pressure"; col = UIKit.AQUA; }
+			float lh = 12.5f * u * 1.21f;
+			var cs = UIKit.Style( UIFonts.InterSemi, 12.5f, TextAnchor.UpperLeft ); cs.normal.textColor = col.WithAlpha( a );
+			GUI.Label( new Rect( x, y, iw * 0.7f, lh + 2 ), call, cs );
+			var ds = UIKit.Style( UIFonts.Mono, 12.5f, TextAnchor.UpperRight ); ds.normal.textColor = UIKit.INK2.WithAlpha( a );
+			GUI.Label( new Rect( x, y, iw, lh + 2 ), $"{Fmt( lastDistance, "F1" )} m", ds );
+			y += lh + 8 * u;
+
+			// the tension bar: the band the line is safe in, the danger zone at the end, the needle
+			var bar = new Rect( x, y, iw, 12 * u );
+			UIKit.Rounded( bar, UIKit.FILL2.WithAlpha( a ), 6 * u );
+			float s = bar.width / 1.05f, b0 = ( float ) lastBand[ 0 ] * s, b1 = ( float ) lastBand[ 1 ] * s;
+			var aq = UIKit.AQUA;
+			GUI.DrawTexture( new Rect( bar.x + b0, bar.y, b1 - b0, bar.height ), Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, aq.WithAlpha( 0.28f * a ), 0, 0 );
+			GUI.DrawTexture( new Rect( bar.x + b0, bar.y, 1, bar.height ), Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, aq.WithAlpha( 0.6f * a ), 0, 0 );
+			GUI.DrawTexture( new Rect( bar.x + b1 - 1, bar.y, 1, bar.height ), Texture2D.whiteTexture, ScaleMode.StretchToFill, true, 0, aq.WithAlpha( 0.6f * a ), 0, 0 );
+			UIKit.Rounded( new Rect( bar.xMax - bar.width * 0.08f, bar.y, bar.width * 0.08f, bar.height ), UIKit.CORAL.WithAlpha( 0.35f * a ), 6 * u );
+			bool hot = lastTension > lastBand[ 1 ];
+			float nx = bar.x + Mathf.Min( lastTension, 1.05f ) * s;
+			UIKit.Rounded( new Rect( nx - 5, bar.y - 2, 10, bar.height + 4 ), ( hot ? UIKit.CORAL : Color.white ).WithAlpha( 0.18f * a ), 5 );
+			UIKit.Rounded( new Rect( nx - 1.5f, bar.y, 3, bar.height ), ( hot ? UIKit.CORAL : UIKit.INK ).WithAlpha( a ), 1.5f );
+			y += bar.height + 8 * u;
+
 			// the fish's stamina
-			GUI.Label( new Rect( r.x + 14, r.y + 54, 50, 20 ), "Fish", cardSmall );
-			var sb = new Rect( r.x + 56, r.y + 62, r.width - 70, 6 );
-			Fill( sb, new Color( 1, 1, 1, 0.12f ) );
-			Fill( new Rect( sb.x, sb.y, sb.width * ( float ) Math.Max( 0, f.stamina ), sb.height ), new Color( 0.45f, 0.75f, 1f ) );
+			float sl = 11.5f * u * 1.21f;
+			var fs = UIKit.Style( UIFonts.Inter, 11.5f, TextAnchor.UpperLeft ); fs.normal.textColor = UIKit.INK3.WithAlpha( a );
+			float fw = fs.CalcSize( new GUIContent( "Fish" ) ).x;
+			GUI.Label( new Rect( x, y, fw + 2, sl + 2 ), "Fish", fs );
+			var sb = new Rect( x + fw + 8 * u, y + sl / 2 - 2 * u, iw - fw - 8 * u, 4 * u );
+			UIKit.Rounded( sb, UIKit.FILL2.WithAlpha( a ), 2 * u );
+			if ( lastStamina > 0 ) UIKit.Rounded( new Rect( sb.x, sb.y, Mathf.Max( 4 * u, sb.width * Mathf.Clamp01( lastStamina ) ), sb.height ), UIKit.SUN.WithAlpha( a ), 2 * u );
 		}
 
 		static string Fmt( double v, string f = "F2" ) => v.ToString( f, System.Globalization.CultureInfo.InvariantCulture );

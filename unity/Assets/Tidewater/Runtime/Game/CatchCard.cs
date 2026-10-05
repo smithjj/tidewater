@@ -16,7 +16,7 @@ namespace Tidewater.Game
 		static readonly Color INK = new Color( 244 / 255f, 234 / 255f, 214 / 255f ); // #f4ead6
 		static readonly Color GOLD = new Color( 240 / 255f, 196 / 255f, 106 / 255f ); // #f0c46a
 
-		readonly FishPortrait portrait;
+		public readonly FishPortrait portrait; // (the fish guide draws its thumbnails with it)
 		LastCatch info; double price; string note;
 		double t;           // the card's clock
 		float[] drops;      // per drop: angle, radius, size, delay

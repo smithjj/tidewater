@@ -20,6 +20,7 @@ namespace Tidewater.EditorTools
 			var g = GameObject.Find( "Game" ) ?? new GameObject( "Game" );
 			var host = g.GetComponent<GameHost>() ?? g.AddComponent<GameHost>();
 			host.saveToFile = false;
+			GameHost.noGuide = true;
 			var p = GameObject.Find( "Player" ) ?? new GameObject( "Player" );
 			if ( p.GetComponent<PlayerHost>() == null ) p.AddComponent<PlayerHost>();
 			return "game + player objects ready";

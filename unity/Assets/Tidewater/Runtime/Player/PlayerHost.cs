@@ -30,10 +30,11 @@ namespace Tidewater.Player
 		public Tidewater.Game.GameHost game { get; private set; } // the economy (null when the scene has none)
 		public Tidewater.Audio.SoundHost sound { get; private set; } // the island's sound (null with noAudio)
 		bool flashSeeded;
-		string toast; float toastUntil;
+		readonly Tidewater.Game.Toasts toasts = new Tidewater.Game.Toasts();
+		readonly Tidewater.Game.PromptPill promptPill = new Tidewater.Game.PromptPill();
 
 		// a short message at the top of the view (until the HUD's toasts are ported)
-		public void Toast( string text, float seconds = 2.2f ) { toast = text; toastUntil = Time.unscaledTime + seconds; }
+		public void Toast( string text, float seconds = 2.5f ) { toasts.Add( text, seconds ); }
 
 		bool Build()
 		{
@@ -191,12 +192,10 @@ namespace Tidewater.Player
 		void OnGUI()
 		{
 			if ( ! showPrompts || player == null || ! Application.isPlaying ) return;
-			var style = new GUIStyle( GUI.skin.label ) { alignment = TextAnchor.MiddleCenter, font = Tidewater.Game.UIFonts.InterBold, fontSize = 18 };
-			style.normal.textColor = Color.white;
 			float w = Screen.width, h = Screen.height;
-			if ( ! freeCam && player.prompt != null )
-				GUI.Label( new Rect( 0, h * 0.72f, w, 30 ), "[" + ( player.prompt.key ?? input.label( player.prompt.action ) ) + "]  " + player.prompt.text, style );
-			if ( toast != null && Time.unscaledTime < toastUntil ) GUI.Label( new Rect( 0, h * 0.08f, w, 30 ), toast, style );
+			var pr = freeCam ? null : player.prompt;
+			promptPill.OnGUI( pr == null ? null : pr.key ?? input.label( pr.action ), pr?.text );
+			toasts.OnGUI();
 			var small = new GUIStyle( GUI.skin.label ) { alignment = TextAnchor.LowerLeft, font = Tidewater.Game.UIFonts.Inter, fontSize = 12 };
 			small.normal.textColor = new Color( 1, 1, 1, 0.7f );
 			string hint = ! input.locked ? "Click the view to capture the mouse  ·  Esc releases it  ·  " : "";

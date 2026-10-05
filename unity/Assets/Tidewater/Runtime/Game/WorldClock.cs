@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 
@@ -65,26 +66,26 @@ namespace Tidewater.Game
 			return "$" + Inv( s.priceOf( f ) ) + mark + order;
 		}
 
-		// Joe's order of the day: what he is asking for, the multiplier, and how it has gone so far (GameHUD.js orderBoard); "" when there is none
+		// Joe's order of the day: what he is asking for, the multiplier, and how it has gone so far (GameHUD.js orderBoard), as UIKit markup; "" when there is none
 		public static string orderBoard( GameState s )
 		{
 			var o = s.todaysOrder;
 			if ( o == null ) return "";
 			var f = FishTable.Get( o.species );
-			string done = o.filled > 0 ? $" · filled {( o.filled == 1 ? "once" : o.filled + " times" )} · +${Inv( o.bonus )}" : "";
-			return $"Joe wants {f.name}, {Orders.fmtKg( o.minKg )} or bigger ★ ×{Inv( Orders.ORDER_MULT )}{done}";
+			string done = o.filled > 0 ? $" <c tone=\"aqua\">filled {( o.filled == 1 ? "once" : o.filled + " times" )} · +${Inv( o.bonus )}</c>" : "";
+			return $"<c tone=\"ink3\">Joe wants</c> <b>{f.name}</b>, {Orders.fmtKg( o.minKg )} or bigger <c tone=\"sun\">★ ×{Inv( Orders.ORDER_MULT )}</c>{done}";
 		}
 
-		// Joe's board: the day's movers (the top payers and the one that fell out of favour) (GameHUD.js marketBoard); "" when the market is flat
-		public static string marketBoard( GameState s )
+		// Joe's board: the day's movers (the top payers and the one that fell out of favour) (GameHUD.js marketBoard), one UIKit markup string per mover; empty when the market is flat
+		public static List<string> marketRows( GameState s )
 		{
 			var ranked = FishTable.ALL.Where( f => f.habitat.Length > 0 ).Select( f => ( id: f.id, mul: s.mulFor( f.id ) ) ).OrderByDescending( r => r.mul ).ToList();   // stable, like Array.sort
 			var best = ranked.Where( r => r.mul > 1.001 ).Take( 3 ).ToList();
 			var worst = ranked.Count > 0 ? ranked[ ranked.Count - 1 ] : ( id: ( string ) null, mul: 1.0 );
-			if ( best.Count == 0 && ( worst.id == null || worst.mul >= 0.999 ) ) return "";
-			var rows = best.Select( r => $"{FishTable.Get( r.id ).name} ▲ {Inv( JS_Round( ( r.mul - 1 ) * 100 ) )}%" ).ToList();
-			if ( worst.id != null && worst.mul < 0.999 ) rows.Add( $"{FishTable.Get( worst.id ).name} ▼ {Inv( JS_Round( ( 1 - worst.mul ) * 100 ) )}%" );
-			return "Today · " + string.Join( "   ", rows );
+			if ( best.Count == 0 && ( worst.id == null || worst.mul >= 0.999 ) ) return new List<string>();
+			var rows = best.Select( r => $"<b>{FishTable.Get( r.id ).name}</b> <c tone=\"aqua\">▲ {Inv( JS_Round( ( r.mul - 1 ) * 100 ) )}%</c>" ).ToList();
+			if ( worst.id != null && worst.mul < 0.999 ) rows.Add( $"<b>{FishTable.Get( worst.id ).name}</b> <c tone=\"coral\">▼ {Inv( JS_Round( ( 1 - worst.mul ) * 100 ) )}%</c>" );
+			return rows;
 		}
 
 		static double JS_Round( double x ) => Tidewater.Engine.JS.Round( x );

@@ -20,7 +20,8 @@ using Vector3 = Tidewater.Engine.Vector3;
 // light, sky, fog or post touches it; the camera's fixed exposure makes one scene unit 1.0). A resolve pass (FishPortraitPost.shader: ACES at the JS exposure on each
 // sample, a 2 x 2 box, the coverage as alpha) writes into an sRGB target writes the picture the card draws, Texture.
 //
-// Not ported: the thumbnails (the JS draws the species thumbnails of the guide with the same machinery; the guide is not in the Unity port yet).
+// The thumbnails of the fish guide (FishPortrait.js thumbnail): the same studio, a mid-sized specimen at 360 x 170, drawn once per species and kept (Thumb). The JS reads each one back
+// to a PNG a frame at a time; here a render texture is the picture, drawn when it is first asked for.
 namespace Tidewater.Game
 {
 	public sealed class FishPortrait
@@ -61,6 +62,9 @@ namespace Tidewater.Game
 		double sweep = 0.4;
 
 		string species; double kg, t;
+		const int THUMB_W = 360, THUMB_H = 170;
+		readonly Dictionary<string, RenderTexture> thumbs = new Dictionary<string, RenderTexture>();
+		RenderTexture thumbHdr;
 		public bool Live => species != null;
 		// the picture: straight alpha, an sRGB target (`width` x `height`; null until the first frame)
 		public Texture Texture => picture;
@@ -137,6 +141,9 @@ namespace Tidewater.Game
 			if ( post != null ) UnityEngine.Object.DestroyImmediate( post );
 			if ( hdr != null ) { hdr.Release(); UnityEngine.Object.DestroyImmediate( hdr ); }
 			if ( picture != null ) { picture.Release(); UnityEngine.Object.DestroyImmediate( picture ); }
+			foreach ( var t in thumbs.Values ) if ( t != null ) { t.Release(); UnityEngine.Object.DestroyImmediate( t ); }
+			thumbs.Clear();
+			if ( thumbHdr != null ) { thumbHdr.Release(); UnityEngine.Object.DestroyImmediate( thumbHdr ); }
 			if ( volumeProfile != null ) UnityEngine.Object.DestroyImmediate( volumeProfile );
 			if ( root != null ) UnityEngine.Object.DestroyImmediate( root.gameObject );
 		}
@@ -254,6 +261,13 @@ namespace Tidewater.Game
 			sweep = - 1.1 + ( ( t * 0.32 ) % 2.6 );
 			Frame( L, hdr.width, hdr.height, 0.78 );
 
+			Draw( slot, hdr, picture );
+			return true;
+		}
+
+		// the studio's light on, one render of the slot's fish into `hdr`, resolved into `dst`
+		void Draw( Slot slot, RenderTexture hdr, RenderTexture dst )
+		{
 			material.SetVector( idKey, new Vector4( ( float ) keyDir.x, ( float ) keyDir.y, ( float ) keyDir.z, 0 ) );
 			material.SetVector( idKeyColor, new Vector4( ( float ) keyColor.x, ( float ) keyColor.y, ( float ) keyColor.z, 0 ) );
 			material.SetVector( idEnv, new Vector4( ( float ) sweep, ENV, 0, 0 ) );
@@ -264,9 +278,34 @@ namespace Tidewater.Game
 
 			post.SetFloat( "_SS", SS );
 			post.SetFloat( "_Exposure", EXPOSURE );
-			post.SetVector( "_DstSize", new Vector4( picture.width, picture.height, 0, 0 ) );
-			Graphics.Blit( hdr, picture, post, 0 );
-			return true;
+			post.SetVector( "_DstSize", new Vector4( dst.width, dst.height, 0, 0 ) );
+			Graphics.Blit( hdr, dst, post, 0 );
+		}
+
+		// the species' thumbnail (straight alpha, 360 x 170, sRGB), drawn the first time it is asked for
+		public Texture Thumb( string id )
+		{
+			if ( thumbs.TryGetValue( id, out var t ) && t != null && t.IsCreated() ) return t;
+			var f = FishTable.Get( id );
+			if ( f == null ) return null;
+			var slot = SlotFor( id );
+			if ( post == null ) post = new UnityEngine.Material( Shader.Find( "Hidden/Tidewater/FishPortraitPost" ) ) { hideFlags = HideFlags.HideAndDontSave };
+			if ( thumbHdr == null )
+			{
+				thumbHdr = new RenderTexture( THUMB_W * SS, THUMB_H * SS, 24, RenderTextureFormat.ARGBHalf, RenderTextureReadWrite.Linear ) { name = "thumb-hdr", hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Point, antiAliasing = 1 };
+				thumbHdr.Create();
+			}
+
+			// a mid-sized specimen: proportions of an adult
+			double kg = f.kgMin * 0.4 + f.kgMax * 0.6;
+			double L = Place( slot, id, kg, new Pose { yaw = - 0.05, pitch = 0.02, curl = 0.06, jaw = 0.1 } );
+			sweep = 0.45;
+			Frame( L, thumbHdr.width, thumbHdr.height, 0.84 );
+			t = new RenderTexture( THUMB_W, THUMB_H, 0, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB ) { name = "thumb-" + id, hideFlags = HideFlags.HideAndDontSave, filterMode = FilterMode.Bilinear, antiAliasing = 1 };
+			t.Create();
+			Draw( slot, thumbHdr, t );
+			thumbs[ id ] = t;
+			return t;
 		}
 
 		void EnsureTargets( int w, int h )

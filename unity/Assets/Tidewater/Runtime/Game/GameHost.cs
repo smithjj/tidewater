@@ -12,7 +12,7 @@ using UnityEngine;
 // where the JS App calls Game.update. Fishing (the rod, bites, the catch card), the trap line, the anchor, the guide and the minimap are Game.js too
 // and come with their own rows; until the rod is ported, catches come from the Editor tools (GameDebug).
 //
-// The panels and the readouts are IMGUI (like the prompts), until the HTML UI (GameHUD.js, ui/) is ported.
+// The purse, the panels, the toasts and the prompts are IMGUI in the web UI's look (GameHUD, UIKit); the settings rail and the start overlay (ui/) are not ported.
 namespace Tidewater.Game
 {
 	public sealed class GameHost : MonoBehaviour
@@ -26,11 +26,19 @@ namespace Tidewater.Game
 		public IReadOnlyList<Vendor> vendors => _vendors;
 		public bool saveToFile = true;      // false: the state lives in memory only (tools)
 		public bool showHud = true;
+		public static bool noGuide;         // the tools that drive the Editor turn the first-play intro and tips off (a static: it must not be saved into the scene)
 		public Vendor openVendor { get; private set; }   // the trader whose panel is open (JS hud.standOpen / hud.vendor)
 		public bool inventoryOpen { get; private set; }  // the cooler panel (I)
 		public Weather weather { get; private set; }     // the sea-state walk (null until the world is built)
 		public FishingGame fishing { get; private set; } // the rod, the bite, the fight and the catch card (null until the world is built)
 		public readonly MinimapView minimap = new MinimapView(); // lower right: the island, the markers; N opens the large map (Minimap.js)
+		public Guide guide { get; private set; }         // the first-play intro and the one-time tips (Guide.js; null until the world is built)
+		public FishGuide fishGuide { get; private set; } // the J fish guide (FishGuide.js; null until the world is built)
+		public bool fishGuideOpen => fishGuide != null && fishGuide.open;
+		public GameInput Input => host != null ? host.input : null;
+		public Tidewater.Player.Player Player => host != null ? host.player : null;
+		public ControlsSheet controls { get; private set; } // the F1 sheet (UI.js help; null until the world is built)
+		public GameHUD hud { get; private set; }         // the purse and the panels (GameHUD.js; null until the world is built)
 
 		readonly List<Vendor> _vendors = new List<Vendor>();
 		PlayerHost host;
@@ -46,6 +54,7 @@ namespace Tidewater.Game
 		{
 			if ( instance == this ) instance = null;
 			if ( fishing != null ) fishing.Dispose();
+			if ( fishGuide != null ) fishGuide.Dispose();
 			minimap.Dispose();
 			// the Editor's sea state slider works again once the game is gone
 			if ( weather != null && OceanRenderer.instance != null ) OceanRenderer.instance.weatherDriven = false;
@@ -58,7 +67,8 @@ namespace Tidewater.Game
 			if ( h == null || h.terrainData == null || h.colliders == null || h.driver == null || h.driver.controller == null ) return false;
 			host = h;
 			_vendors.Clear();
-			state = new GameState( saveToFile ? SafeStore() : new MemorySaveStore() );
+			var store = saveToFile ? SafeStore() : new MemorySaveStore();
+			state = new GameState( store );
 			state.load();
 			// the day resumes where it was left
 			if ( state.clock != null ) clock.hour = state.clock.Value;
@@ -83,7 +93,12 @@ namespace Tidewater.Game
 			fishing?.Dispose();
 			fishing = new FishingGame( this, h, transform );
 			ApplyGear();
-			state.onChange( _ => ApplyGear() );
+			state.onChange( _ => { ApplyGear(); if ( fishGuide != null ) fishGuide.Refresh(); } ); // (the guide: the log or today's order changed)
+			fishGuide = new FishGuide( this, h.terrainData.HeightAt );
+			hud = new GameHUD( this );
+			controls = new ControlsSheet( this );
+			// the first-play guide keeps its own seen state in a file, even where the game save is in memory (the dev scene): the intro shows once
+			guide = new Guide( this, h, minimap, SafeStore() ?? new MemorySaveStore(), ! noGuide );
 			return true;
 		}
 
@@ -97,6 +112,29 @@ namespace Tidewater.Game
 			lobster.maxThrust = baseMaxThrust * g.speedMul * g.speedMul;
 			lobster.pitchSpeed = basePitchSpeed * g.speedMul;
 			if ( fishing != null ) fishing.ApplyGear();
+		}
+
+		// the intro takes the mouse and the keys while it is up (Guide.js)
+		public void GuideOpened( bool open )
+		{
+			if ( host == null ) return;
+			if ( open ) host.input.ReleaseLock();
+			SyncMenu();
+		}
+
+		// a panel (or the intro) owns the keys and the mouse
+		public void SyncMenu()
+		{
+			if ( host != null && host.input != null ) host.input.menuMode = inventoryOpen || openVendor != null || fishGuideOpen || ( guide != null && guide.open ) || ( controls != null && controls.open );
+		}
+
+		// the controllers of the boats you own (the guide's "your boat" tip)
+		public IEnumerable<Tidewater.Player.BoatController> OwnedBoats()
+		{
+			if ( host == null || state == null ) yield break;
+			if ( lobster != null && state.ownsBoat( "lobster" ) ) yield return lobster;
+			if ( host.pelagicDriver != null && state.ownsBoat( "pelagic" ) ) yield return host.pelagicDriver.controller;
+			if ( host.miniDriver != null && state.ownsBoat( "mini" ) ) yield return host.miniDriver.controller;
 		}
 
 		public void Toast( string text, float seconds = 2.6f ) { if ( host != null ) host.Toast( text, seconds ); else Debug.Log( "[game] " + text ); }
@@ -161,22 +199,23 @@ namespace Tidewater.Game
 		public void ToggleInventory( bool? force = null )
 		{
 			inventoryOpen = force ?? ! inventoryOpen;
-			if ( inventoryOpen ) { CloseStand(); host.input.ReleaseLock(); }
-			host.input.menuMode = inventoryOpen || openVendor != null;
+			if ( inventoryOpen ) { CloseStand(); if ( fishGuide != null ) fishGuide.Toggle( false ); host.input.ReleaseLock(); }
+			SyncMenu();
 		}
 
 		public void OpenStand( Vendor v )
 		{
 			openVendor = v;
 			inventoryOpen = false;
+			if ( fishGuide != null ) fishGuide.Toggle( false );
 			host.input.ReleaseLock();
-			host.input.menuMode = true;
+			SyncMenu();
 		}
 
 		public void CloseStand()
 		{
 			openVendor = null;
-			if ( host != null && host.input != null ) host.input.menuMode = inventoryOpen;
+			SyncMenu();
 		}
 
 		// ---- per frame (after the player update: Game.update)
@@ -191,14 +230,22 @@ namespace Tidewater.Game
 			if ( weather != null ) weather.update( dt );
 			if ( inp.actHit( "pauseTime" ) ) Toast( clock.Toggle() ? "Time running" : "Time paused" );
 
-			if ( inp.actHit( "cooler" ) ) ToggleInventory();
-			if ( inp.actHit( "cancel" ) ) { ToggleInventory( false ); CloseStand(); }
+			// the intro owns the keys while it is up (Guide.js: capture phase), F1 asks for it again
+			bool intro = guide != null && guide.open;
+			if ( inp.actHit( "controls" ) && ! intro ) controls.Toggle();
+			if ( ! intro && inp.actHit( "cooler" ) ) ToggleInventory();
+			if ( ! intro && inp.actHit( "codex" ) ) fishGuide.Toggle();
+			if ( inp.actHit( "cancel" ) ) { ToggleInventory( false ); CloseStand(); fishGuide.Toggle( false ); controls.Toggle( false ); }
+			fishGuide.Tick( dt );
+			hud.Tick( dt );
+			controls.Tick( dt );
 
 			// the rod, the bite, the fight and the landed fish
 			fishing.Update( dt );
 
 			// the minimap (Game.update: after the rest; the catch card owns the screen while it is up, the map steps aside)
 			minimap.Tick( dt, this, host, fishing.catchOpen );
+			if ( guide != null ) guide.Update( dt );
 
 			UpdateBoat( dt, p );
 
@@ -257,177 +304,18 @@ namespace Tidewater.Game
 			}
 		}
 
-		// ---- the readouts and the panels (IMGUI, until the HTML UI is ported)
-
-		GUIStyle label, small, title, rowKey;
-		Vector2 scroll;
-
-		void Styles()
-		{
-			// (the Editor resets GUI styles when a Play session ends, while this object lives on: fontSize 0 means they were reset)
-			if ( label != null && label.fontSize == 15 ) return;
-			label = new GUIStyle( GUI.skin.label ) { font = UIFonts.InterBold, fontSize = 15 }; label.normal.textColor = Color.white;
-			small = new GUIStyle( GUI.skin.label ) { font = UIFonts.Inter, fontSize = 12 }; small.normal.textColor = new Color( 1, 1, 1, 0.75f );
-			title = new GUIStyle( GUI.skin.label ) { font = UIFonts.InterBold, fontSize = 20 }; title.normal.textColor = Color.white;
-			rowKey = new GUIStyle( GUI.skin.label ) { font = UIFonts.Inter, fontSize = 14 }; rowKey.normal.textColor = Color.white;
-		}
+		// ---- the readouts and the panels (GameHUD)
 
 		void OnGUI()
 		{
 			if ( ! built || ! Application.isPlaying || host == null || host.player == null ) return;
-			Styles();
-			GUI.skin.font = UIFonts.Inter; // the panels' plain labels and buttons (the web UI's body face)
-			var s = state;
-			if ( showHud )
-			{
-				// the purse: money, the day and the hour, the cooler (Game.update's hud.update)
-				var st = s.stats;
-				GUI.Label( new Rect( 12, 8, 420, 24 ), $"${s.money:N0}    Day {s.day}  {GameText.fmtClock( clock.hour )}{( clock.timeSpeed == 0 ? " (paused)" : "" )}", label );
-				GUI.Label( new Rect( 12, 30, 420, 20 ), $"{( s.upgrades[ "hold" ] > 0 ? "Hold" : "Cooler" )} {s.holdKg:F1} / {st.holdKg} kg", small );
-				bool aboard = host.player.mode == "boat" || host.player.mode == "deck";
-				if ( aboard ) GUI.Label( new Rect( 12, 48, 420, 20 ), $"Fuel {s.fuelL:F0} / {st.fuelL} L", small );
-				if ( s.mayTrap || s.sets.Count > 0 ) GUI.Label( new Rect( 12, aboard ? 66 : 48, 420, 20 ), $"Traps {s.sets.Count} set · {s.traps} aboard", small );
-			}
-
+			GUI.skin.font = UIFonts.Inter; // the plain labels and buttons (the web UI's body face)
 			if ( showHud ) minimap.OnGUI();
 			if ( showHud && fishing != null ) fishing.OnGUI();
-			if ( openVendor != null ) DrawVendor( openVendor );
-			else if ( inventoryOpen ) DrawInventory();
-		}
-
-		Rect PanelRect() { float w = Mathf.Min( 560, Screen.width - 40 ), h = Mathf.Min( 520, Screen.height - 80 ); return new Rect( ( Screen.width - w ) / 2, ( Screen.height - h ) / 2, w, h ); }
-
-		static string Fmt( double kg ) => kg.ToString( "F2", System.Globalization.CultureInfo.InvariantCulture );
-
-		void DrawInventory()
-		{
-			var s = state; var r = PanelRect();
-			GUI.Box( r, GUIContent.none );
-			GUILayout.BeginArea( new Rect( r.x + 14, r.y + 10, r.width - 28, r.height - 20 ) );
-			GUILayout.Label( s.upgrades[ "hold" ] > 0 ? "Fish hold" : "Cooler", title );
-			GUILayout.Label( $"{s.inventory.Count} fish · {s.holdKg:F1} of {s.stats.holdKg} kg · worth ${s.holdValue}", small );
-			scroll = GUILayout.BeginScrollView( scroll, GUILayout.Height( r.height - 130 ) );
-			if ( s.inventory.Count == 0 ) GUILayout.Label( "Nothing yet. Cast from the pier, the beach or the boat.", small );
-			foreach ( var f in s.inventory.ToList() )
-			{
-				GUILayout.BeginHorizontal();
-				GUILayout.Label( FishTable.Get( f.species ).name + ( f.record ? "  (record)" : "" ), rowKey, GUILayout.Width( 220 ) );
-				GUILayout.Label( $"{f.cm:F0} cm", rowKey, GUILayout.Width( 60 ) );
-				GUILayout.Label( $"{Fmt( f.kg )} kg", rowKey, GUILayout.Width( 70 ) );
-				GUILayout.Label( GameText.priceTag( s, f ), rowKey, GUILayout.Width( 70 ) );
-				if ( GUILayout.Button( "Release", GUILayout.Width( 70 ) ) ) s.release( f.id );
-				GUILayout.EndHorizontal();
-			}
-
-			foreach ( var kv in s.log.Where( k => FishTable.Has( k.Key ) ) )
-				GUILayout.Label( $"{FishTable.Get( kv.Key ).name}: {kv.Value.count} caught, best {Fmt( kv.Value.bestKg )} kg · {( kv.Value.bestCm ?? Math.Round( FishTable.fishLengthCm( kv.Key, kv.Value.bestKg ) ) ):F0} cm", small );
-			GUILayout.EndScrollView();
-			GUILayout.BeginHorizontal();
-			GUILayout.Label( "Sell at the fish stand by the pier", small );
-			GUILayout.FlexibleSpace();
-			if ( GUILayout.Button( $"Close ({host.input.label( "cooler" )})", GUILayout.Width( 120 ) ) ) ToggleInventory( false );
-			GUILayout.EndHorizontal();
-			GUILayout.EndArea();
-		}
-
-		void DrawVendor( Vendor v )
-		{
-			var s = state; var r = PanelRect();
-			GUI.Box( r, GUIContent.none );
-			GUILayout.BeginArea( new Rect( r.x + 14, r.y + 10, r.width - 28, r.height - 20 ) );
-			GUILayout.Label( v.name, title );
-			if ( v.kind == "shop" ) DrawShop( v ); else DrawStand( v );
-			GUILayout.EndArea();
-		}
-
-		// the fish stand (GameHUD.renderStand)
-		void DrawStand( Vendor v )
-		{
-			var s = state;
-			GUILayout.Label( s.inventory.Count > 0 ? ( v.greeting != "" ? v.greeting : "Let's see what you caught." ) : ( v.idle != "" ? v.idle : "Come back when you've got fish." ), small );
-			string order = GameText.orderBoard( s ), market = GameText.marketBoard( s );
-			if ( order != "" ) GUILayout.Label( order, label );
-			if ( market != "" ) GUILayout.Label( market, small );
-			scroll = GUILayout.BeginScrollView( scroll, GUILayout.Height( 260 ) );
-			if ( s.inventory.Count == 0 ) GUILayout.Label( "Your cooler is empty.", small );
-			foreach ( var f in s.inventory.ToList() )
-			{
-				GUILayout.BeginHorizontal();
-				GUILayout.Label( FishTable.Get( f.species ).name, rowKey, GUILayout.Width( 220 ) );
-				GUILayout.Label( $"{f.cm:F0} cm", rowKey, GUILayout.Width( 60 ) );
-				GUILayout.Label( $"{Fmt( f.kg )} kg", rowKey, GUILayout.Width( 70 ) );
-				GUILayout.Label( GameText.priceTag( s, f ), rowKey, GUILayout.Width( 70 ) );
-				if ( GUILayout.Button( "Sell", GUILayout.Width( 60 ) ) ) Sell( new[] { f.id } );
-				GUILayout.EndHorizontal();
-			}
-
-			GUILayout.EndScrollView();
-			GUILayout.BeginHorizontal();
-			if ( GUILayout.Button( $"Leave ({host.input.label( "interact" )})", GUILayout.Width( 120 ) ) ) CloseStand();
-			GUILayout.FlexibleSpace();
-			GUI.enabled = s.inventory.Count > 0;
-			if ( GUILayout.Button( $"Sell all · ${s.holdValue}", GUILayout.Width( 160 ) ) ) SellAll();
-			GUI.enabled = true;
-			GUILayout.EndHorizontal();
-		}
-
-		// the chandlery (GameHUD.renderShop): fuel, the trap line, then every upgrade track
-		void DrawShop( Vendor v )
-		{
-			var s = state;
-			GUILayout.Label( $"{v.greeting} · You have ${s.money:N0}", small );
-			scroll = GUILayout.BeginScrollView( scroll, GUILayout.Height( 340 ) );
-			double missing = s.stats.fuelL - s.fuelL;
-			// the boats: yours, or for sale (they wait at their moorings by the pier until bought)
-			foreach ( var b in Gear.BOATS )
-			{
-				bool own = s.ownsBoat( b.id ); string id = b.id;
-				ShopRow( b.name, own ? "Moored by the pier" : "Moored by the pier · yours to take out once bought", own ? null : $"${b.cost:N0}", b.cost <= s.money, "Yours", () => BuyBoat( id ) );
-			}
-
-			ShopRow( $"Diesel · ${Gear.FUEL_PRICE:F2} / L", $"Tank: {s.fuelL:F0} of {s.stats.fuelL} L",
-				missing > 0.5 ? $"Fill · ${s.refuelCost()}" : null, missing > 0.5 && s.money >= Gear.FUEL_PRICE, "Full", () => Refuel() );
-			bool licensed = s.mayTrap;
-			var lic = Gear.nextLevel( s.upgrades, "trapLicence" );
-			ShopRow( $"{Gear.Track( "trapLicence" ).name}: {( licensed ? "held" : "none" )}",
-				licensed ? $"{s.traps} aboard · {s.sets.Count} of {Gear.TRAP_LIMIT} in the water" : $"Set and haul lobster pots (max {Gear.TRAP_LIMIT} in the water)",
-				! s.ownsBoat( Gear.Track( "trapLicence" ).boat ) ? null : lic != null ? $"${lic.cost}" : null, lic != null && lic.cost <= s.money, ! s.ownsBoat( Gear.Track( "trapLicence" ).boat ) ? "Needs the lobster boat" : "Held", () => Buy( "trapLicence" ) );
-			ShopRow( $"Lobster traps · ${Gear.TRAP_PRICE} each", licensed ? $"{s.traps} aboard (max {Gear.TRAP_LIMIT})" : "Licence required",
-				licensed && s.traps < Gear.TRAP_LIMIT ? $"Buy 1 · ${Gear.TRAP_PRICE}" : null, s.money >= Gear.TRAP_PRICE, licensed ? "Full" : "Licence", () => BuyTraps( 1 ) );
-			foreach ( var t in Gear.UPGRADES_LIST.Where( t => t.key != "trapLicence" ) )
-			{
-				var cur = t.levels[ s.upgrades[ t.key ] ]; var next = Gear.nextLevel( s.upgrades, t.key );
-				string key = t.key;
-				bool locked = t.boat != null && ! s.ownsBoat( t.boat );
-				ShopRow( $"{t.name}: {( next != null ? next.label : cur.label )}", $"Now: {cur.label}", locked ? null : next != null ? $"${next.cost}" : null, next != null && next.cost <= s.money,
-					locked ? $"Needs the {Gear.Boat( t.boat ).name.ToLowerInvariant()}" : "Top of the line", () => Buy( key ) );
-			}
-
-			GUILayout.EndScrollView();
-			GUILayout.BeginHorizontal();
-			GUILayout.Label( "Upgrades take effect at once", small );
-			GUILayout.FlexibleSpace();
-			if ( GUILayout.Button( $"Leave ({host.input.label( "interact" )})", GUILayout.Width( 120 ) ) ) CloseStand();
-			GUILayout.EndHorizontal();
-		}
-
-		void ShopRow( string name, string detail, string button, bool enabled, string done, Action click )
-		{
-			GUILayout.BeginHorizontal();
-			GUILayout.BeginVertical();
-			GUILayout.Label( name, rowKey );
-			GUILayout.Label( detail, small );
-			GUILayout.EndVertical();
-			GUILayout.FlexibleSpace();
-			if ( button == null ) GUILayout.Label( done, small, GUILayout.Width( 130 ) );
-			else
-			{
-				GUI.enabled = enabled;
-				if ( GUILayout.Button( button, GUILayout.Width( 130 ) ) ) click();
-				GUI.enabled = true;
-			}
-
-			GUILayout.EndHorizontal();
+			if ( showHud && hud != null ) hud.OnGUI();
+			if ( showHud && fishGuide != null ) fishGuide.OnGUI();
+			if ( showHud && guide != null ) guide.OnGUI();
+			if ( showHud && controls != null ) controls.OnGUI();
 		}
 	}
 }

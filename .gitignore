@@ -15,3 +15,9 @@ command-code-session-*.md
 
 # editor and export backups
 *.bak
+*.blend1
+
+# the humpback whale: source model, extraction sources and tools (kept locally, not in the repo)
+assets/humpback.glb
+assets/source/whale/
+tools/whale/

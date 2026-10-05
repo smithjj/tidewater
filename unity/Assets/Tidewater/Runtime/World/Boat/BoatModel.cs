@@ -101,6 +101,10 @@ namespace Tidewater.World.Boat
 				staticGeometry[ name ] = geo;
 			}
 
+			// the pot coil: on the deck, or on the pot in the last place of the stack (TrapsView lifts it by POT_COIL_LIFT while that pot is aboard)
+			var coilGeo = kit.merged( "potCoil" );
+			if ( coilGeo != null ) staticGeometry[ "potCoil" ] = coilGeo;
+
 			// ---- animated parts (one mesh each)
 			wheelPos = parts.wheelCenter;
 			wheelPivotRotation = new Quaternion().setFromUnitVectors( new Vector3( 0, 0, 1 ), parts.wheelAxis );

@@ -57,6 +57,7 @@ namespace Tidewater.Game
 
 		readonly GameObject root, holder;
 		readonly Transform deck;
+		Transform coil; // the boat's green pot coil (BoatView's "boat-potCoil")
 		readonly Material material;
 		readonly UnityEngine.Mesh pot, buoy, rope;
 		readonly Dictionary<int, SetObjs> sets = new Dictionary<int, SetObjs>();
@@ -138,6 +139,14 @@ namespace Tidewater.Game
 		{
 			if ( stack.Length != t.stackCount ) BuildStack( t );
 			for ( int i = 0; i < stack.Length; i ++ ) if ( stack[ i ].activeSelf != t.stackShown[ i ] ) stack[ i ].SetActive( t.stackShown[ i ] );
+
+			// the green coil rides on the last pot, and lies on the deck where that pot would stand while it is not aboard
+			if ( coil == null && deck != null ) coil = deck.Find( "boat-potCoil" );
+			if ( coil != null && DeckGear.POT_COIL_SLOT < t.stackShown.Length )
+			{
+				var lp = coil.localPosition; float y = t.stackShown[ DeckGear.POT_COIL_SLOT ] ? ( float ) DeckGear.POT_COIL_LIFT : 0f;
+				if ( lp.y != y ) { lp.y = y; coil.localPosition = lp; }
+			}
 
 			gone.Clear();
 			foreach ( var id in sets.Keys ) gone.Add( id );

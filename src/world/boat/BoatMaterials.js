@@ -346,9 +346,20 @@ export class BoatMaterials {
 	let stripeIdx = floor( sat( u.y ) * 12.999 );
 	let red = 1.0 - ( stripeIdx - 2.0 * floor( stripeIdx / 2.0 ) );
 	let canton = step( u.x, 0.4 ) * step( ${ f( 6 / 13 ) }, u.y );
-	let sx = fract( u.x / 0.4 * 6.0 ) - 0.5;
-	let sy = fract( ( u.y - ${ f( 6 / 13 ) } ) / ${ f( 7 / 13 ) } * 5.0 ) - 0.5;
-	let star = boatInvstep( 0.16, 0.24, length( vec2f( sx, sy ) ) );
+	// the 50 stars: nine rows of six and five (alternating) on the canton's grid -- rows a tenth of its height apart, columns a sixth of its
+	// width, the five-star rows half a column in -- each a five-pointed star 0.0616 across, all in hoist units (the canton is 0.76 x 7/13)
+	let cu = u.x / 0.4;
+	let cv = ( 1.0 - u.y ) / ${ f( 7 / 13 ) };
+	let srow = clamp( round( cv * 10.0 ), 1.0, 9.0 );
+	let oddRow = srow - 2.0 * floor( srow / 2.0 );
+	let scol = mix( ( clamp( round( cu * 6.0 ), 1.0, 5.0 ) ) / 6.0, ( clamp( round( cu * 6.0 - 0.5 ), 0.0, 5.0 ) + 0.5 ) / 6.0, oddRow );
+	let sp = vec2f( ( cu - scol ) * 0.76, ( srow / 10.0 - cv ) * 0.5385 );
+	let sa = atan2( sp.x, sp.y ) + 0.6283185;
+	let sth = abs( sa - floor( sa / 1.2566371 ) * 1.2566371 - 0.6283185 );
+	let sq = length( sp ) * vec2f( cos( sth ), sin( sth ) );
+	let tip = vec2f( 0.0308, 0.0 );
+	let notch = vec2f( 0.01177 * cos( 0.6283185 ), 0.01177 * sin( 0.6283185 ) );
+	let star = smoothstep( -0.002, 0.002, ( ( notch.x - tip.x ) * ( sq.y - tip.y ) - ( notch.y - tip.y ) * ( sq.x - tip.x ) ) / length( notch - tip ) );
 	let stripes = mix( ${ col( 0xf4f1ea ) }, ${ col( 0xb3172a ) }, red );
 	let flag = mix( stripes, mix( ${ col( 0x1c2a5c ) }, ${ col( 0xf4f1ea ) }, star ), canton );
 

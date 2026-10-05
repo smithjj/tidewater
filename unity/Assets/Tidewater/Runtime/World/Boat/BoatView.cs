@@ -156,7 +156,7 @@ namespace Tidewater.World.Boat
 		public void Build()
 		{
 			model = new BoatModel();
-			foreach ( var kv in model.staticGeometry ) AddMesh( "boat-" + kv.Key, kv.Value, kv.Key, transform, Vector3.zero );
+			foreach ( var kv in model.staticGeometry ) AddMesh( "boat-" + kv.Key, kv.Value, kv.Key == "potCoil" ? "fittings" : kv.Key, transform, Vector3.zero ); // "boat-potCoil" is TrapsView's to lift
 
 			// helm wheel: pivot aligned with the shaft, wheel spins about its local Z
 			var pivot = new GameObject( "boat-wheel-pivot" ) { hideFlags = HideFlags.DontSave };

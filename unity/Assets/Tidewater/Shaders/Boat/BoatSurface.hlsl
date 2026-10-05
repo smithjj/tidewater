@@ -307,9 +307,20 @@ BoatOut BoatFittings( BoatIn i )
 	float stripeIdx = floor( saturate( u.y ) * 12.999 );
 	float red = 1.0 - ( stripeIdx - 2.0 * floor( stripeIdx / 2.0 ) );
 	float canton = step( u.x, 0.4 ) * step( 6.0 / 13.0, u.y );
-	float sx = frac( u.x / 0.4 * 6.0 ) - 0.5;
-	float sy = frac( ( u.y - 6.0 / 13.0 ) / ( 7.0 / 13.0 ) * 5.0 ) - 0.5;
-	float star = BoatInvstep( 0.16, 0.24, length( float2( sx, sy ) ) );
+	// the 50 stars: nine rows of six and five (alternating) on the canton's grid -- rows a tenth of its height apart, columns a sixth of its
+	// width, the five-star rows half a column in -- each a five-pointed star 0.0616 across, all in hoist units (the canton is 0.76 x 7/13)
+	float cu = u.x / 0.4;
+	float cv = ( 1.0 - u.y ) / ( 7.0 / 13.0 );
+	float srow = clamp( round( cv * 10.0 ), 1.0, 9.0 );
+	float oddRow = srow - 2.0 * floor( srow / 2.0 );
+	float scol = lerp( ( clamp( round( cu * 6.0 ), 1.0, 5.0 ) ) / 6.0, ( clamp( round( cu * 6.0 - 0.5 ), 0.0, 5.0 ) + 0.5 ) / 6.0, oddRow );
+	float2 sp = float2( ( cu - scol ) * 0.76, ( srow / 10.0 - cv ) * 0.5385 );
+	float sa = atan2( sp.x, sp.y ) + 0.6283185;
+	float sth = abs( sa - floor( sa / 1.2566371 ) * 1.2566371 - 0.6283185 );
+	float2 sq = length( sp ) * float2( cos( sth ), sin( sth ) );
+	float2 tip = float2( 0.0308, 0.0 );
+	float2 notch = float2( 0.01177 * cos( 0.6283185 ), 0.01177 * sin( 0.6283185 ) );
+	float star = smoothstep( -0.002, 0.002, ( ( notch.x - tip.x ) * ( sq.y - tip.y ) - ( notch.y - tip.y ) * ( sq.x - tip.x ) ) / length( notch - tip ) );
 	float3 stripes = lerp( BoatCol( 0xf4f1ea ), BoatCol( 0xb3172a ), red );
 	float3 flag = lerp( stripes, lerp( BoatCol( 0x1c2a5c ), BoatCol( 0xf4f1ea ), star ), canton );
 

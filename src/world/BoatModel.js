@@ -74,6 +74,20 @@ export class BoatModel {
 
 		}
 
+		// the pot coil: on the deck, or on the pot in the last place of the stack (game/Traps.js lifts it by POT_COIL_LIFT while that pot is aboard)
+		const coilGeo = kit.merged( 'potCoil' );
+		this.potCoil = null;
+		if ( coilGeo ) {
+
+			this.potCoil = new Mesh( coilGeo, materials.fittings );
+			this.potCoil.name = 'boat-potCoil';
+			this.potCoil.castShadow = true;
+			this.potCoil.receiveShadow = true;
+			this.group.add( this.potCoil );
+			this.meshes.potCoil = this.potCoil;
+
+		}
+
 		// ---- animated parts (one draw call each)
 
 		const addPart = ( name, geo, mat, position, parent = this.group ) => {

@@ -3,6 +3,7 @@
 // animations (the deck stack, a pot hauled aboard, a pot over the stern).
 //   node test/trap-handling.mjs
 import * as E from '../src/engine/index.js';
+import { POT_COIL_LIFT } from '../src/world/boat/DeckGear.js';
 import { Traps, trapTriggered, stackVisible, TRAP_MAX_SPEED, SET_ASTERN, SOAK_MIN } from '../src/game/Traps.js';
 import { Game } from '../src/game/Game.js';
 import { GameState } from '../src/game/GameState.js';
@@ -164,19 +165,23 @@ const fire = ( o ) => { const t = mkGame( o ); t.g.setTrap = () => { t.calls.set
 		const state = new GameState();
 		state.upgrades.trapLicence = 1; state.money = 5000; state.buyTraps( aboard );
 		const group = new E.Group();
-		const tr = new Traps( { scene: new E.Group(), terrain: { heightAt: () => - 10 }, query: null, state, boat: { group, lines: { deckY: 0.35 } }, toast: () => {}, splash: () => { tr.splashes = ( tr.splashes || 0 ) + 1; } } );
+		const potCoil = new E.Group(); // the green coil of the boat (BoatModel)
+		const tr = new Traps( { scene: new E.Group(), terrain: { heightAt: () => - 10 }, query: null, state, boat: { group, lines: { deckY: 0.35 }, potCoil }, toast: () => {}, splash: () => { tr.splashes = ( tr.splashes || 0 ) + 1; } } );
 		tr.splashes = 0;
-		return { tr, state, group };
+		return { tr, state, group, potCoil };
 
 	};
 	const vis = ( tr ) => tr.stack.map( ( m ) => m.visible ? 1 : 0 ).join( '' );
 	const run = ( tr, max = 600 ) => { let n = 0; while ( tr.busy && n ++ < max ) tr.update( 1 / 60 ); return n; };
 	const slotWorld = ( boat, i ) => boat.toWorld( new E.Vector3( TRAPS[ i ][ 0 ], 0.35 + 0.03 + TRAPS[ i ][ 1 ] * ( 0.37 + 0.035 ), TRAPS[ i ][ 2 ] ), new E.Vector3() );
 
-	let { tr, state } = mkTraps( 3 );
+	let { tr, state, potCoil } = mkTraps( 3 );
 	ok( vis( tr ) === '1110', `the deck stack follows the pots aboard (3 aboard: ${ vis( tr ) })` );
+	ok( potCoil.position.y === 0, 'the last place is empty: the green coil lies on the deck, not in the air' );
 	state.buyTraps( 1 ); ok( vis( tr ) === '1111', 'buying one fills the last place' );
+	ok( Math.abs( potCoil.position.y - POT_COIL_LIFT ) < 1e-9 && POT_COIL_LIFT > 0.4, `and the coil rides up onto that pot (${ potCoil.position.y.toFixed( 3 ) } m)` );
 	state.traps = 0; state.emit(); ok( vis( tr ) === '0000', 'none aboard, none on deck' );
+	ok( potCoil.position.y === 0, 'none aboard: the coil is back on the deck' );
 
 	// a pot over the stern
 	const boat = mkBoat( { x: 20, z: 30, yaw: 0.7 } );

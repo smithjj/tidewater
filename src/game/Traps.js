@@ -10,7 +10,7 @@
 //  - Each pot has its own buoy line, riding the same water readback the boats use.
 import { Group, Mesh, Vector3, Quaternion, Euler, Color } from '../engine/index.js';
 import { box, rod, cylinder, sphere, prepare, mergePrepared, mat4 } from '../world/boat/GeoKit.js';
-import { TRAP, TRAPS } from '../world/boat/DeckGear.js';
+import { TRAP, TRAPS, POT_COIL_SLOT, POT_COIL_LIFT } from '../world/boat/DeckGear.js';
 import { loadStaticModel } from '../world/StaticGLB.js';
 import { createPropMaterial } from './GameMaterials.js';
 import { rollWeight, pickSpecies } from './Bites.js';
@@ -210,6 +210,8 @@ export class Traps {
 
 		const show = stackVisible( this.state.traps, this.stack.length, this._held );
 		for ( let i = 0; i < this.stack.length; i ++ ) this.stack[ i ].visible = show[ i ];
+		// the green coil rides on the last pot, and lies on the deck where that pot would stand while it is not aboard
+		if ( this.boat && this.boat.potCoil ) this.boat.potCoil.position.y = show[ POT_COIL_SLOT ] ? POT_COIL_LIFT : 0;
 
 	}
 

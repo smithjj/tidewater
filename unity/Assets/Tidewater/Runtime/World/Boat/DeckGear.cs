@@ -13,7 +13,7 @@ namespace Tidewater.World.Boat
 
 	public static class HAULER { public const double x = -1.0, z = -0.62, y = 1.34; }
 
-	public static class FLAG { public const double w = 0.5, h = 0.33; }
+	public static class FLAG { public const double w = 0.5, h = 0.5 / 1.9; } // the ensign's 1.9 : 1
 
 	public static class DeckGear
 	{
@@ -143,11 +143,16 @@ namespace Tidewater.World.Boat
 			return GK.tube( pts, ropeR, turns * 21 + 10, 4 );
 		}
 
+		// The green coil belongs to the pot in the last place of the stack (TRAPS[ POT_COIL_SLOT ]): it lies on the deck where that pot would
+		// stand and rides up onto the pot's top while the pot is aboard (TrapsView lifts the "potCoil" mesh by POT_COIL_LIFT), so it never
+		// floats over an empty place. It is its own bucket for that (BoatModel makes the mesh); the yellow one stays on the deck.
+		public const int POT_COIL_SLOT = 3;
+		public const double POT_COIL_LIFT = 0.03 + TRAP.H + 0.012;
+
 		static void buildCoils( GeoKit kit, HullLines L )
 		{
 			kit.add( "fittings", coil( -0.5, L.deckY, -2.15, 5, 0.22, 0.011, 0.3 ), new Opts { color = 0xe4c235, rough = 0.8, pattern = 1 } );
-			double topTrap = L.deckY + 0.03 + TRAP.H + 0.012;
-			kit.add( "fittings", coil( -0.68, topTrap, -3.2, 4, 0.19, 0.01, 1.7 ), new Opts { color = 0x2f6f4f, rough = 0.8, pattern = 1 } );
+			kit.add( "potCoil", coil( -0.68, L.deckY, -3.2, 4, 0.19, 0.01, 1.7 ), new Opts { color = 0x2f6f4f, rough = 0.8, pattern = 1 } );
 		}
 
 		// ------------------------------------------------------------------ buoys lying on deck

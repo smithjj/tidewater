@@ -131,11 +131,16 @@ function coil( cx, cy, cz, turns, radius, ropeR, seed ) {
 
 }
 
+// The green coil belongs to the pot in the last place of the stack (TRAPS[ POT_COIL_SLOT ]): it lies on the deck where that pot would
+// stand and rides up onto the pot's top while the pot is aboard (game/Traps.js lifts the 'potCoil' mesh by POT_COIL_LIFT), so it never
+// floats over an empty place. It is its own bucket for that (BoatModel makes the mesh); the yellow one stays on the deck.
+export const POT_COIL_SLOT = 3;
+export const POT_COIL_LIFT = 0.03 + TRAP.H + 0.012;
+
 function buildCoils( kit, L ) {
 
 	kit.add( 'fittings', coil( - 0.5, L.deckY, - 2.15, 5, 0.22, 0.011, 0.3 ), { color: 0xe4c235, rough: 0.8, pattern: 1 } );
-	const topTrap = L.deckY + 0.03 + TRAP.H + 0.012;
-	kit.add( 'fittings', coil( - 0.68, topTrap, - 3.2, 4, 0.19, 0.01, 1.7 ), { color: 0x2f6f4f, rough: 0.8, pattern: 1 } );
+	kit.add( 'potCoil', coil( - 0.68, L.deckY, - 3.2, 4, 0.19, 0.01, 1.7 ), { color: 0x2f6f4f, rough: 0.8, pattern: 1 } );
 
 }
 
@@ -313,7 +318,7 @@ function buildContainers( kit, L ) {
 
 // ------------------------------------------------------------------ stern: light and ensign
 
-export const FLAG = { w: 0.5, h: 0.33 };
+export const FLAG = { w: 0.5, h: 0.5 / 1.9 }; // the ensign's 1.9 : 1
 
 function buildStern( kit, L, parts ) {
 

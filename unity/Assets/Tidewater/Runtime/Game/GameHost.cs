@@ -45,7 +45,8 @@ namespace Tidewater.Game
 		public GameHUD hud { get; private set; }         // the purse and the panels (GameHUD.js; null until the world is built)
 		public SettingsUI settings { get; private set; } // the settings rail and panel (UI.js; null until the world is built)
 		public PlayerHost Host => host;
-		public bool photoMode => settings != null && settings.photo; // the interface is hidden (UI.setPhotoMode)
+		public readonly WildlifeCam wildlife = new WildlifeCam(); // G: visit the rays and the turtle (Unity only)
+		public bool photoMode => ( settings != null && settings.photo ) || wildlife.active; // the interface is hidden (UI.setPhotoMode)
 
 		readonly List<Vendor> _vendors = new List<Vendor>();
 		PlayerHost host;
@@ -355,9 +356,10 @@ namespace Tidewater.Game
 			if ( hudOn && fishing != null ) fishing.OnGUI();
 			if ( hudOn && hud != null ) hud.OnGUI();
 			if ( hudOn && fishGuide != null ) fishGuide.OnGUI();
-			if ( settings != null ) settings.OnGUI();
+			if ( settings != null && ! wildlife.active ) settings.OnGUI();
 			if ( hudOn && guide != null ) guide.OnGUI();
 			if ( hudOn && controls != null ) controls.OnGUI();
+			wildlife.OnGUI();
 			if ( settings != null ) settings.OnGUIOverlay(); // (the open dropdown and the tooltip: above everything)
 		}
 	}

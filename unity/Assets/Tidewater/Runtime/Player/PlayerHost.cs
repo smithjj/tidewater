@@ -96,6 +96,8 @@ namespace Tidewater.Player
 			if ( ! input.locked && input.mouseDown && input.enabled && ! input.menuMode && ! input.uiHover ) input.RequestLock();
 
 			if ( input.actHit( "freeCam" ) ) SetFreeCam( ! freeCam );
+			var wild = game != null ? game.wildlife : null;
+			if ( wild != null ) wild.Handle( this, game );
 
 			// the torch remembers what it was left as (the controls option); L toggles it (App.js: the flashlight action)
 			var lamps = LocalLightsView.instance;
@@ -115,6 +117,12 @@ namespace Tidewater.Player
 			if ( pelagicDriver != null ) pelagicDriver.Tick( dt );
 			if ( miniDriver != null ) miniDriver.Tick( dt );
 			if ( freeCam ) fly.update( dt );
+			else if ( wild != null && wild.active )
+			{
+				// the wildlife camera has the view: the player stands still (a boat at the helm is let go of and coasts to a stop)
+				if ( player.mode == "boat" || player.mode == "deck" ) player.boat.setInput( 0, 0, dt );
+				wild.Update( dt, this );
+			}
 			else player.update( dt );
 			// Game.update: the world clock, the traders, the fuel (after the player, which sets the boat's controls and the prompt)
 			if ( game != null && game.Ensure( this ) ) game.Tick( dt );

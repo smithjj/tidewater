@@ -103,6 +103,7 @@ namespace Tidewater.World.Fish
 		public int cullFrame = - 1;
 		public double dt = 1.0 / 60;
 		public bool anyActive;
+		public bool calm; // (Unity only) the wildlife camera: the camera still wakes the groups around it, but it frightens nothing
 		public FishBatch batch;
 		float[] breakGrid;
 
@@ -535,7 +536,7 @@ namespace Tidewater.World.Fish
 			time += dt;
 			this.dt = dt != 0 ? dt : 1.0 / 60;
 			Vector3 threat = null;
-			if ( player != null )
+			if ( player != null && ! calm )
 			{
 				if ( player.y < - 0.1 ) threat = player;
 				else

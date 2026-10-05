@@ -30,6 +30,7 @@ namespace Tidewater.Game
 		public bool inventoryOpen { get; private set; }  // the cooler panel (I)
 		public Weather weather { get; private set; }     // the sea-state walk (null until the world is built)
 		public FishingGame fishing { get; private set; } // the rod, the bite, the fight and the catch card (null until the world is built)
+		public readonly MinimapView minimap = new MinimapView(); // lower right: the island, the markers; N opens the large map (Minimap.js)
 
 		readonly List<Vendor> _vendors = new List<Vendor>();
 		PlayerHost host;
@@ -45,6 +46,7 @@ namespace Tidewater.Game
 		{
 			if ( instance == this ) instance = null;
 			if ( fishing != null ) fishing.Dispose();
+			minimap.Dispose();
 			// the Editor's sea state slider works again once the game is gone
 			if ( weather != null && OceanRenderer.instance != null ) OceanRenderer.instance.weatherDriven = false;
 		}
@@ -195,6 +197,9 @@ namespace Tidewater.Game
 			// the rod, the bite, the fight and the landed fish
 			fishing.Update( dt );
 
+			// the minimap (Game.update: after the rest; the catch card owns the screen while it is up, the map steps aside)
+			minimap.Tick( dt, this, host, fishing.catchOpen );
+
 			UpdateBoat( dt, p );
 
 			// the world clock and the weather ride along in the save (every 20 s, and at midnight)
@@ -284,6 +289,7 @@ namespace Tidewater.Game
 				if ( s.mayTrap || s.sets.Count > 0 ) GUI.Label( new Rect( 12, aboard ? 66 : 48, 420, 20 ), $"Traps {s.sets.Count} set · {s.traps} aboard", small );
 			}
 
+			if ( showHud ) minimap.OnGUI();
 			if ( showHud && fishing != null ) fishing.OnGUI();
 			if ( openVendor != null ) DrawVendor( openVendor );
 			else if ( inventoryOpen ) DrawInventory();

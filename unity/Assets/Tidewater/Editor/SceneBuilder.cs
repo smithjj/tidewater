@@ -36,6 +36,10 @@ namespace Tidewater.EditorTools
 			var sch = GameObject.Find( "Fish Schools" ) ?? new GameObject( "Fish Schools" );
 			if ( sch.GetComponent<Tidewater.World.Fish.FishSchoolsView>() == null ) sch.AddComponent<Tidewater.World.Fish.FishSchoolsView>();
 
+			// the humpback
+			var whl = GameObject.Find( "Whale" ) ?? new GameObject( "Whale" );
+			if ( whl.GetComponent<Tidewater.World.Marine.WhaleView>() == null ) whl.AddComponent<Tidewater.World.Marine.WhaleView>();
+
 			// the sea (replaces the flat placeholder plane the scene had before the ocean was ported)
 			var old = GameObject.Find( "Sea (placeholder)" );
 			if ( old != null ) Object.DestroyImmediate( old );

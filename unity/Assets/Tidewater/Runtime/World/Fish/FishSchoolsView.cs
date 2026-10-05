@@ -123,6 +123,7 @@ namespace Tidewater.World.Fish
 				var p = cam.transform.position;
 				player.set( p.x, p.y, - p.z );
 				// edit mode: no time passes (the groups around the camera wake up; the fish stay where they are)
+				schools.setWhale( Tidewater.World.Marine.WhaleView.instance?.whale );
 				schools.update( Application.isPlaying ? Math.Min( Time.deltaTime, 0.1f ) : 0, player );
 			}
 
@@ -137,6 +138,7 @@ namespace Tidewater.World.Fish
 			cam = cam ?? Camera.main;
 			var p = cam.transform.position;
 			player.set( p.x, p.y, - p.z );
+			schools.setWhale( Tidewater.World.Marine.WhaleView.instance?.whale );
 			for ( int i = 0; i < steps; i ++ ) schools.update( dt, player );
 		}
 

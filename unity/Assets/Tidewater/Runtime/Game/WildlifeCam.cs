@@ -5,7 +5,7 @@ using Tidewater.World.Fish;
 using UnityEngine;
 using Engine3 = Tidewater.Engine.Vector3;
 
-// The wildlife camera (the JS has the same one, src/player/WildlifeVisit.js; keep them together): G visits the animals in turn, the eagle ray, the stingrays and the turtle, and G again goes on to the next. The camera flies
+// The wildlife camera (the JS has the same one, src/player/WildlifeVisit.js; keep them together): G visits the animals in turn, the eagle ray, the stingrays, the turtle and the humpback, and G again goes on to the next. The camera flies
 // to a spot behind and beside the animal and stays with it as it swims (so it works under water and at the surface); the mouse orbits it, the wheel zooms, F leaves it to fly
 // freely from there, Esc (or the free camera) ends the visit. The player stays where they were; the interface is hidden, as in photo mode, apart from a caption.
 // G is the "wildlife" action in the bindings table, so it can be rebound and is on the controls sheet. While a visit is on the fish are calm (FishSchools.calm): the sim treats a camera
@@ -15,27 +15,57 @@ namespace Tidewater.Game
 	public sealed class WildlifeCam
 	{
 		static readonly string[] MODELS = { "eagleRay", "stingray", "turtle" };
-		static readonly Dictionary<string, string> NAMES = new Dictionary<string, string> { { "eagleRay", "Eagle ray" }, { "stingray", "Southern stingray" }, { "turtle", "Green turtle" } };
+		static readonly Dictionary<string, string> NAMES = new Dictionary<string, string> { { "eagleRay", "Eagle ray" }, { "stingray", "Southern stingray" }, { "turtle", "Green turtle" }, { "humpback", "Humpback whale" } };
+
+		// what is visited: a fish group, or the whale (which is not one: its numbers come from the whale)
+		sealed class Animal { public FishGroup g; public bool whale; public string model => whale ? "humpback" : g.sp.model; }
+		static readonly Animal WHALE = new Animal { whale = true };
 
 		public bool active { get; private set; }
 		int index = -1, last = -1;
-		readonly List<FishGroup> animals = new List<FishGroup>();
+		readonly List<Animal> animals = new List<Animal>();
 		FishSchools listed;
-		FishGroup target;
-		int fish;                         // the animal's index in the schools' arrays
+		bool hasWhale;
+		Animal target;
 		float fade;
+		// the animal as it is now (Sample): position, velocity (flat), the way it faces, its length
+		double sx, sy, sz, svx, svz, shx, shz, slen;
 		const double BEHIND = 0.5;        // where each visit starts from: a little round to the left of straight behind the animal
 		double orbitYaw = BEHIND, orbitPitch = 0.22, zoom = 1, heading;
 		readonly Engine3 tp = new Engine3(), _fwd = new Engine3(), _up = new Engine3( 0, 1, 0 );
 		string caption = "";
 
-		// the animals in a fixed order (the eagle ray, then the stingrays, then the turtle), found again if the schools were rebuilt
+		static Tidewater.World.Marine.Whale TheWhale() => Tidewater.World.Marine.WhaleView.instance?.whale;
+
+		// the animals in a fixed order (the eagle ray, the stingrays, the turtle, the whale), found again if the schools were rebuilt or the whale came in
 		void List( FishSchools s )
 		{
-			if ( s == listed && animals.Count > 0 ) return;
-			listed = s; animals.Clear();
+			bool has = TheWhale() != null;
+			if ( s == listed && has == hasWhale && animals.Count > 0 ) return;
+			listed = s; hasWhale = has; animals.Clear();
 			if ( s == null ) return;
-			foreach ( var m in MODELS ) foreach ( var g in s.groups ) if ( g.sp != null && g.sp.model == m ) animals.Add( g );
+			foreach ( var m in MODELS ) foreach ( var g in s.groups ) if ( g.sp != null && g.sp.model == m ) animals.Add( new Animal { g = g } );
+			if ( has ) animals.Add( WHALE );
+		}
+
+		void Sample( Animal a )
+		{
+			if ( a.whale )
+			{
+				var w = TheWhale(); var b = w.brain;
+				sx = b.position.x; sy = b.position.y; sz = b.position.z;
+				// (the brain does not keep a velocity: it swims the way it faces, at its speed)
+				shx = Math.Sin( b.yaw ); shz = Math.Cos( b.yaw );
+				svx = shx * b.speed; svz = shz * b.speed;
+				slen = w.bodyLength;
+				return;
+			}
+
+			var s = listed; int k = a.g.offset * 3;
+			sx = s.pos[ k ]; sy = s.pos[ k + 1 ]; sz = s.pos[ k + 2 ];
+			svx = s.vel[ k ]; svz = s.vel[ k + 2 ];
+			shx = a.g.heading.x; shz = a.g.heading.z;
+			slen = s.size[ a.g.offset ];
 		}
 
 		// once a frame, before the player is updated: G starts the visit or goes on to the next animal; Esc and the free camera end it
@@ -54,12 +84,12 @@ namespace Tidewater.Game
 		{
 			index = last = ( i % animals.Count + animals.Count ) % animals.Count;
 			target = animals[ index ];
-			fish = target.offset;
 			var s = listed;
+			Sample( target );
 			s.calm = true; // the camera must not frighten them (the sim treats a camera under water as a diver)
-			tp.set( s.pos[ fish * 3 ], s.pos[ fish * 3 + 1 ], s.pos[ fish * 3 + 2 ] );
-			heading = Math.Atan2( s.vel[ fish * 3 + 2 ], s.vel[ fish * 3 ] );
-			if ( s.vel[ fish * 3 ] == 0 && s.vel[ fish * 3 + 2 ] == 0 ) heading = Math.Atan2( target.heading.z, target.heading.x );
+			tp.set( sx, sy, sz );
+			heading = Math.Atan2( svz, svx );
+			if ( svx == 0 && svz == 0 ) heading = Math.Atan2( shz, shx );
 			zoom = 1; orbitYaw = BEHIND; orbitPitch = 0.22;
 			active = true;
 			Place( host, 1, 0 );
@@ -85,9 +115,8 @@ namespace Tidewater.Game
 
 		void Place( PlayerHost host, double follow, double dt )
 		{
-			var s = listed;
-			double px = s.pos[ fish * 3 ], py = s.pos[ fish * 3 + 1 ], pz = s.pos[ fish * 3 + 2 ];
-			double vx = s.vel[ fish * 3 ], vz = s.vel[ fish * 3 + 2 ], len = s.size[ fish ];
+			Sample( target );
+			double px = sx, py = sy, pz = sz, vx = svx, vz = svz, len = slen;
 			tp.x += ( px - tp.x ) * follow; tp.y += ( py - tp.y ) * follow; tp.z += ( pz - tp.z ) * follow;
 			if ( vx * vx + vz * vz > 0.0025 )
 			{
@@ -96,9 +125,12 @@ namespace Tidewater.Game
 			}
 
 			// behind the animal, turned by the orbit, at a distance that shows all of it
-			double dist = Math.Max( 2.4, len * 2.3 ) * zoom, a = heading + Math.PI + orbitYaw;
+			double dist = Math.Max( 2.4, len * ( target.whale ? 1.3 : 2.3 ) ) * zoom, a = heading + Math.PI + orbitYaw;
 			double cp = Math.Cos( orbitPitch );
 			double cx = tp.x + Math.Cos( a ) * cp * dist, cz = tp.z + Math.Sin( a ) * cp * dist, cy = tp.y + Math.Sin( orbitPitch ) * dist;
+			// an animal well under water is looked at from under water, however far back that puts the camera (the whale)
+			double surface = Tidewater.Core.G.cameraWaterHeight;
+			if ( py < surface - 1.2 ) cy = Math.Min( cy, surface - 1.0 );
 			cy = Math.Max( cy, host.terrainData.HeightAt( cx, cz ) + 0.3 );
 			var cam = host.simCamera;
 			cam.position.x += ( cx - cam.position.x ) * ( follow >= 1 ? 1 : 1 - Math.Exp( - dt * 5 ) );
@@ -108,8 +140,8 @@ namespace Tidewater.Game
 			if ( _fwd.lengthSq() < 1e-6 ) return;
 			cam.lookAlong( _fwd.normalize(), _up );
 
-			double depth = Math.Max( 0, Tidewater.Core.G.cameraWaterHeight - py );
-			string name = NAMES.TryGetValue( target.sp.model, out var n ) ? n : target.sp.model;
+			double depth = Math.Max( 0, surface - py );
+			string name = NAMES.TryGetValue( target.model, out var n ) ? n : target.model;
 			caption = $"{name}  ·  {len.ToString( "F1", System.Globalization.CultureInfo.InvariantCulture )} m  ·  {( depth < 0.3 ? "at the surface" : depth.ToString( "F1", System.Globalization.CultureInfo.InvariantCulture ) + " m deep" )}";
 		}
 

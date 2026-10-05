@@ -1,6 +1,6 @@
-// The wildlife visit (src/player/WildlifeVisit.js), run on the real fish simulation and terrain, with a
-// stub input and a real camera: G visits the eagle ray, the three stingrays and the turtle in turn and
-// wraps; the camera follows the animal and looks at it; the mouse turns the view the way it goes; Esc
+// The wildlife visit (src/player/WildlifeVisit.js), run on the real fish simulation and terrain (and the
+// real humpback behaviour, without its model), with a stub input and a real camera: G visits the eagle ray,
+// the three stingrays, the turtle and the humpback in turn and wraps; the camera follows the animal and looks at it; the mouse turns the view the way it goes; Esc
 // and the free camera end it; and while it lasts the fish are calm (the camera, under water, is not a
 // diver they flee from).
 //   node test/wildlife-visit.mjs
@@ -8,6 +8,7 @@ import * as E from '../src/engine/index.js';
 import { TerrainData } from '../src/world/TerrainData.js';
 import { WORLD } from '../src/world/WorldLayout.js';
 import { FishSchools } from '../src/world/Fish.js';
+import { WhaleBrain } from '../src/world/marine/WhaleBrain.js';
 import { WildlifeVisit } from '../src/player/WildlifeVisit.js';
 import { ACTIONS, Bindings } from '../src/core/Bindings.js';
 
@@ -32,6 +33,12 @@ const schools = new FishSchools( { parent: new E.Scene(), terrain, center: rc.cl
 const models = schools.groups.map( ( g ) => g.sp.model ).filter( ( m ) => [ 'eagleRay', 'stingray', 'turtle' ].includes( m ) );
 console.log( '     the animals in the sim:', models.join( ', ' ) );
 
+// the humpback: the real behaviour with the model's length (the visit reads the position, the velocity, the
+// heading and the length), as the app's Whale has them once loaded
+const brain = new WhaleBrain( { terrain } );
+for ( let i = 0; i < 30; i ++ ) brain.update( 1 / 30 );
+const whale = { ready: true, brain, manifest: { length: 14.5 } };
+
 const camera = new E.PerspectiveCamera( 60, 16 / 9, 0.05, 2000 );
 const hits = new Set();
 let look = { x: 0, y: 0 }, wheel = 0, freeCam = false;
@@ -41,24 +48,26 @@ const input = {
 	consumeWheel: () => { const w = wheel; wheel = 0; return w; },
 };
 const toasts = [];
-const v = new WildlifeVisit( { camera, input, schools, terrain, waterHeight: () => 0, toast: ( t ) => toasts.push( t ) } );
+const v = new WildlifeVisit( { camera, input, schools, whale: () => whale, terrain, waterHeight: () => 0, toast: ( t ) => toasts.push( t ) } );
 const press = ( id ) => { hits.add( id ); v.handle( freeCam ); hits.delete( id ); };
-const pos = ( g ) => new E.Vector3( schools.pos[ g.offset * 3 ], schools.pos[ g.offset * 3 + 1 ], schools.pos[ g.offset * 3 + 2 ] );
+const pos = ( g ) => g.whale ? brain.position.clone() : new E.Vector3( schools.pos[ g.offset * 3 ], schools.pos[ g.offset * 3 + 1 ], schools.pos[ g.offset * 3 + 2 ] );
+const lengthOf = ( g ) => g.whale ? 14.5 : schools.size[ g.offset ];
+const velOf = ( g ) => g.whale ? { x: Math.sin( brain.yaw ) * brain.speed, z: Math.cos( brain.yaw ) * brain.speed } : { x: schools.vel[ g.offset * 3 ], z: schools.vel[ g.offset * 3 + 2 ] };
 // the sim as the app runs it: stepped with the camera as the diver, a frame at a time
-const frames = ( n, dt = 1 / 30 ) => { for ( let i = 0; i < n; i ++ ) { schools.update( dt, camera.position ); if ( v.active ) v.update( dt ); } };
+const frames = ( n, dt = 1 / 30 ) => { for ( let i = 0; i < n; i ++ ) { brain.update( dt ); schools.update( dt, camera.position ); if ( v.active ) v.update( dt ); } };
 const facing = () => camera.getWorldDirection( new E.Vector3() );
 
-// ---- G cycles
+// ---- G cycles (the whale last)
 ok( ! v.active && schools.calm === false, 'no visit to begin with, and the fish are as they always are' );
 const seen = [];
-for ( let i = 0; i < 6; i ++ ) {
+for ( let i = 0; i < 7; i ++ ) {
 
 	press( 'wildlife' );
 	seen.push( v.target.sp.model );
 	const p = pos( v.target );
 	ok( v.active && schools.calm === true, `G ${ i + 1 }: the visit is on (${ v.target.sp.model }) and the fish are calm` );
 	const d = camera.position.distanceTo( p );
-	const L = schools.size[ v.target.offset ];
+	const L = lengthOf( v.target );
 	ok( d > L && d < L * 6 + 6, `   the camera stands ${ d.toFixed( 1 ) } m from a ${ L.toFixed( 1 ) } m animal` );
 	const to = p.clone().sub( camera.position ).normalize();
 	ok( facing().dot( to ) > 0.999, '   and looks at it' );
@@ -66,7 +75,8 @@ for ( let i = 0; i < 6; i ++ ) {
 	{
 
 		// behind the animal, not in its way: the camera's offset from it against the way it is heading
-		const hd = Math.atan2( schools.vel[ v.target.offset * 3 + 2 ], schools.vel[ v.target.offset * 3 ] );
+		const vel = velOf( v.target );
+		const hd = Math.atan2( vel.z, vel.x );
 		const ahead = ( camera.position.x - p.x ) * Math.cos( hd ) + ( camera.position.z - p.z ) * Math.sin( hd );
 		ok( ahead < - d * 0.5, `   and behind it (${ ( - ahead ).toFixed( 1 ) } m of the ${ d.toFixed( 1 ) })` );
 
@@ -74,8 +84,24 @@ for ( let i = 0; i < 6; i ++ ) {
 
 }
 
-ok( seen.join() === [ 'eagleRay', 'stingray', 'stingray', 'stingray', 'turtle', 'eagleRay' ].join(), `the order is the eagle ray, the stingrays, the turtle, and round again (${ seen.join( ', ' ) })` );
+ok( seen.join() === [ 'eagleRay', 'stingray', 'stingray', 'stingray', 'turtle', 'humpback', 'eagleRay' ].join(), `the order is the eagle ray, the stingrays, the turtle, the humpback, and round again (${ seen.join( ', ' ) })` );
 ok( /^Eagle ray · \d\.\d m · /.test( v.caption ), `the caption names it (“${ v.caption }”)` );
+{
+
+	// the whale: its caption, and the camera stays with it as it swims on
+	press( 'wildlife' ); press( 'wildlife' ); press( 'wildlife' ); press( 'wildlife' ); press( 'wildlife' ); // the stingrays, the turtle, the humpback
+	ok( v.target.whale === true && /^Humpback whale · 14\.5 m · /.test( v.caption ), `the whale's caption (“${ v.caption }”)` );
+	ok( brain.position.y < - 1.2 && camera.position.y < 0, `the whale is down at ${ brain.position.y.toFixed( 1 ) } m, so the camera is under water too (${ camera.position.y.toFixed( 1 ) } m) and not looking down on the surface` );
+	const w0 = brain.position.clone();
+	frames( 150 );
+	const moved = w0.distanceTo( brain.position ), d = camera.position.distanceTo( brain.position );
+	ok( moved > 5, `the whale swam on (${ moved.toFixed( 1 ) } m in 5 s)` );
+	ok( d < 14.5 * 2.3 * 1.6 + 1 && d > 14.5, `and the camera stayed with it (${ d.toFixed( 1 ) } m away)` );
+	ok( facing().dot( brain.position.clone().sub( camera.position ).normalize() ) > 0.99, 'looking at it still' );
+	press( 'wildlife' ); // round to the eagle ray again, as the fish sections below expect
+	ok( v.target.sp.model === 'eagleRay', 'and G goes on round to the eagle ray' );
+
+}
 
 // ---- following: the animal moves, the camera goes with it
 const g = v.target;
@@ -158,7 +184,7 @@ ok( camera.position.distanceTo( c0 ) > 0.5, 'having moved to do so' );
 press( 'cancel' );
 ok( ! v.active && schools.calm === false, 'Esc ends it and the fish are afraid again' );
 press( 'wildlife' );
-ok( v.active && v.target.sp.model === 'eagleRay', 'G after a visit goes on from the last animal (the turtle, so the eagle ray)' );
+ok( v.active && v.target.whale === true, 'G after a visit goes on from the last animal (the turtle, so the humpback)' );
 freeCam = true;
 v.handle( freeCam );
 ok( ! v.active && schools.calm === false, 'the free camera ends it too' );

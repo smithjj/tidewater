@@ -45,7 +45,7 @@ namespace Tidewater.Game
 		public GameHUD hud { get; private set; }         // the purse and the panels (GameHUD.js; null until the world is built)
 		public SettingsUI settings { get; private set; } // the settings rail and panel (UI.js; null until the world is built)
 		public PlayerHost Host => host;
-		public readonly WildlifeCam wildlife = new WildlifeCam(); // G: visit the rays and the turtle (Unity only)
+		public readonly WildlifeCam wildlife = new WildlifeCam(); // G: visit the rays, the turtle and the whale (the JS has the same)
 		public bool photoMode => ( settings != null && settings.photo ) || wildlife.active; // the interface is hidden (UI.setPhotoMode)
 
 		readonly List<Vendor> _vendors = new List<Vendor>();

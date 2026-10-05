@@ -95,7 +95,7 @@ namespace Tidewater.Core
 			A( "flashlight", "Flashlight", "Interface", "button", "block", "Flashlight", kb: B( "KeyL" ), pad: B( "DDown" ) ),
 			A( "mute", "Mute", "Interface", "button", "block", "Mute", kb: B( "KeyM" ), pad: B( "DLeft" ) ),
 			A( "freeCam", "Free camera", "Interface", "button", "block", "Free camera<small>Developer camera</small>", kb: B( "KeyF" ) ),
-			A( "wildlife", "Visit the wildlife", "Interface", "button", "block", "Visit the wildlife<small>Eagle ray, stingrays, turtle: again for the next</small>", kb: B( "KeyG" ) ),
+			A( "wildlife", "Visit the wildlife", "Interface", "button", "block", "Visit the wildlife<small>Eagle ray, stingrays, turtle, whale: again for the next</small>", kb: B( "KeyG" ) ),
 		};
 
 		static readonly Dictionary<string, string> KB_GLYPHS = new Dictionary<string, string>

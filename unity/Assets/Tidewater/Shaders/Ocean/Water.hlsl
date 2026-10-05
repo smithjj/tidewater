@@ -46,7 +46,31 @@ float4 _TWCamera;             // xyz = sim camera position
 float4 _TWLampPos[8];
 float4 _TWLampCol[8];
 float4 _TWLampDir[8];
+float4 _TWWhaleMarks[ 6 ];   // the humpback's marks on the surface: ( sim x, z, radius, strength ), strength > 0 foam, < 0 slick (WhaleWater.cs)
 float4 _TWLampN;              // x = count
+
+// foam and slick amounts of the humpback's marks at a surface point (WhaleWater.js whaleWater)
+float2 TWWhaleWater( float2 xz )
+{
+	float foam = 0.0; float slick = 0.0;
+	[unroll] for ( int i = 0; i < 6; i ++ )
+	{
+		float4 e = _TWWhaleMarks[ i ];
+		// (an unused mark has no strength)
+		if ( e.w == 0.0 ) continue;
+		float d = length( xz - e.xy ) / e.z;
+		if ( d >= 1.0 ) continue;
+		float core = 1.0 - smoothstep( 0.2, 1.0, d );
+		// churned water breaks up into lumps and streaks with dark water between them, denser toward the middle
+		float2 q = xz * 0.8; float2 q2 = xz * 2.9;
+		float n1 = sin( q.x + sin( q.y * 1.3 ) * 1.7 ) * sin( q.y * 1.1 + sin( q.x * 1.7 ) * 1.4 );
+		float n2 = sin( q2.x * 1.1 + sin( q2.y ) * 1.3 ) * sin( q2.y * 0.9 + sin( q2.x * 1.2 ) );
+		float lumps = smoothstep( -0.25, 0.55, n1 * 0.7 + n2 * 0.45 + ( 1.0 - d ) * 0.5 );
+		foam = max( foam, core * max( e.w, 0.0 ) * lumps * 0.85 );
+		slick = max( slick, core * max( - e.w, 0.0 ) );
+	}
+	return float2( foam, slick );
+}
 StructuredBuffer<float4> _TWWaterQuery;   // WaterQuery results: slot 0 = the camera ( height, nx, nz, sea floor )
 
 #define TW_IOR 1.333
@@ -547,7 +571,9 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 	float4 simState = ShoreSimSample( pos.xz );
 	WaterSurfaceFrag surf = WaterSurfaceFragment( lagXZ, footprint, vDepth, input.misc.z, input.shoreNS.xyz, input.misc.w + edgeFoam, simState.x, simState, input.surfMask, pos );
 	float foam = surf.foam;
-	// (the whale's churned white water and slick: not ported yet)
+	// the whale's churned white water and flat fluke-print slick (WhaleWater)
+	float2 whaleW = TWWhaleWater( pos.xz );
+	foam = max( foam, whaleW.x );
 
 	// Which medium is the view ray in before it reaches this fragment? The water surface is a closed interface: a
 	// front face (its air side towards the camera) is seen from the air, a back face from the water. For the visible
@@ -561,7 +587,7 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 	// shading normal on the viewer's side of the interface. Triangle winding can't be trusted (tiny self-intersections
 	// of the choppy FFT surface render as back faces seen from above), so pick the side from the camera and bend facets
 	// that face away to grazing instead of flipping them (a flipped normal turns a fold into a white sky-mirror patch).
-	float3 Nup = normalize( surf.normal );
+	float3 Nup = normalize( lerp( surf.normal, float3( 0.0, 1.0, 0.0 ), whaleW.y * 0.75 ) );
 	float3 Nside = viewFromBelow ? -Nup : Nup;
 	float3 Nview = normalize( Nside + V * max( -dot( Nside, V ) + 0.03, 0.0 ) );
 

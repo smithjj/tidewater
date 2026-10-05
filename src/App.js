@@ -378,9 +378,9 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			query: this.query, spray: this.spray, csm: this.csm,
 		} );
 		this.freeCam = qs.has( 'fly' );
-		// G: the camera visits the eagle ray, the stingrays and the turtle in turn (and leaves the fish calm)
+		// G: the camera visits the eagle ray, the stingrays, the turtle and the humpback in turn (and leaves the fish calm)
 		this.visit = new WildlifeVisit( {
-			camera, input: this.input, schools: () => this.reef.fish, terrain: this.terrainData,
+			camera, input: this.input, schools: () => this.reef.fish, whale: () => this.whale, terrain: this.terrainData,
 			waterHeight: () => this.cameraWaterHeight ?? 0, toast: ( text ) => { if ( this.ui ) this.ui.ui.toast( text ); },
 		} );
 

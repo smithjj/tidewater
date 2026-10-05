@@ -119,6 +119,51 @@ NavMeshSettings:
     debug:
       m_Flags: 0
   m_NavMeshData: {fileID: 0}
+--- !u!1 &40639054
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 40639056}
+  - component: {fileID: 40639055}
+  m_Layer: 0
+  m_Name: Whale
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &40639055
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 40639054}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 8cabc24fe36106046996b87cef5633bd, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.World.Marine.WhaleView
+  stats: 
+--- !u!4 &40639056
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 40639054}
+  serializedVersion: 2
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &157207112
 GameObject:
   m_ObjectHideFlags: 0
@@ -387,7 +432,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ce2206aaca20efb478aff7bee1472d5c, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.World.Fish.FishSchoolsView
-  stats: 'schools: 1856 fish in 51 groups, 15 models (47973 vertices, 74911 triangles) in 153 ms'
+  stats: 'schools: 1856 fish in 51 groups, 15 models (47973 vertices, 74911 triangles) in 214 ms'
   drawCalls: 0
   drawnInstances: 0
 --- !u!4 &337538644
@@ -986,7 +1031,7 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.World.Village.VillageView
   bakeShader: {fileID: 7200000, guid: a5df59ff92ef03d47b42cbf2ec8694ef, type: 3}
-  stats: 'village: 208530 vertices, 134752 triangles, meshes + 78 fish props + textures (0 MB, bake 0 ms) in 168 ms'
+  stats: 'village: 208530 vertices, 134752 triangles, meshes + 78 fish props + textures (0 MB, bake 0 ms) in 173 ms'
 --- !u!4 &946851045
 Transform:
   m_ObjectHideFlags: 0
@@ -1591,6 +1636,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Tidewater.Runtime::Tidewater.Sky.DayNight
   hour: 16.200000000000003
   sunAzimuth: 0
+  exposureEV: 0
+  shadows: 1
   sun: {fileID: 157207113}
   moon: {fileID: 589229105}
 --- !u!4 &1541096245
@@ -1705,7 +1752,7 @@ MonoBehaviour:
   rangeFactor: 2
   seed: 7
   material: {fileID: 1260297974}
-  stats: 'terrain: generate 2135 ms, village 577 ms, textures 793 ms, total 3920 ms'
+  stats: 'terrain: generate 2201 ms, village 478 ms, textures 1393 ms, total 4579 ms'
 --- !u!4 &1608796484
 Transform:
   m_ObjectHideFlags: 0
@@ -2090,3 +2137,4 @@ SceneRoots:
   - {fileID: 617408910}
   - {fileID: 714844769}
   - {fileID: 1541096245}
+  - {fileID: 40639056}

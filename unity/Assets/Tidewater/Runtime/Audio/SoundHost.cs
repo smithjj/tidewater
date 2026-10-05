@@ -52,6 +52,7 @@ namespace Tidewater.Audio
 			backend = new UnitySoundBackend( transform, master );
 			scape = new SoundScape( backend );
 			if ( host.terrainData != null ) scape.terrain = new TerrainAdapter( host.terrainData );
+			scape.whale = () => Tidewater.World.Marine.WhaleView.instance != null && Tidewater.World.Marine.WhaleView.instance.whale != null ? Tidewater.World.Marine.WhaleView.instance.audio : null;
 			scape.start();
 		}
 

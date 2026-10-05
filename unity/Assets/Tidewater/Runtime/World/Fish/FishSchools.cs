@@ -18,8 +18,7 @@ using Tidewater.Util;
 // surface, out of the surf zone) and is only simulated near the camera.
 //
 // Sim coordinates (x east, y up, z south), everything in doubles; the per-fish state lives in float arrays like the JS Float32Arrays, so the
-// stored values round the same way. Not ported yet: the humpback's escort (the groups are created, to keep the random sequence and the fish
-// indices, and stay inactive until the whale exists) and its WhaleWater. The motion vectors are not written by the view (the record keeps the
+// stored values round the same way. The humpback's escort (pilot fish, juveniles, remoras: setWhale) is here; its WhaleWater is the ocean's. The motion vectors are not written by the view (the record keeps the
 // motion fields). cull() is the one-camera pass of FishSchools.cull; FishSchoolsView builds the draw from its lists.
 namespace Tidewater.World.Fish
 {
@@ -43,7 +42,8 @@ namespace Tidewater.World.Fish
 		public Mulberry32 rng;
 		public bool active;
 		public double radius = 4; // bounding radius of the group (m), updated while simulated
-		public double ball; // bait: 0 cruising school .. 1 milling ball
+		public double ball; // bait: 0 cruising school .. 1 milling ball; escort: 0 .. 1 scattering as the whale breaks the surface
+		public bool attached; // escort: the slots are placed on the whale
 		public double rest; // stingray: resting time left
 		public double breath; // turtle: time to the next breath
 		public double jumpTimer; // mullet: time to the next leap
@@ -90,6 +90,14 @@ namespace Tidewater.World.Fish
 		public List<double[]> dropPath;
 		public List<FishGroup> baitGroups;
 		public FishGroup[] escort;
+		// the humpback (set by its view): the escort follows the posed body
+		public Marine.Whale whale;
+		public void setWhale( Marine.Whale w )
+		{
+			if ( w == whale ) return;
+			whale = w;
+			foreach ( var g in escort ) g.attached = false; // the fish place themselves on the new body
+		}
 		public readonly List<string> models; // the distinct models in order of first use; kind = 4 * index + level of detail
 		public readonly Dictionary<string, int> modelKind = new Dictionary<string, int>();
 
@@ -527,7 +535,7 @@ namespace Tidewater.World.Fish
 
 		// ------------------------------------------------------------------ simulation
 
-		readonly Vector3 _v = new Vector3(), _threat = new Vector3();
+		readonly Vector3 _v = new Vector3(), _threat = new Vector3(), _w = new Vector3();
 
 		// player: the camera position (sim). Fish flee from it underwater, and from the legs of someone wading in the shallows.
 		public void update( double dt, Vector3 player )
@@ -550,8 +558,12 @@ namespace Tidewater.World.Fish
 			foreach ( var g in groups )
 			{
 				bool was = g.active;
-				// the whale's escort is not ported (no whale): it stays asleep
-				if ( g.sp.mode == "escort" || g.sp.mode == "remora" ) g.active = false;
+				if ( g.sp.mode == "escort" || g.sp.mode == "remora" )
+				{
+					var w = whale;
+					g.active = w != null && ( player == null || w.brain.position.distanceTo( player ) < SIM_RANGE + 20 );
+					if ( g.active && ! was ) attachEscort( g );
+				}
 				else g.active = player == null || Hypot( g.center.x - player.x, g.center.z - player.z ) < SIM_RANGE + g.radius;
 				if ( g.active && ! was ) resume( g );
 				any = any || g.active;
@@ -563,6 +575,135 @@ namespace Tidewater.World.Fish
 			int steps = dt > 1.0 / 30 ? Math.Min( 3, ( int ) Math.Ceiling( dt * 30 ) ) : 1;
 			double h = dt / steps;
 			if ( dt > 0 ) for ( int k = 0; k < steps; k ++ ) foreach ( var g in groups ) if ( g.active ) stepGroup( g, h, threat );
+		}
+
+		// Escort slots in the whale's rest frame ( x, y, z, ahead ): pilot fish ahead of the head and out beside the flippers, juveniles just in front of the snout,
+		// remoras on skin points of the belly (ahead < 0: rigidly attached). Placed next to the whale when it first comes into range.
+		void attachEscort( FishGroup g )
+		{
+			var w = whale; var rng = g.rng; var S = slot;
+			double L = w.zHead - w.notchZ;
+			List<int> belly = null;
+			if ( g.sp.mode == "remora" && w.skinPos != null )
+			{
+				// skin points on the belly of the front half (lowest level of detail)
+				belly = new List<int>();
+				int nv = w.skinPos.Length / 3;
+				for ( int v = 0; v < nv; v ++ )
+				{
+					double z = w.skinPos[ v * 3 + 2 ];
+					if ( w.skinNrm[ v * 3 + 1 ] < - 0.75 && z < w.zHead - 0.18 * L && z > w.zHead - 0.6 * L ) belly.Add( v );
+				}
+			}
+
+			for ( int k = 0; k < g.count; k ++ )
+			{
+				int i = ( g.offset + k ) * 4;
+				double side = rng.Next() < 0.5 ? - 1 : 1;
+				if ( belly != null && belly.Count > 0 )
+				{
+					int v = belly[ ( int ) Math.Floor( rng.Next() * belly.Count ) ];
+					S[ i ] = ( float ) ( w.skinPos[ v * 3 ] + w.skinNrm[ v * 3 ] * 0.12 );
+					S[ i + 1 ] = ( float ) ( w.skinPos[ v * 3 + 1 ] + w.skinNrm[ v * 3 + 1 ] * 0.12 );
+					S[ i + 2 ] = ( float ) ( w.skinPos[ v * 3 + 2 ] + w.skinNrm[ v * 3 + 2 ] * 0.12 );
+					S[ i + 3 ] = - 1;
+				}
+				else if ( g.sp.name == "juvenile" )
+				{
+					S[ i ] = ( float ) ( side * ( 0.3 + rng.Next() * 0.9 ) );
+					S[ i + 1 ] = ( float ) ( w.restYAt( w.zHead ) + ( rng.Next() - 0.6 ) * 1.2 );
+					S[ i + 2 ] = ( float ) w.zHead;
+					S[ i + 3 ] = ( float ) ( 0.6 + rng.Next() * 1.2 );
+				}
+				else if ( rng.Next() < 0.55 )
+				{
+					S[ i ] = ( float ) ( side * ( 0.4 + rng.Next() * 1.8 ) );
+					S[ i + 1 ] = ( float ) ( w.restYAt( w.zHead ) + ( rng.Next() - 0.5 ) * 1.6 );
+					S[ i + 2 ] = ( float ) w.zHead;
+					S[ i + 3 ] = ( float ) ( 1.2 + rng.Next() * 2.8 );
+				}
+				else
+				{
+					double z = w.zHead - L * ( 0.24 + rng.Next() * 0.14 );
+					S[ i ] = ( float ) ( side * ( 4.6 + rng.Next() * 2.2 ) );
+					S[ i + 1 ] = ( float ) ( w.restYAt( z ) + ( rng.Next() - 0.5 ) * 1.4 );
+					S[ i + 2 ] = ( float ) z;
+					S[ i + 3 ] = 0;
+				}
+
+				// start at the slot
+				escortTarget( i / 4, _v );
+				int j = ( g.offset + k ) * 3;
+				pos[ j ] = prev[ j ] = ( float ) _v.x; pos[ j + 1 ] = prev[ j + 1 ] = ( float ) _v.y; pos[ j + 2 ] = prev[ j + 2 ] = ( float ) _v.z;
+				vel[ j ] = 0; vel[ j + 1 ] = 0; vel[ j + 2 ] = 0;
+			}
+
+			g.ball = 0;
+			g.attached = true;
+		}
+
+		// world position of escort fish i's slot on the posed whale
+		Vector3 escortTarget( int i, Vector3 o )
+		{
+			var w = whale; var S = slot;
+			w.toWorld( _w.set( S[ i * 4 ], S[ i * 4 + 1 ], S[ i * 4 + 2 ] ), o );
+			double ahead = S[ i * 4 + 3 ];
+			if ( ahead > 0 ) o.add( _threat.set( 0, 0, ahead ).applyQuaternion( w.headRot ) );
+			return o;
+		}
+
+		// Escort: pilot fish and juveniles keep station at their slots (and scatter while the whale breaks the surface, re-forming as it goes back down);
+		// remoras ride their skin points.
+		void stepEscort( FishGroup g, double dt )
+		{
+			var w = whale; var b = w.brain;
+			var P = pos; var V = vel; var S = slot;
+			int n = g.count, o = g.offset;
+			double surfacing = b.state == "surface" && b.water - b.position.y < 3 ? 1 : 0;
+			g.ball += ( surfacing - g.ball ) * Math.Min( 1, dt * ( surfacing > 0 ? 1.5 : 0.3 ) );
+			var sp = g.sp;
+			for ( int a = 0; a < n; a ++ )
+			{
+				int i = o + a, i3 = i * 3;
+				escortTarget( i, _v );
+				if ( S[ i * 4 + 3 ] < 0 )
+				{
+					// holding on
+					V[ i3 ] = ( float ) ( ( _v.x - P[ i3 ] ) / Math.Max( dt, 1e-3 ) );
+					V[ i3 + 1 ] = ( float ) ( ( _v.y - P[ i3 + 1 ] ) / Math.Max( dt, 1e-3 ) );
+					V[ i3 + 2 ] = ( float ) ( ( _v.z - P[ i3 + 2 ] ) / Math.Max( dt, 1e-3 ) );
+					P[ i3 ] = ( float ) _v.x; P[ i3 + 1 ] = ( float ) _v.y; P[ i3 + 2 ] = ( float ) _v.z;
+					continue;
+				}
+
+				// scatter: out from the whale's axis and down
+				if ( g.ball > 0.01 )
+				{
+					w.toWorld( _w.set( 0, S[ i * 4 + 1 ], S[ i * 4 + 2 ] ), _threat );
+					double dx = _v.x - _threat.x, dz = _v.z - _threat.z, dl = Math.Sqrt( dx * dx + dz * dz ) + 1e-3;
+					double kk = g.ball * ( 3 + 3 * seed[ i ] );
+					_v.x += dx / dl * kk;
+					_v.z += dz / dl * kk;
+					_v.y -= g.ball * ( 1.5 + 2 * seed[ i ] );
+				}
+
+				_v.y = Math.Min( _v.y, b.water - 0.45 );
+				double L = size[ i ];
+				double vx = V[ i3 ], vy = V[ i3 + 1 ], vz = V[ i3 + 2 ];
+				// spring toward the slot, matching the whale's own velocity
+				const double kP = 1.8, kD = 1.6;
+				vx += ( ( _v.x - P[ i3 ] ) * kP + ( b.velocity.x - vx ) * kD ) * dt;
+				vy += ( ( _v.y - P[ i3 + 1 ] ) * kP + ( b.velocity.y - vy ) * kD ) * dt;
+				vz += ( ( _v.z - P[ i3 + 2 ] ) * kP + ( b.velocity.z - vz ) * kD ) * dt;
+				double vmax = sp.burst * L + b.velocity.length();
+				double vl = Math.Sqrt( vx * vx + vy * vy + vz * vz );
+				if ( vl > vmax ) { vx *= vmax / vl; vy *= vmax / vl; vz *= vmax / vl; }
+
+				P[ i3 ] = ( float ) ( P[ i3 ] + vx * dt );
+				P[ i3 + 1 ] = ( float ) Math.Min( P[ i3 + 1 ] + vy * dt, b.water - 0.35 );
+				P[ i3 + 2 ] = ( float ) ( P[ i3 + 2 ] + vz * dt );
+				V[ i3 ] = ( float ) vx; V[ i3 + 1 ] = ( float ) vy; V[ i3 + 2 ] = ( float ) vz;
+			}
 		}
 
 		// a group coming back into range after a pause: no motion blur from the jump in time
@@ -600,7 +741,7 @@ namespace Tidewater.World.Fish
 			g.timer -= dt;
 			g.alarm = Math.Max( 0, g.alarm - dt );
 			if ( sp.mode == "bait" ) { stepBait( g, dt, player ); return; }
-			if ( sp.mode == "escort" || sp.mode == "remora" ) return; // follows the whale (not ported)
+			if ( sp.mode == "escort" || sp.mode == "remora" ) { if ( whale != null && g.attached ) stepEscort( g, dt ); return; }
 
 			double ggx = g.goal.x - g.center.x, ggz = g.goal.z - g.center.z;
 			bool roams = sp.mode != "mill" && sp.mode != "hover" && sp.mode != "pile" && sp.mode != "lurk";

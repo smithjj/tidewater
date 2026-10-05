@@ -29,6 +29,9 @@ namespace Tidewater.Game
 			while ( list.Count( t => t.leftAt < 0 ) > 4 ) list.First( t => t.leftAt < 0 ).leftAt = now;
 		}
 
+		// the settings panel's width while it is open (eased): the toasts centre in what is left of the view, as .tw-root[data-panel='open'] .tw-toasts does
+		public static float panelInset;
+
 		public void OnGUI()
 		{
 			if ( Event.current.type != EventType.Repaint || list.Count == 0 ) return;
@@ -37,7 +40,7 @@ namespace Tidewater.Game
 			list.RemoveAll( t => t.leftAt >= 0 && now - t.leftAt > 0.36f + 0.06f );
 
 			var st = UIKit.Style( UIFonts.InterMedium, 12.5f, TextAnchor.MiddleLeft );
-			float maxW = Mathf.Min( 0.86f * w, 520 * u ), h = 12.5f * u * 1.21f + 16 * u, gap = 8 * u;
+			float maxW = Mathf.Min( 0.86f * w, w - panelInset - 4 * 16 * u, 520 * u ), h = 12.5f * u * 1.21f + 16 * u, gap = 8 * u;
 			float y = UIScale.Edge + 3 * 12.5f * u;
 			foreach ( var t in list )
 			{
@@ -55,7 +58,7 @@ namespace Tidewater.Game
 				}
 
 				float tw = st.CalcSize( new GUIContent( text ) ).x, bw = ( 13 + 6 + 10 + 16 ) * u + tw;
-				var r = new Rect( ( w - bw ) / 2, y + dy, bw, h );
+				var r = new Rect( ( w - panelInset - bw ) / 2, y + dy, bw, h );
 				var m = GUI.matrix;
 				float bump = Mathf.Clamp01( ( now - t.bump ) / 0.42f );
 				float sc = ( t.leftAt < 0 ? 0.98f + 0.02f * inT : 0.98f + 0.02f * ( 1 - leave ) ) * ( bump < 1 ? 1 + 0.035f * Mathf.Sin( Mathf.Min( bump, 0.4f ) / 0.4f * Mathf.PI / 2 ) * ( bump < 0.4f ? 1 : 1 - ( bump - 0.4f ) / 0.6f ) : 1 );

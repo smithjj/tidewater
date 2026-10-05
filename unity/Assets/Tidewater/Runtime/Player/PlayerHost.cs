@@ -53,6 +53,8 @@ namespace Tidewater.Player
 			if ( miniDriver != null && miniDriver.Ensure() ) boats.Add( miniDriver.controller );
 			player = new Player( simCamera, input, terrain.data.HeightAt, colliders, ocean.query, driver.controller, boats );
 			game = FindAnyObjectByType<Tidewater.Game.GameHost>();
+			// the controls the player made of the table, and the pad options, live in a file beside the save (the tools that run the game in memory leave them alone)
+			if ( game != null ) input.bindings.Attach( game.ControlsStore() );
 			fly = new FlyCamera( simCamera, input );
 			fly.setPose( new Engine3( 20, 6, - 20 ), System.Math.PI * 0.9, - 0.12 );
 			if ( startAboard ) { player.boardBoat( driver.controller ); }
@@ -91,7 +93,7 @@ namespace Tidewater.Player
 			if ( player == null && ! Build() ) return;
 			input.Poll( dt );
 			// a click captures the mouse (the pointer lock)
-			if ( ! input.locked && input.mouseDown && input.enabled && ! input.menuMode ) input.RequestLock();
+			if ( ! input.locked && input.mouseDown && input.enabled && ! input.menuMode && ! input.uiHover ) input.RequestLock();
 
 			if ( input.actHit( "freeCam" ) ) SetFreeCam( ! freeCam );
 
@@ -191,7 +193,7 @@ namespace Tidewater.Player
 
 		void OnGUI()
 		{
-			if ( ! showPrompts || player == null || ! Application.isPlaying ) return;
+			if ( ! showPrompts || player == null || ! Application.isPlaying || ( game != null && game.photoMode ) ) return;
 			float w = Screen.width, h = Screen.height;
 			var pr = freeCam ? null : player.prompt;
 			promptPill.OnGUI( pr == null ? null : pr.key ?? input.label( pr.action ), pr?.text );

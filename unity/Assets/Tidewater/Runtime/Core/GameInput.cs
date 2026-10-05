@@ -29,6 +29,7 @@ namespace Tidewater.Core
 		public double wheel;
 		public bool mouseDown, rightDown, middleDown;
 		public bool locked, enabled = true, capturing, menuMode;
+		public bool uiHover; // the pointer is over the settings panel or its rail: a click there is not a click on the world (set by SettingsUI)
 		public Device device = Device.kb;
 		double dt = 1.0 / 60;
 
@@ -41,23 +42,77 @@ namespace Tidewater.Core
 
 		static readonly Dictionary<string, Key> keyCache = new Dictionary<string, Key>();
 
+		// the KeyboardEvent.code names that Unity's Key enum spells differently (the rest are the same word: Space, Tab, F1, Digit1, Numpad1, Slash ...)
+		static readonly Dictionary<string, string> CODE_TO_KEY = new Dictionary<string, string>
+		{
+			{ "ShiftLeft", "LeftShift" }, { "ShiftRight", "RightShift" }, { "ControlLeft", "LeftCtrl" }, { "ControlRight", "RightCtrl" }, { "AltLeft", "LeftAlt" }, { "AltRight", "RightAlt" },
+			{ "MetaLeft", "LeftMeta" }, { "MetaRight", "RightMeta" }, { "Equal", "Equals" }, { "BracketLeft", "LeftBracket" }, { "BracketRight", "RightBracket" },
+			{ "NumpadAdd", "NumpadPlus" }, { "NumpadSubtract", "NumpadMinus" }, { "NumpadDecimal", "NumpadPeriod" },
+			{ "ArrowUp", "UpArrow" }, { "ArrowDown", "DownArrow" }, { "ArrowLeft", "LeftArrow" }, { "ArrowRight", "RightArrow" },
+		};
+
+		static Dictionary<Key, string> keyToCode;
+
 		// KeyboardEvent.code -> Unity Key
-		static bool KeyFor( string code, out Key key )
+		public static bool KeyFor( string code, out Key key )
 		{
 			if ( keyCache.TryGetValue( code, out key ) ) return key != Key.None;
 			key = Key.None;
 			string name = code;
 			if ( code.Length == 4 && code.StartsWith( "Key" ) ) name = code.Substring( 3 );
-			else if ( code.StartsWith( "Arrow" ) ) name = code.Substring( 5 ) + "Arrow";
-			else if ( code == "ShiftLeft" ) name = "LeftShift";
-			else if ( code == "ShiftRight" ) name = "RightShift";
-			else if ( code == "ControlLeft" ) name = "LeftCtrl";
-			else if ( code == "ControlRight" ) name = "RightCtrl";
-			else if ( code == "AltLeft" ) name = "LeftAlt";
-			else if ( code == "AltRight" ) name = "RightAlt";
+			else if ( CODE_TO_KEY.TryGetValue( code, out var n ) ) name = n;
 			if ( ! Enum.TryParse( name, out key ) ) key = Key.None;
 			keyCache[ code ] = key;
 			return key != Key.None;
+		}
+
+		// the key table checked both ways (BindingsOracle): every Unity key that has a code maps back to itself, every code the default table names resolves
+		public struct KeyTableReport { public int keys, coded, bad, unresolved; public string detail, spotFail; }
+
+		public static KeyTableReport CheckKeyTable()
+		{
+			var r = new KeyTableReport { detail = "", spotFail = "" };
+			foreach ( Key k in Enum.GetValues( typeof( Key ) ) )
+			{
+				if ( k == Key.None ) continue;
+				r.keys ++;
+				string code = CodeFor( k );
+				if ( code == null ) continue;
+				r.coded ++;
+				if ( ! KeyFor( code, out var back ) || back != k ) { r.bad ++; if ( r.detail.Length < 200 ) r.detail += $"{k} -> {code} -> {back}; "; }
+			}
+
+			foreach ( var a in Bindings.ACTIONS ) foreach ( var e in a.kb ) if ( ! KeyFor( e.v, out _ ) ) { r.unresolved ++; r.detail += e.v + " "; }
+			foreach ( var c in new[] { "KeyA", "KeyZ", "Digit0", "Numpad5", "F12", "ShiftLeft", "ControlRight", "ArrowUp", "Equal", "BracketLeft", "Backquote", "NumpadEnter", "Space", "Tab", "Escape" } )
+				if ( ! KeyFor( c, out _ ) ) r.spotFail += c + " ";
+			return r;
+		}
+
+		// Unity Key -> KeyboardEvent.code (null: a key the table cannot bind, such as the IME and the OEM keys); the inverse of KeyFor on everything it returns
+		public static string CodeFor( Key key )
+		{
+			if ( keyToCode == null )
+			{
+				var m = new Dictionary<Key, string>();
+				foreach ( Key k in Enum.GetValues( typeof( Key ) ) )
+				{
+					if ( k == Key.None || m.ContainsKey( k ) ) continue;
+					string name = k.ToString(), code = null;
+					foreach ( var kv in CODE_TO_KEY ) if ( kv.Value == name ) code = kv.Key;
+					if ( code == null )
+					{
+						if ( name.Length == 1 && name[ 0 ] >= 'A' && name[ 0 ] <= 'Z' ) code = "Key" + name;
+						else if ( name.StartsWith( "OEM" ) || name == "IMESelected" || name == "ContextMenu" ) code = null;
+						else code = name; // Space, Tab, Enter, Escape, Backspace, Delete, F1 .. F12, Digit0 .. 9, Numpad0 .. 9, Minus, Slash ...
+					}
+
+					if ( code != null && KeyFor( code, out var back ) && back == k ) m[ k ] = code;
+				}
+
+				keyToCode = m;
+			}
+
+			return keyToCode.TryGetValue( key, out var c ) ? c : null;
 		}
 
 		static bool PadDownNow( UnityEngine.InputSystem.Gamepad p, string name )
@@ -110,7 +165,7 @@ namespace Tidewater.Core
 			if ( kb != null )
 			{
 				foreach ( var a in Bindings.ACTIONS )
-					foreach ( var e in a.kb )
+					foreach ( var e in bindings.list( a.id, Device.kb ) )
 					{
 						if ( ! KeyFor( e.v, out var key ) ) continue;
 						var k = kb[ key ];
@@ -188,6 +243,49 @@ namespace Tidewater.Core
 		}
 
 		void useKeyboard() { device = Device.kb; }
+
+		// ---- binding capture (Settings > Controls): the first input pressed this frame, after Poll. `capturing` (set by the row) makes every action dead meanwhile, so the key
+		// being bound does nothing else. Esc cancels, Shift+Esc binds Esc, Delete / Backspace clears the action.
+		public struct CaptureResult { public Device device; public string v; public bool cancel, clear; }
+
+		public bool PollCapture( out CaptureResult r )
+		{
+			r = default;
+			var kb = Keyboard.current; var mouse = Mouse.current;
+			if ( kb != null )
+			{
+				bool shift = kb.shiftKey.isPressed;
+				foreach ( var k in kb.allKeys )
+				{
+					if ( ! k.wasPressedThisFrame ) continue;
+					string code = CodeFor( k.keyCode );
+					if ( code == null ) continue;
+					if ( code == "Escape" && ! shift ) { r.cancel = true; return true; }
+					if ( code == "Delete" || code == "Backspace" ) { r.clear = true; return true; }
+					r.device = Device.kb; r.v = code; return true;
+				}
+			}
+
+			if ( mouse != null )
+			{
+				string name = mouse.leftButton.wasPressedThisFrame ? "LMB" : mouse.rightButton.wasPressedThisFrame ? "RMB" : mouse.middleButton.wasPressedThisFrame ? "MMB" : null;
+				if ( name != null ) { r.device = Device.mouse; r.v = name; return true; }
+			}
+
+			if ( padConnected )
+			{
+				foreach ( var name in PAD_BUTTONS ) if ( padPressed.Contains( name ) ) { r.device = Device.pad; r.v = name; return true; }
+				foreach ( var name in new[] { "LSX", "LSY", "RSX", "RSY" } ) if ( Math.Abs( padAxes[ name ] ) > 0.7 ) { r.device = Device.pad; r.v = name; return true; }
+			}
+
+			return false;
+		}
+
+		// the pad in hand: its name for the Detected row ("No controller" when none)
+		public string padName
+		{
+			get { var p = UnityEngine.InputSystem.Gamepad.current; return p == null || ! padConnected ? null : ( p.description.product ?? p.displayName ?? "" ); }
+		}
 
 		// ---- pointer lock
 		public void RequestLock() { if ( ! locked ) { Cursor.lockState = CursorLockMode.Locked; Cursor.visible = false; } }

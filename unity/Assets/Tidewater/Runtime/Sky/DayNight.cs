@@ -30,6 +30,8 @@ namespace Tidewater.Sky
 
 		public double hour = 16.2;      // App.settings.timeOfDay: PlayerHost copies the game clock into it and calls Apply every frame
 		public double sunAzimuth = 0;   // App.settings.sunAzimuth (degrees): turns the sun's daily path about the vertical
+		public double exposureEV = 0;   // the settings panel's Exposure (EV): the JS exposure * 2^EV, as HDRP's exposure compensation
+		public bool shadows = true;     // the settings panel's Shadows: the key light's shadows (app.shadows.enabled)
 		public Light sun;
 		public Light moon;
 
@@ -168,7 +170,7 @@ namespace Tidewater.Sky
 			Publish( s );
 
 			// the sun: always full strength (the sky scatters with it); HDRP's planet shadow removes it from the world below the horizon
-			SetLight( sun, sunData, ( float ) ( SkyMath.SUN_ILLUMINANCE * LUX_PER_UNIT ), s.sunIsKey );
+			SetLight( sun, sunData, ( float ) ( SkyMath.SUN_ILLUMINANCE * LUX_PER_UNIT ), s.sunIsKey && shadows );
 			// once the moon is the key light the sun lights nothing (it would light undersides from below the planet), and still scatters in the sky
 			if ( sunData != null )
 			{
@@ -178,7 +180,7 @@ namespace Tidewater.Sky
 			if ( moon != null )
 			{
 				moon.transform.rotation = LookingFrom( s.moon );
-				SetLight( moon, moonData, ( float ) ( 0.12 * s.night * LUX_PER_UNIT ), ! s.sunIsKey );
+				SetLight( moon, moonData, ( float ) ( 0.12 * s.night * LUX_PER_UNIT ), ! s.sunIsKey && shadows );
 			}
 
 			ApplyVolume( s );
@@ -234,6 +236,9 @@ namespace Tidewater.Sky
 					driverClouds.orientation = new WindOrientationParameter( ( float ) ( System.Math.Atan2( - G.windDir.y, G.windDir.x ) * 180 / System.Math.PI + 360 ) % 360, WindParameter.WindOverrideMode.Custom, true );
 				}
 			}
+
+			// the Exposure slider: a plain EV on top of the eye
+			if ( driverExposure != null ) driverExposure.compensation.Override( ( float ) exposureEV );
 
 			// the eye: its ceiling follows the night
 			if ( driverExposure != null && System.Math.Abs( s.night - curveNight ) > 0.002 )

@@ -40,6 +40,9 @@ namespace Tidewater.Game
 		public Tidewater.Player.Player Player => host != null ? host.player : null;
 		public ControlsSheet controls { get; private set; } // the F1 sheet (UI.js help; null until the world is built)
 		public GameHUD hud { get; private set; }         // the purse and the panels (GameHUD.js; null until the world is built)
+		public SettingsUI settings { get; private set; } // the settings rail and panel (UI.js; null until the world is built)
+		public PlayerHost Host => host;
+		public bool photoMode => settings != null && settings.photo; // the interface is hidden (UI.setPhotoMode)
 
 		readonly List<Vendor> _vendors = new List<Vendor>();
 		PlayerHost host;
@@ -101,10 +104,15 @@ namespace Tidewater.Game
 			fishGuide = new FishGuide( this, h.terrainData.HeightAt );
 			hud = new GameHUD( this );
 			controls = new ControlsSheet( this );
+			settings = new SettingsUI( this );
+			SettingsTabs.Build( settings, this );
 			// the first-play guide keeps its own seen state in a file, even where the game save is in memory (the dev scene): the intro shows once
 			guide = new Guide( this, h, minimap, SafeStore() ?? new MemorySaveStore(), ! noGuide );
 			return true;
 		}
+
+		// where the rebound controls and the pad options are kept (Bindings.Attach): beside the save, or nowhere when the state lives in memory
+		public ISaveStore ControlsStore() => saveToFile ? SafeStore() : null;
 
 		static ISaveStore SafeStore() { try { return new FileSaveStore(); } catch ( Exception ) { return null; } }
 
@@ -238,13 +246,17 @@ namespace Tidewater.Game
 
 			// the intro owns the keys while it is up (Guide.js: capture phase), F1 asks for it again
 			bool intro = guide != null && guide.open;
-			if ( inp.actHit( "controls" ) && ! intro ) controls.Toggle();
+			// the interface commands (AppUI.update -> UI.command): the panel, photo mode and the sheet; the intro owns the keys while it is up
+			if ( ! intro && inp.actHit( "settings" ) ) settings.Command( "settings" );
+			if ( ! intro && inp.actHit( "photo" ) ) settings.Command( "photo" );
+			if ( inp.actHit( "controls" ) && ! intro ) { if ( settings.photo ) settings.SetPhoto( false ); controls.Toggle(); }
 			if ( ! intro && inp.actHit( "cooler" ) ) ToggleInventory();
 			if ( ! intro && inp.actHit( "codex" ) ) fishGuide.Toggle();
-			if ( inp.actHit( "cancel" ) ) { ToggleInventory( false ); CloseStand(); fishGuide.Toggle( false ); controls.Toggle( false ); }
+			if ( inp.actHit( "cancel" ) && ! settings.Cancel() ) { ToggleInventory( false ); CloseStand(); fishGuide.Toggle( false ); controls.Toggle( false ); }
 			fishGuide.Tick( dt );
 			hud.Tick( dt );
 			controls.Tick( dt );
+			settings.Tick( dt );
 
 			// the rod, the bite, the fight and the landed fish
 			fishing.Update( dt );
@@ -320,12 +332,15 @@ namespace Tidewater.Game
 		{
 			if ( ! built || ! Application.isPlaying || host == null || host.player == null ) return;
 			GUI.skin.font = UIFonts.Inter; // the plain labels and buttons (the web UI's body face)
-			if ( showHud ) minimap.OnGUI();
-			if ( showHud && fishing != null ) fishing.OnGUI();
-			if ( showHud && hud != null ) hud.OnGUI();
-			if ( showHud && fishGuide != null ) fishGuide.OnGUI();
-			if ( showHud && guide != null ) guide.OnGUI();
-			if ( showHud && controls != null ) controls.OnGUI();
+			bool hudOn = showHud && ! photoMode; // (photo mode: only its hint)
+			if ( hudOn ) minimap.OnGUI();
+			if ( hudOn && fishing != null ) fishing.OnGUI();
+			if ( hudOn && hud != null ) hud.OnGUI();
+			if ( hudOn && fishGuide != null ) fishGuide.OnGUI();
+			if ( settings != null ) settings.OnGUI();
+			if ( hudOn && guide != null ) guide.OnGUI();
+			if ( hudOn && controls != null ) controls.OnGUI();
+			if ( settings != null ) settings.OnGUIOverlay(); // (the open dropdown and the tooltip: above everything)
 		}
 	}
 }

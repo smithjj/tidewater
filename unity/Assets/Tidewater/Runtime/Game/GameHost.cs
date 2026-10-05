@@ -33,6 +33,7 @@ namespace Tidewater.Game
 		public FishingGame fishing { get; private set; } // the rod, the bite, the fight and the catch card (null until the world is built)
 		public TrapGame trap { get; private set; }       // the trap line: pots set and hauled from the working boat (Traps.js, Game.js; null until the world is built)
 		public readonly BoatGauges gauges = new BoatGauges(); // bottom left at the helm: throttle, rpm and speed, compass (UI.setBoatGauges)
+		public AnchorGame anchor { get; private set; }   // X aboard a boat: the anchor down or up, its toasts, and the gear on the seabed (Game.toggleAnchor, AnchorGear.js)
 		public readonly DepthSounder depth = new DepthSounder(); // left while diving: the sounding tape (UI.setDepth)
 		public readonly MinimapView minimap = new MinimapView(); // lower right: the island, the markers; N opens the large map (Minimap.js)
 		public Guide guide { get; private set; }         // the first-play intro and the one-time tips (Guide.js; null until the world is built)
@@ -61,6 +62,7 @@ namespace Tidewater.Game
 			if ( instance == this ) instance = null;
 			if ( fishing != null ) fishing.Dispose();
 			if ( trap != null ) trap.Dispose();
+			if ( anchor != null ) anchor.Dispose();
 			if ( fishGuide != null ) fishGuide.Dispose();
 			minimap.Dispose();
 			gauges.Dispose();
@@ -102,6 +104,8 @@ namespace Tidewater.Game
 			fishing = new FishingGame( this, h, transform );
 			trap?.Dispose();
 			trap = new TrapGame( this, h, lobster, transform );
+			anchor?.Dispose();
+			anchor = new AnchorGame( this, h, transform );
 			ApplyGear();
 			state.onChange( _ => { ApplyGear(); if ( fishGuide != null ) fishGuide.Refresh(); } ); // (the guide: the log or today's order changed)
 			fishGuide = new FishGuide( this, h.terrainData.HeightAt );
@@ -282,6 +286,7 @@ namespace Tidewater.Game
 
 			// the trap line (the pots ride the sea; setting and hauling are E on the working boat, the cast button at its helm)
 			trap.Update( dt, inp, p );
+			anchor.Update( dt, inp, p ); // (X: the anchor down or up aboard a boat)
 
 			// prompts when the player has nothing to say
 			trap.ApplyPrompt( p, inp );

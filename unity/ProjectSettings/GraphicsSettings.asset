@@ -34,8 +34,37 @@ GraphicsSettings:
   - {fileID: 10753, guid: 0000000000000000f000000000000000, type: 0}
   - {fileID: 10770, guid: 0000000000000000f000000000000000, type: 0}
   - {fileID: 10783, guid: 0000000000000000f000000000000000, type: 0}
+  - {fileID: 4800000, guid: 144e5af01d4f97449b4762a42a5d86ee, type: 3}
+  - {fileID: 4800000, guid: c4887ca02841e2341b9e4fa864de53fc, type: 3}
+  - {fileID: 4800000, guid: ec6e1a038e756824e927eb5f209c2ceb, type: 3}
+  - {fileID: 4800000, guid: 9a969576c9aefd04398920ea224f09ae, type: 3}
+  - {fileID: 4800000, guid: 8451ec20804475a43b3670f2aa5bfdfa, type: 3}
+  - {fileID: 4800000, guid: 2c76859e81eb7f64ea5d93b5ee4c46f8, type: 3}
+  - {fileID: 4800000, guid: cff60394f80eecc48aefa60026c007ce, type: 3}
+  - {fileID: 4800000, guid: 71b2b4e3ad035784d8efe9b022956516, type: 3}
+  - {fileID: 4800000, guid: ba369e1925ccb9943b787231557a0bca, type: 3}
+  - {fileID: 4800000, guid: 96663fe1d0d2e794aa74831ddfad93a3, type: 3}
+  - {fileID: 4800000, guid: 0e97e9468fd535c49852857c1ab4e6e0, type: 3}
+  - {fileID: 4800000, guid: 839993c9d97c34349a39f300ec5be2a5, type: 3}
+  - {fileID: 4800000, guid: 1e119e23a16e61f4981aa3fa10f79e7c, type: 3}
+  - {fileID: 4800000, guid: 82e41e5d291cdae4ea87f2961f965314, type: 3}
+  - {fileID: 4800000, guid: 3cbd59a37ae6a66419b9d5e45e9ecc20, type: 3}
+  - {fileID: 4800000, guid: 72a21158e5fb8144ea0a2e6321e78a45, type: 3}
+  - {fileID: 4800000, guid: cb5a7cb3d346e7145923ddd4606002cb, type: 3}
+  - {fileID: 4800000, guid: f8a972a3b83bf954bb538a31c9630a5f, type: 3}
+  - {fileID: 4800000, guid: 751f61bf7ac5e8d4699106f57c31e979, type: 3}
+  - {fileID: 4800000, guid: 6e4ae4064600d784cac1e41a9e6f2e59, type: 3}
   m_PreloadedShaders: []
   m_PreloadShadersBatchTimeLimit: -1
+  m_GraphicsStateCollection: {fileID: 0}
+  m_CollectionStartupAction: 0
+  m_TraceSavePath: TracedCollection
+  m_TraceSendToEditor: 1
+  m_AdditionalWarmupCollections: []
+  m_WarmupAsync: 1
+  m_EnableCacheMissTracing: 0
+  m_WarmupProgressivelyLimit: -1
+  m_CacheMissCollectionPath: CacheMissCollection
   m_SpritesDefaultMaterial: {fileID: 10754, guid: 0000000000000000f000000000000000, type: 0}
   m_CustomRenderPipeline: {fileID: 11400000, guid: 36dd385e759c96147b6463dcd1149c11, type: 2}
   m_TransparencySortMode: 0
@@ -47,6 +76,7 @@ GraphicsSettings:
   m_FogStripping: 0
   m_InstancingStripping: 0
   m_BrgStripping: 2
+  m_DefaultLightBaker: 0
   m_LightmapKeepPlain: 1
   m_LightmapKeepDirCombined: 1
   m_LightmapKeepDynamicPlain: 1
@@ -59,6 +89,11 @@ GraphicsSettings:
   m_AlbedoSwatchInfos: []
   m_RenderPipelineGlobalSettingsMap:
     UnityEngine.Rendering.HighDefinition.HDRenderPipeline: {fileID: 11400000, guid: ac0316ca287ba459492b669ff1317a6f, type: 2}
+  m_ShaderBuildSettings:
+    keywordDeclarationOverrides: []
+    numInternalDefines: 0
+    defines: []
+    compilerSettings: []
   m_LightsUseLinearIntensity: 1
   m_LightsUseColorTemperature: 1
   m_LogWhenShaderIsCompiled: 0

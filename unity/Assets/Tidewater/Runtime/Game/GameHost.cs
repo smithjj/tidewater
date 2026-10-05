@@ -261,16 +261,17 @@ namespace Tidewater.Game
 		{
 			// (the Editor resets GUI styles when a Play session ends, while this object lives on: fontSize 0 means they were reset)
 			if ( label != null && label.fontSize == 15 ) return;
-			label = new GUIStyle( GUI.skin.label ) { fontSize = 15, fontStyle = FontStyle.Bold }; label.normal.textColor = Color.white;
-			small = new GUIStyle( GUI.skin.label ) { fontSize = 12 }; small.normal.textColor = new Color( 1, 1, 1, 0.75f );
-			title = new GUIStyle( GUI.skin.label ) { fontSize = 20, fontStyle = FontStyle.Bold }; title.normal.textColor = Color.white;
-			rowKey = new GUIStyle( GUI.skin.label ) { fontSize = 14 }; rowKey.normal.textColor = Color.white;
+			label = new GUIStyle( GUI.skin.label ) { font = UIFonts.InterBold, fontSize = 15 }; label.normal.textColor = Color.white;
+			small = new GUIStyle( GUI.skin.label ) { font = UIFonts.Inter, fontSize = 12 }; small.normal.textColor = new Color( 1, 1, 1, 0.75f );
+			title = new GUIStyle( GUI.skin.label ) { font = UIFonts.InterBold, fontSize = 20 }; title.normal.textColor = Color.white;
+			rowKey = new GUIStyle( GUI.skin.label ) { font = UIFonts.Inter, fontSize = 14 }; rowKey.normal.textColor = Color.white;
 		}
 
 		void OnGUI()
 		{
 			if ( ! built || ! Application.isPlaying || host == null || host.player == null ) return;
 			Styles();
+			GUI.skin.font = UIFonts.Inter; // the panels' plain labels and buttons (the web UI's body face)
 			var s = state;
 			if ( showHud )
 			{

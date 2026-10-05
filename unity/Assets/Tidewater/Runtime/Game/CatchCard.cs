@@ -7,8 +7,8 @@ using Color = UnityEngine.Color;
 // weight and value, a note about the log and the way out come below. The entrance is the CSS one (the top block rises, the numbers rise later, the badge is stamped on,
 // the drops fly out), on the card's own clock.
 //
-// Deviations (see PORTING.md): the browser blurs the world behind the card (backdrop-filter); here the scrim only darkens it. The fonts (Caveat Brush for the name,
-// Kalam, Inter, JetBrains Mono) are not in the Unity project: the default font is used. IMGUI has no letter spacing.
+// Deviations (see PORTING.md): the browser blurs the world behind the card (backdrop-filter); here the scrim only darkens it. The fonts are the page's (UIFonts:
+// Caveat Brush for the name, Kalam, Inter, JetBrains Mono), but IMGUI has no letter spacing and no per-run weights (the note's bold is synthesized).
 namespace Tidewater.Game
 {
 	public sealed class CatchCard
@@ -21,7 +21,7 @@ namespace Tidewater.Game
 		double t;           // the card's clock
 		float[] drops;      // per drop: angle, radius, size, delay
 		Texture2D scrim, shadow, drop, shine;
-		GUIStyle title, small, stat, statLabel, noteStyle, badgeStyle, plain;
+		GUIStyle title, small, stat, statLabel, noteStyle, badgeStyle, plain, sub, kbd;
 		int styleSize = -1;
 		public bool Open { get; private set; }
 		// the portrait could be drawn this frame (else the fish stays on the line)
@@ -172,14 +172,17 @@ namespace Tidewater.Game
 			if ( title != null && styleSize == key ) return;
 			styleSize = key;
 			var l = Measure( w, Screen.height );
-			GUIStyle S( int size, FontStyle fs, TextAnchor al ) { var s = new GUIStyle( GUI.skin.label ) { fontSize = size, fontStyle = fs, alignment = al, richText = true, wordWrap = false, clipping = TextClipping.Overflow }; s.padding = new RectOffset(); s.margin = new RectOffset(); return s; }
-			title = S( ( int ) l.titleSize, FontStyle.Bold, TextAnchor.MiddleCenter );
-			small = S( ( int ) l.sciSize, FontStyle.Italic, TextAnchor.MiddleCenter );
-			stat = S( ( int ) l.valueSize, FontStyle.Bold, TextAnchor.MiddleCenter );
-			statLabel = S( 11, FontStyle.Bold, TextAnchor.MiddleCenter );
-			noteStyle = S( ( int ) l.noteSize, FontStyle.Normal, TextAnchor.UpperCenter );
-			badgeStyle = S( 14, FontStyle.Bold, TextAnchor.MiddleCenter );
-			plain = S( 13, FontStyle.Normal, TextAnchor.MiddleCenter );
+			GUIStyle S( Font font, int size, FontStyle fs, TextAnchor al ) { var s = new GUIStyle( GUI.skin.label ) { font = font, fontSize = size, fontStyle = fs, alignment = al, richText = true, wordWrap = false, clipping = TextClipping.Overflow }; s.padding = new RectOffset(); s.margin = new RectOffset(); return s; }
+			// (the face per role is the CSS one: h2 Caveat Brush, .gm-catch-sci Kalam italic, .gm-stat b JetBrains Mono, its label Inter 700, .gm-catch-note Kalam, kbd mono)
+			title = S( UIFonts.Display, ( int ) l.titleSize, FontStyle.Normal, TextAnchor.MiddleCenter );
+			small = S( UIFonts.Hand, ( int ) l.sciSize, FontStyle.Italic, TextAnchor.MiddleCenter );
+			stat = S( UIFonts.MonoMedium, ( int ) l.valueSize, FontStyle.Normal, TextAnchor.MiddleCenter );
+			statLabel = S( UIFonts.InterBold, 11, FontStyle.Normal, TextAnchor.MiddleCenter );
+			noteStyle = S( UIFonts.Hand, ( int ) l.noteSize, FontStyle.Normal, TextAnchor.UpperCenter );
+			badgeStyle = S( UIFonts.InterBold, 14, FontStyle.Normal, TextAnchor.MiddleCenter );
+			plain = S( UIFonts.Inter, 12, FontStyle.Normal, TextAnchor.MiddleCenter );
+			sub = S( UIFonts.Mono, 12, FontStyle.Normal, TextAnchor.MiddleCenter );
+			kbd = S( UIFonts.MonoMedium, 11, FontStyle.Normal, TextAnchor.MiddleCenter );
 		}
 
 		static void Text( Rect r, string s, GUIStyle st, Color c, float alpha, bool shadow = false )
@@ -322,19 +325,19 @@ namespace Tidewater.Game
 			GUI.matrix = m;
 		}
 
-		void Stat( Rect r, string label, string value, string sub, bool isValue, float alpha, Layout l )
+		void Stat( Rect r, string label, string value, string sub_, bool isValue, float alpha, Layout l )
 		{
 			Rounded( r, new Color( 232 / 255f, 220 / 255f, 192 / 255f, 0.09f * alpha ), 6 );
 			Rounded( r, new Color( 214 / 255f, 180 / 255f, 110 / 255f, 0.38f * alpha ), 6, 1 );
 			Text( new Rect( r.x, r.y + 10, r.width, 12 ), label, statLabel, new Color( 222 / 255f, 190 / 255f, 125 / 255f, 0.9f ), alpha );
 			Text( new Rect( r.x, r.y + 10 + 11.5f + 4, r.width, l.valueSize * 1.25f ), value, stat, isValue ? GOLD : new Color( 0xfb / 255f, 0xf1 / 255f, 0xdc / 255f ), alpha );
-			Text( new Rect( r.x, r.y + 10 + 11.5f + 4 + l.valueSize * 1.25f + 2, r.width, 14 ), sub, plain, new Color( INK.r, INK.g, INK.b, 0.5f ), alpha );
+			Text( new Rect( r.x, r.y + 10 + 11.5f + 4 + l.valueSize * 1.25f + 2, r.width, 14 ), sub_, this.sub, new Color( INK.r, INK.g, INK.b, 0.5f ), alpha );
 		}
 
 		void Foot( float y, float w, float alpha, string rodUseKey, string interactKey, float remaining01 )
 		{
 			// [Click] or [E] to continue ----- (the time left)
-			var tag = new GUIStyle( plain ) { fontStyle = FontStyle.Bold };
+			var tag = kbd;
 			float k1 = tag.CalcSize( new GUIContent( rodUseKey ) ).x + 12, k2 = tag.CalcSize( new GUIContent( interactKey ) ).x + 12;
 			float or = plain.CalcSize( new GUIContent( " or " ) ).x, cont = plain.CalcSize( new GUIContent( " to continue" ) ).x, bar = 80, gap = 8;
 			float total = k1 + or + k2 + cont + gap + bar, x = ( w - total ) / 2;

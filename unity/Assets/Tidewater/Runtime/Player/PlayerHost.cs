@@ -191,13 +191,13 @@ namespace Tidewater.Player
 		void OnGUI()
 		{
 			if ( ! showPrompts || player == null || ! Application.isPlaying ) return;
-			var style = new GUIStyle( GUI.skin.label ) { alignment = TextAnchor.MiddleCenter, fontSize = 18, fontStyle = FontStyle.Bold };
+			var style = new GUIStyle( GUI.skin.label ) { alignment = TextAnchor.MiddleCenter, font = Tidewater.Game.UIFonts.InterBold, fontSize = 18 };
 			style.normal.textColor = Color.white;
 			float w = Screen.width, h = Screen.height;
 			if ( ! freeCam && player.prompt != null )
 				GUI.Label( new Rect( 0, h * 0.72f, w, 30 ), "[" + ( player.prompt.key ?? input.label( player.prompt.action ) ) + "]  " + player.prompt.text, style );
 			if ( toast != null && Time.unscaledTime < toastUntil ) GUI.Label( new Rect( 0, h * 0.08f, w, 30 ), toast, style );
-			var small = new GUIStyle( GUI.skin.label ) { alignment = TextAnchor.LowerLeft, fontSize = 12 };
+			var small = new GUIStyle( GUI.skin.label ) { alignment = TextAnchor.LowerLeft, font = Tidewater.Game.UIFonts.Inter, fontSize = 12 };
 			small.normal.textColor = new Color( 1, 1, 1, 0.7f );
 			string hint = ! input.locked ? "Click the view to capture the mouse  ·  Esc releases it  ·  " : "";
 			GUI.Label( new Rect( 10, h - 28, w, 24 ), hint + ( freeCam ? "free camera (F)" : player.mode ) + "   WASD move · Shift sprint · Space jump / up · C dive · E interact · V boat camera · F free camera", small );

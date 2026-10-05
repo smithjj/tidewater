@@ -407,9 +407,9 @@ namespace Tidewater.Game
 		void Styles()
 		{
 			if ( callStyle != null && callStyle.fontSize == 15 ) return; // (see GameHost.Styles: the Editor resets GUI styles between Play sessions)
-			callStyle = new GUIStyle( GUI.skin.label ) { fontSize = 15, fontStyle = FontStyle.Bold };
-			bigStyle = new GUIStyle( GUI.skin.label ) { fontSize = 92, fontStyle = FontStyle.Bold, alignment = TextAnchor.MiddleCenter };
-			cardSmall = new GUIStyle( GUI.skin.label ) { fontSize = 12, wordWrap = true }; cardSmall.normal.textColor = new Color( 1, 1, 1, 0.75f );
+			callStyle = new GUIStyle( GUI.skin.label ) { font = UIFonts.InterBold, fontSize = 15 };
+			bigStyle = new GUIStyle( GUI.skin.label ) { font = UIFonts.InterBold, fontSize = 92, alignment = TextAnchor.MiddleCenter };
+			cardSmall = new GUIStyle( GUI.skin.label ) { font = UIFonts.Inter, fontSize = 12, wordWrap = true }; cardSmall.normal.textColor = new Color( 1, 1, 1, 0.75f );
 		}
 
 		static void Fill( Rect r, Color c ) { var o = GUI.color; GUI.color = c; GUI.DrawTexture( r, Texture2D.whiteTexture ); GUI.color = o; }

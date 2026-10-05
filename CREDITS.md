@@ -62,8 +62,11 @@ Virtual Reality, 2020.
 
 ## Fonts
 
-[Inter](https://rsms.me/inter/) and [JetBrains Mono](https://www.jetbrains.com/lp/mono/) are both under the
-SIL Open Font License 1.1. They are loaded from Google Fonts at runtime and are not part of this repository.
+[Inter](https://rsms.me/inter/), [JetBrains Mono](https://www.jetbrains.com/lp/mono/),
+[Caveat Brush](https://fonts.google.com/specimen/Caveat+Brush) and [Kalam](https://fonts.google.com/specimen/Kalam) are all under the
+SIL Open Font License 1.1. The browser build loads them from Google Fonts at runtime and does not ship them; the Unity port includes the static
+TrueType files (Inter 400 / 500 / 600 / 700, JetBrains Mono 400 / 500, Caveat Brush, Kalam 400 / 700, as served by Google Fonts) with their licences in
+`unity/Assets/Tidewater/Resources/fonts/`.
 
 ## Libraries
 

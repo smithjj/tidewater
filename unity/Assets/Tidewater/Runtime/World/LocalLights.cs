@@ -181,6 +181,43 @@ namespace Tidewater.World
 			return outList;
 		}
 
+		// the two deck floodlights of the working boat (Game.addFloodlights), dark until the lights upgrade is bought
+		public readonly List<LocalLightSource> floods = new List<LocalLightSource>();
+
+		// Two floodlights under the back of the wheelhouse roof, lighting the cockpit and the water astern (night only, like every local light; switched by the lights upgrade).
+		// In the hull frame, so they follow the boat's pose.
+		public List<LocalLightSource> addFloodlights( Tidewater.Player.BoatController boat )
+		{
+			foreach ( double x in new[] { - 0.8, 0.8 } )
+			{
+				var local = new EVector3( x, 2.25, - 1.0 );
+				var localDir = new EVector3( x * 0.25, - 0.75, - 0.62 ).normalize();
+				var src = new LocalLightSource
+				{
+					position = new EVector3(), color = new EColor( 1.0, 0.93, 0.8 ), intensity = 3.2, range = 14, kind = "boatFlood",
+					dir = new EVector3(), cosInner = 0.8, cosOuter = 0.45, scale = deckLights ? 1 : 0,
+				};
+				src.update = () =>
+				{
+					boat.toWorld( local, src.position );
+					src.dir.copy( localDir ).applyQuaternion( boat.quaternion );
+				};
+				src.update();
+				floods.Add( add( src ) );
+			}
+
+			return floods;
+		}
+
+		// Game.applyGear's `f.scale = g.deckLights ? 1 : 0`; remembered for floods added later
+		public bool deckLights { get; private set; }
+
+		public void setDeckLights( bool on )
+		{
+			deckLights = on;
+			foreach ( var f in floods ) f.scale = on ? 1 : 0;
+		}
+
 		// The lanterns at Joe's fish stand and Marta's chandlery (App.js): lit from dusk like the village lamps, in each stall's frame (x right, z toward the customer)
 		// turned by its yaw, hung at the stall's ground height
 		public void addStallLights( Func<double, double, double> heightAt )
@@ -266,6 +303,7 @@ namespace Tidewater.World
 			RenderPipelineManager.beginCameraRendering -= OnBeginCamera;
 			if ( instance == this ) instance = null;
 			DestroyPool();
+			Shader.SetGlobalVector( "_TWLampN", Vector4.zero );
 			lights = null; villageSeen = null; boatSeen = null;
 		}
 
@@ -277,6 +315,15 @@ namespace Tidewater.World
 		}
 
 		public bool flashlightOn => flashOn;
+
+		// the lights upgrade (Game.applyGear): kept here too, so floods rebuilt with the lights come on as they were
+		bool deckFloods;
+
+		public void SetDeckLights( bool on )
+		{
+			deckFloods = on;
+			if ( lights != null ) lights.setDeckLights( on );
+		}
 
 		void DestroyPool()
 		{
@@ -314,6 +361,7 @@ namespace Tidewater.World
 			lights = new LocalLights();
 			if ( village != null ) { lights.addVillageLights( village ); lights.addStallLights( village.terrain.HeightAt ); }
 			if ( boat != null && boat.boatModel != null ) lights.addBoatLights( boat.boatModel.lines, boat );
+			if ( boat != null ) { lights.setDeckLights( deckFloods ); lights.addFloodlights( boat ); }
 			lights.toggleFlashlight( flashOn );
 		}
 
@@ -341,6 +389,7 @@ namespace Tidewater.World
 			var sel = lights.selected;
 			active = lights.active;
 			ShowFlash();
+			PublishWater();
 			for ( int i = 0; i < LocalLights.MAX; i ++ )
 			{
 				if ( point[ i ] == null ) point[ i ] = MakeLight( "local-point-" + i, LightType.Point );
@@ -370,6 +419,39 @@ namespace Tidewater.World
 
 				l.enabled = true;
 			}
+		}
+
+		// the sea surface lights itself from these (Water.hlsl, the JS packs them for WaterMaterial the same way): the torch first, then the lamps, in sim space;
+		// colour x intensity in lux (the shader applies the exposure)
+		static readonly Vector4[] lampPos = new Vector4[ LocalLights.MAX ], lampCol = new Vector4[ LocalLights.MAX ], lampDir = new Vector4[ LocalLights.MAX ];
+
+		void PublishWater()
+		{
+			int n = 0;
+			var fl = lights.flashlight;
+			if ( fl.on && lights.enabled )
+			{
+				double k = fl.k * LocalLights.LUX_PER_UNIT;
+				lampPos[ 0 ] = new Vector4( ( float ) fl.position.x, ( float ) fl.position.y, ( float ) fl.position.z, ( float ) ( fl.range * fl.range ) );
+				lampCol[ 0 ] = new Vector4( ( float ) ( fl.color.r * k ), ( float ) ( fl.color.g * k ), ( float ) ( fl.color.b * k ), ( float ) fl.cosInner );
+				lampDir[ 0 ] = new Vector4( ( float ) fl.dir.x, ( float ) fl.dir.y, ( float ) fl.dir.z, ( float ) fl.cosOuter );
+				n = 1;
+			}
+
+			foreach ( var ( s, k0 ) in lights.selected )
+			{
+				if ( n >= LocalLights.MAX ) break;
+				double k = k0 * LocalLights.LUX_PER_UNIT;
+				lampPos[ n ] = new Vector4( ( float ) s.position.x, ( float ) s.position.y, ( float ) s.position.z, ( float ) ( s.range * s.range ) );
+				lampCol[ n ] = new Vector4( ( float ) ( s.color.r * k ), ( float ) ( s.color.g * k ), ( float ) ( s.color.b * k ), ( float ) ( s.cosInner ?? -1.5 ) );
+				lampDir[ n ] = s.dir != null ? new Vector4( ( float ) s.dir.x, ( float ) s.dir.y, ( float ) s.dir.z, ( float ) ( s.cosOuter ?? -2 ) ) : new Vector4( 0, -1, 0, -2 );
+				n ++;
+			}
+
+			Shader.SetGlobalVectorArray( "_TWLampPos", lampPos );
+			Shader.SetGlobalVectorArray( "_TWLampCol", lampCol );
+			Shader.SetGlobalVectorArray( "_TWLampDir", lampDir );
+			Shader.SetGlobalVector( "_TWLampN", new Vector4( n, 0, 0, 0 ) );
 		}
 
 		// the flashlight: a spot of 9 / 35 degrees (half angles), held right of and below the eye

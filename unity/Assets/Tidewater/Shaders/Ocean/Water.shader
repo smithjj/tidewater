@@ -8,7 +8,7 @@
 // OceanRenderer with GPU instancing, one instance per node (_TWNodeData).
 //
 // Not ported yet (their systems do not exist): shore waves / swash, the wake, surf foam, sea detail (gusts, slicks),
-// caustics, the refraction pass, the hull mask, local lights, the sun shadow on the water. Their hooks are marked
+// caustics, the refraction pass, the hull mask, the sun shadow on the water. Their hooks are marked
 // in Water.hlsl.
 Shader "Tidewater/Water"
 {

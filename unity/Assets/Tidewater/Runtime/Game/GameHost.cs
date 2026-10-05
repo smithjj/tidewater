@@ -108,7 +108,7 @@ namespace Tidewater.Game
 
 		static ISaveStore SafeStore() { try { return new FileSaveStore(); } catch ( Exception ) { return null; } }
 
-		// Game.applyGear: the engine upgrade (speedMul), and the floodlights when the lights port brings them
+		// Game.applyGear: the engine upgrade (speedMul), and the deck floodlights (the lights upgrade)
 		public void ApplyGear()
 		{
 			if ( lobster == null || state == null ) return;
@@ -116,6 +116,8 @@ namespace Tidewater.Game
 			lobster.maxThrust = baseMaxThrust * g.speedMul * g.speedMul;
 			lobster.pitchSpeed = basePitchSpeed * g.speedMul;
 			if ( fishing != null ) fishing.ApplyGear();
+			var lamps = LocalLightsView.instance;
+			if ( lamps != null ) lamps.SetDeckLights( g.deckLights );
 		}
 
 		// the intro takes the mouse and the keys while it is up (Guide.js)

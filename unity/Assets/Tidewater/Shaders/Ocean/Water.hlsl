@@ -41,6 +41,12 @@ float4 _TWWaterScattering;    // frame.waterScattering (1/m)
 float4 _TWSunColor;           // sun illuminance (lux) x colour
 float4 _TWDebug;              // x = debug view (see the end of Frag)
 float4 _TWCamera;             // xyz = sim camera position
+// the local lights (LocalLightsView.PublishWater): the torch first, then the lamps nearest the camera, packed as in LocalLights.js
+// pos = ( sim position, range^2 ), col = colour x intensity in lux ( + cos inner ), dir = ( sim axis, cos outer )
+float4 _TWLampPos[8];
+float4 _TWLampCol[8];
+float4 _TWLampDir[8];
+float4 _TWLampN;              // x = count
 StructuredBuffer<float4> _TWWaterQuery;   // WaterQuery results: slot 0 = the camera ( height, nx, nz, sea floor )
 
 #define TW_IOR 1.333
@@ -55,6 +61,13 @@ UNITY_INSTANCING_BUFFER_END(TWWater)
 float TWLuminance3( float3 c ) { return dot( c, float3( 0.2126, 0.7152, 0.0722 ) ); }
 
 float TWSat( float x ) { return saturate( x ); }
+
+// LocalLights.js localLightsSpotProfile: hot centre, soft edge, faint spill
+float WaterLampSpot( float cd, float cosInner, float cosOuter )
+{
+	float m = smoothstep( cosOuter, cosInner, cd );
+	return max( m * m, smoothstep( cosOuter - 0.55, cosOuter, cd ) * 0.05 );
+}
 
 float3 SimToWorld( float3 p ) { return float3( p.x, p.y, -p.z ); }  // sim <-> Unity world (an involution)
 
@@ -726,9 +739,41 @@ float4 Frag( Varyings input, bool front : SV_IsFrontFace ) : SV_Target0
 
 		// a thin bright rim just behind the edge: the rounded bead catches the sky
 		float rim = smoothstep( 0.0, 0.025, frontD ) * smoothstep( 0.1, 0.035, frontD ) * uprush;
-		// (the local lights on the sea surface: not ported yet)
-		float3 water = lerp( transmitted, reflCol, F ) + sunSpec + skyRefl * ( 0.22 * rim );
-		float3 shaded = lerp( water, foamCol + sunSpec * 0.05, TWSat( foam ) );
+		// ---- local lights on the sea surface (the torch, the deck floods, the lanterns)
+		// The water is outside the lighting model, so nothing lights it from HDRP's lights; this reads the lamps directly with the
+		// same maths as the lit materials. Two terms: the reflected glint (the broken path leading back to the source) and the
+		// light that enters the water and scatters back out, tinted by the water's own body. Free by day: the count is 0 until dusk.
+		float3 lampSpec = 0.0;
+		float3 lampGlow = 0.0;
+		int lampN = ( int ) _TWLampN.x;
+		for ( int li = 0; li < lampN; li ++ )
+		{
+			float4 lp = _TWLampPos[ li ];
+			float3 ld = lp.xyz - pos;
+			float ld2 = dot( ld, ld );
+			if ( ld2 < lp.w )
+			{
+				float4 lc = _TWLampCol[ li ];
+				float4 ls = _TWLampDir[ li ];
+				float3 Lw = ld * rsqrt( max( ld2, 1e-6 ) );
+				float lx = ld2 / lp.w;
+				float win = TWSat( 1.0 - lx * lx );
+				float spotK = WaterLampSpot( dot( -Lw, ls.xyz ), lc.w, ls.w );
+				float3 lcol = lc.xyz * exposure * ( win * win * spotK / ( ld2 + 0.15 ) );
+				float NdLw = max( dot( N, Lw ), 0.0 );
+				// the glint: the water's own GGX with this light's half vector
+				float3 Hw = normalize( Lw + V );
+				float Fw = FresnelDielectric( max( dot( V, Hw ), 0.0 ), TW_IOR );
+				float specW = WaterDGGX( max( dot( N, Hw ), 0.0 ), alpha2 ) * WaterVSmithGGX( NdLw, NdV, alpha2 ) * Fw * NdLw;
+				lampSpec += lcol * min( specW, 400.0 );
+				// the lit patch: the backscattered fraction of the water body
+				lampGlow += lcol * NdLw * ( sigS / sigT ) * INV_PI;
+			}
+		}
+
+		float3 lamp = lampSpec + lampGlow;
+		float3 water = lerp( transmitted, reflCol, F ) + sunSpec + lamp + skyRefl * ( 0.22 * rim );
+		float3 shaded = lerp( water, foamCol + sunSpec * 0.05 + lamp * 0.5, TWSat( foam ) );
 		// fade into the sand right at the leading edge (anti-aliased by the film thickness)
 		float edgeAA = smoothstep( 0.0, max( fwidth( thickness ) * 1.5, 0.004 ), thickness );
 		outCol = shaded;

@@ -124,6 +124,8 @@ namespace Tidewater.Game
 			cardDismissed = false;
 			bool can = CanFish;
 			lastCan = can;
+			hintDt = dt;
+			if ( rod.equipped ) rodTaught = true;
 
 			if ( inp.actHit( "rod" ) && can && fight == null )
 			{
@@ -222,6 +224,9 @@ namespace Tidewater.Game
 		// a vendor must not also take this frame's E (Game.updateVendors)
 		public bool blocksVendors => fight != null || cardDismissed || catchOpen;
 
+		const double ROD_HINT_S = 8; // how long "Take out the rod" stays up each time you come to the water
+		double rodHintT, hintDt; bool rodTaught;
+
 		public bool SeatedWithRod => lastCan && rod.equipped;
 
 		// what the player is told when nothing else has a prompt (Game.prompt)
@@ -236,7 +241,9 @@ namespace Tidewater.Game
 			{
 				// by the water (boat deck, pier, the wet beach, wading): suggest the rod
 				bool byWater = p.mode == "deck" || ( p.mode == "walk" && ( p.surface == "wood" || p.surface == "wetsand" || p.surface == "water" ) );
-				return byWater ? new Prompt { action = "rod", text = "Take out the rod" } : null;
+				// said for a few seconds each time you come to the water, and not at all once you have had the rod out (the guide covers the key)
+				rodHintT = byWater ? rodHintT + hintDt : 0;
+				return byWater && ! rodTaught && rodHintT < ROD_HINT_S ? new Prompt { action = "rod", text = "Take out the rod" } : null;
 			}
 
 			var b = bite;

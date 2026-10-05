@@ -19,6 +19,7 @@ import { Guide } from './Guide.js';
 import { fishNear, schoolBite, SONAR_RANGE, SONAR_FULL } from './Sonar.js';
 // how long the catch card stays up unless dismissed (ms)
 const CATCH_CARD_MS = 9000;
+const ROD_HINT_S = 8; // how long "Take out the rod" stays up each time you come to the water
 
 // a clock hour as a person would say it: 6 → "6 am", 18.5 → "6:30 pm"
 const hourLabel = ( h ) => {
@@ -235,6 +236,8 @@ export class Game {
 		}
 
 		const can = this.canFish;
+		this._dt = dt;
+		if ( rod.equipped ) this._rodTaught = true;
 		if ( inp.actHit( 'rod' ) && can && ! this.fight ) {
 
 			rod.equip( ! rod.equipped );
@@ -430,7 +433,9 @@ export class Game {
 
 			// by the water (boat deck, pier, the wet beach, wading): suggest the rod
 			const byWater = p.mode === 'deck' || ( p.mode === 'walk' && [ 'wood', 'wetsand', 'water' ].includes( p.surface ) );
-			return byWater ? { action: 'rod', text: 'Take out the rod' } : null;
+			// said for a few seconds each time you come to the water, and not at all once you have had the rod out (the guide covers the key)
+			this._rodHintT = byWater ? ( this._rodHintT || 0 ) + ( this._dt || 0 ) : 0;
+			return byWater && ! this._rodTaught && this._rodHintT < ROD_HINT_S ? { action: 'rod', text: 'Take out the rod' } : null;
 
 		}
 

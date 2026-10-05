@@ -43,7 +43,9 @@ The models were decimated and the textures downsized by `tools/props/`. The sign
 scale dial were lettered with [Permanent Marker](https://fonts.google.com/specimen/Permanent+Marker) (Apache
 2.0), [Cabin Sketch](https://fonts.google.com/specimen/Cabin+Sketch) (SIL OFL 1.1) and
 [Oswald](https://fonts.google.com/specimen/Oswald) (SIL OFL 1.1); the font files and their licences are in
-`tools/props/fonts/`. Details are in [`public/models/props/CREDITS.md`](public/models/props/CREDITS.md).
+`tools/props/fonts/`. Details are in [`public/models/props/CREDITS.md`](public/models/props/CREDITS.md). The Unity port ships the same
+texture files, unchanged, in `unity/Assets/Tidewater/Resources/stalls/maps/`, and the stall meshes built from the models in
+`unity/Assets/Tidewater/Resources/stalls/*.bytes` (`unity/tools/dump-stalls.mjs`).
 
 ## Humpback whale: `public/models/whale/`
 

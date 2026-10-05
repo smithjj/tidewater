@@ -181,6 +181,19 @@ namespace Tidewater.World
 			return outList;
 		}
 
+		// The lanterns at Joe's fish stand and Marta's chandlery (App.js): lit from dusk like the village lamps, in each stall's frame (x right, z toward the customer)
+		// turned by its yaw, hung at the stall's ground height
+		public void addStallLights( Func<double, double, double> heightAt )
+		{
+			foreach ( var l in Tidewater.Game.Stalls.LANTERNS )
+			{
+				var st = l.stall;
+				double c = Math.Cos( st[ 2 ] ), sn = Math.Sin( st[ 2 ] );
+				double x = st[ 0 ] + l.x * c + l.z * sn, z = st[ 1 ] - l.x * sn + l.z * c;
+				add( new LocalLightSource { position = new EVector3( x, heightAt( st[ 0 ], st[ 1 ] ) + l.y, z ), color = new EColor( 1.0, 0.72, 0.42 ), intensity = 5 * 1.5, range = 11, kind = "lantern", flicker = 0.08 } );
+			}
+		}
+
 		// Village lights (Village.getLightSources()): lanterns, lamp posts, path lights, lit windows. Window lights sit just outside the
 		// pane and only light outward (porches); lanterns flicker a little.
 		public void addVillageLights( Village.Village village )
@@ -299,7 +312,7 @@ namespace Tidewater.World
 			if ( village == villageSeen && boat == boatSeen && lights != null ) return;
 			villageSeen = village; boatSeen = boat;
 			lights = new LocalLights();
-			if ( village != null ) lights.addVillageLights( village );
+			if ( village != null ) { lights.addVillageLights( village ); lights.addStallLights( village.terrain.HeightAt ); }
 			if ( boat != null && boat.boatModel != null ) lights.addBoatLights( boat.boatModel.lines, boat );
 			lights.toggleFlashlight( flashOn );
 		}

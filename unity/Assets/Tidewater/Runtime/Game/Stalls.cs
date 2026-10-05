@@ -7,10 +7,10 @@ using Color = UnityEngine.Color;
 using Quaternion = UnityEngine.Quaternion;
 using Mathf = UnityEngine.Mathf;
 
-// Where the two traders keep shop (src/game/FishStand.js STAND, Chandlery.js CHANDLERY), their colliders, and the stand-in stalls and figures.
-// The JS builds the stalls from photoscanned Poly Haven surfaces (StallKit) and puts a Rocketbox character behind the counter; neither is ported yet,
-// so here a plank stall and a trestle table of plain boxes stand where they will be, with the same colliders and the same trader positions, and the
-// figure is a few primitives (the JS stand-in figure's proportions).
+// Where the two traders keep shop (src/game/FishStand.js STAND, Chandlery.js CHANDLERY), their colliders, the stalls and the figures.
+// The stalls are the photoscanned kit (StallKit.cs: the JS kit's own geometry, the Poly Haven surfaces); a Rocketbox character stands behind the counter.
+// If the kit's files are missing the old stand-ins show instead: a plank stall and a trestle table of plain boxes with the same colliders, and a figure of
+// a few primitives (the JS stand-in figure's proportions).
 namespace Tidewater.Game
 {
 	public static class Stalls
@@ -19,11 +19,41 @@ namespace Tidewater.Game
 		public static readonly double[] CHANDLERY = { 85.5, - 60.5, - 1.9 }; // x, z, yaw: faces the beach and the pier
 		const double STALL_FLOOR = 0.06; // top of the stall's plank floor (local y)
 
+		// the lanterns' lights (App.js): the stall and the light's place in its frame (x right, y up, z toward the customer)
+		public struct Lantern { public double[] stall; public double x, y, z; }
+		public static readonly Lantern[] LANTERNS =
+		{
+			new Lantern { stall = STAND, x = - 0.9, y = 1.85, z = 0.1 },
+			new Lantern { stall = CHANDLERY, x = - 0.75, y = 1.58, z = - 1.45 },
+		};
+
 		// local (lx, lz) of a stall -> world (x, z): Vector3.applyAxisAngle( Y, yaw )
 		public static void ToWorld( double[] s, double lx, double lz, out double x, out double z )
 		{
 			double c = Math.Cos( s[ 2 ] ), sn = Math.Sin( s[ 2 ] );
 			x = s[ 0 ] + lx * c + lz * sn; z = s[ 1 ] - lx * sn + lz * c;
+		}
+
+		const double ICE_TOP = 1.27; // top of the ice in the chest on the counter (local y)
+
+		// the five fish lying on the ice of Joe's chest (FishStand.iceFish, drawn by the JS CatchDisplay as static props): here the same placements as village
+		// fish props. Across the chest, nose toward the customer's right, alternating flanks, a little askew; each lifted by the half thickness of the fish lying on its
+		// side so it rests on the ice, later fish a little higher, overlapping the one before like a real display.
+		public static Tidewater.World.Fish.FishProps IceFish( System.Func<double, double, double> heightAt )
+		{
+			var fp = new Tidewater.World.Fish.FishProps();
+			var list = new[] { ( "jack", 0.36 ), ( "redSnapper", 0.34 ), ( "yellowtail", 0.3 ), ( "grunt", 0.26 ), ( "mullet", 0.33 ) };
+			var baseM = new Matrix4().makeRotationY( STAND[ 2 ] ).setPosition( STAND[ 0 ], heightAt( STAND[ 0 ], STAND[ 1 ] ), STAND[ 1 ] );
+			for ( int i = 0; i < list.Length; i ++ )
+			{
+				var ( species, L ) = list[ i ];
+				string model = Tidewater.Game.FishTable.Get( species ).model;
+				double rest = Tidewater.World.Fish.FishProps.restHeight( model, L );
+				var local = new Matrix4().makeRotationY( i % 2 == 1 ? 0.12 : - 0.1 ).setPosition( - 0.55 + ( i % 2 == 1 ? 0.04 : - 0.04 ), ICE_TOP + rest + 0.006 * i, 0.7 + i * 0.085 );
+				fp.add( "whole", model, new Matrix4().multiplyMatrices( baseM, local ), i % 2 == 1 ? "sideFlip" : "side", L, new Tidewater.World.Fish.FishAddOpts { cloudy = 0.5, wet = 0.7 } );
+			}
+
+			return fp;
 		}
 
 		// the two vendors and their colliders; `heightAt` is the terrain
@@ -118,9 +148,28 @@ namespace Tidewater.Game
 		}
 
 		// ---- the fish buyer's plank stall: floor, back and side walls, a counter, a tin roof, an ice chest on the counter (local: counter toward +z)
+		// the photoscanned kit stall (StallKit.cs): one mesh, one material, in the stall's group; false when its files are missing
+		readonly System.Collections.Generic.List<Mesh> meshes = new System.Collections.Generic.List<Mesh>();
+		bool Kit( Transform g, string file, string name )
+		{
+			var mesh = StallKit.LoadMesh( file );
+			var mat = mesh != null ? StallKit.GetMaterial() : null;
+			if ( mesh == null || mat == null ) return false;
+			var go = new GameObject( name );
+			go.transform.SetParent( g, false );
+			go.AddComponent<MeshFilter>().sharedMesh = mesh;
+			var mr = go.AddComponent<MeshRenderer>();
+			mr.sharedMaterial = mat;
+			mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+			mr.receiveShadows = true;
+			meshes.Add( mesh );
+			return true;
+		}
+
 		void BuildStand( System.Func<double, double, double> heightAt )
 		{
 			var g = Group( "FishStand", Stalls.STAND, heightAt( Stalls.STAND[ 0 ], Stalls.STAND[ 1 ] ) );
+			if ( Kit( g, "stand", "FishStandStall" ) ) return;
 			Box( g, "floor", 0, 0.03, 0, 2.9, 0.06, 1.9, 0x7d6d5a );
 			Box( g, "back", 0, 1.15, - 0.9, 2.9, 2.2, 0.08, 0x8e7e68 );
 			foreach ( double s in new[] { - 1, 1 } ) Box( g, "side", s * 1.41, 1.15, - 0.15, 0.08, 2.2, 1.6, 0x8e7e68 );
@@ -137,6 +186,7 @@ namespace Tidewater.Game
 		void BuildChandlery( System.Func<double, double, double> heightAt )
 		{
 			var g = Group( "Chandlery", Stalls.CHANDLERY, heightAt( Stalls.CHANDLERY[ 0 ], Stalls.CHANDLERY[ 1 ] ) );
+			if ( Kit( g, "chandlery", "ChandleryStall" ) ) return;
 			foreach ( double x in new[] { - 0.75, 0.75 } ) foreach ( double s in new[] { - 1, 1 } ) Box( g, "leg", x, 0.43, s * 0.22, 0.06, 0.95, 0.06, 0x7a6b58 );
 			for ( int i = 0; i < 3; i ++ ) Box( g, "board", 0, 0.9, - 0.27 + i * 0.27, 2.0, 0.035, 0.26, new[] { 0x8e7e68, 0x7d6d5a, 0x958670 }[ i ] );
 			Box( g, "tackleBox", - 0.55, 1.01, 0.02, 0.5, 0.18, 0.3, 0x2f6a4a );
@@ -187,6 +237,7 @@ namespace Tidewater.Game
 			go.transform.SetParent( parent, false );
 			var v = go.AddComponent<StallsView>();
 			v.joe = joe; v.marta = marta;
+			v.fishOnIce = new Tidewater.World.Fish.FishPropsView( go.transform, Stalls.IceFish( heightAt ) );
 			v.BuildStand( heightAt );
 			v.BuildChandlery( heightAt );
 			// Joe: a blue work shirt and an apron; Marta (Chandlery.js look): a red shirt, green apron, dark hat
@@ -221,6 +272,7 @@ namespace Tidewater.Game
 		void LateUpdate() { Pose( figureJoe, joe ); Pose( figureMarta, marta ); }
 
 		// the animation graphs are not garbage collected
-		void OnDestroy() { foreach ( var v in new[] { joe, marta } ) if ( v != null && v.character != null ) { v.character.Dispose(); v.character = null; } }
+		Tidewater.World.Fish.FishPropsView fishOnIce;
+		void OnDestroy() { if ( fishOnIce != null ) fishOnIce.Release(); foreach ( var m in meshes ) if ( m != null ) DestroyImmediate( m ); foreach ( var v in new[] { joe, marta } ) if ( v != null && v.character != null ) { v.character.Dispose(); v.character = null; } }
 	}
 }

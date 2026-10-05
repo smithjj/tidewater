@@ -4,7 +4,7 @@ import { ReefBatch } from './reef/ReefBatch.js';
 import { WORLD } from './WorldLayout.js';
 import { SPECIES } from './fish/FishSpecies.js';
 import { fishGeometry } from './fish/FishGeometry.js';
-import { rayGeometry, eagleRayGeometry, turtleGeometry } from './fish/CreatureGeometry.js';
+import { stingrayGeometry, eagleRayGeometry, turtleGeometry } from './fish/CreatureGeometry.js';
 import { createSwimMaterial } from './fish/FishMaterial.js';
 import { bandFade } from '../materials/LODFade.js';
 import { WhaleWater } from '../ocean/WhaleWater.js';
@@ -12,7 +12,7 @@ import { FrameUniforms } from '../engine/render/Frame.js';
 
 // Fish and other swimmers of the reef and the bay, simulated on the CPU and drawn in a single
 // render object (ReefBatch: one indirect draw per model and level of detail) with the
-// procedural fish models (fish/FishGeometry.js, fish/CreatureGeometry.js) and material
+// procedural fish models (fish/FishGeometry.js, fish/CreatureGeometry.js; the rays are the modelled assets) and material
 // (fish/FishMaterial.js).
 //
 // Habitats and behaviours:
@@ -94,10 +94,9 @@ function buildModels( names ) {
 		let geos;
 		if ( name === 'stingray' || name === 'eagleRay' ) {
 
-			const eagle = name === 'eagleRay';
-			const g1 = rayGeometry( { lod: 1, eagle } );
-			// the eagle ray is the modelled asset close up (two levels of detail), the procedural ray far off
-			geos = eagle ? [ eagleRayGeometry( { lod: 0 } ), eagleRayGeometry( { lod: 1 } ), g1, g1 ] : [ rayGeometry( { lod: 0, eagle } ), g1, g1, g1 ];
+			// the modelled rays (assets/stingray-family.glb, assets/eagle-ray.glb), four levels of detail each
+			const make = name === 'eagleRay' ? eagleRayGeometry : stingrayGeometry;
+			geos = [ 0, 1, 2, 3 ].map( ( lod ) => make( { lod } ) );
 
 		} else if ( name === 'turtle' ) {
 
@@ -204,6 +203,7 @@ export class FishSchools {
 		this.prev = new Float32Array( n * 3 ); // positions in the previous frame (motion vectors)
 		this.tmpA = new Float32Array( n * 9 ); // boids accumulators: separation, alignment, cohesion
 		this.tmpC = new Uint16Array( n ); // neighbour counts
+		this.stingrays = 0;
 		for ( const g of this.groups ) this.initGroup( g );
 
 		this.batch = new ReefBatch( 'Fish', kinds, { maxInstances: n, dynamic: true, fade: true } );
@@ -499,6 +499,8 @@ export class FishSchools {
 			this.phase[ i ] = rng() * TAU;
 			this.speedMul[ i ] = 0.85 + rng() * 0.3;
 			this.seed[ i ] = rng();
+			// the stingrays take the three colourings of the model in turn (the shader picks it from the seed in thirds)
+			if ( sp.model === 'stingray' ) this.seed[ i ] = ( ( this.stingrays ++ % 3 ) + 0.05 + 0.9 * this.seed[ i ] ) / 3;
 			this.kind[ i ] = kind0;
 			this.pattern[ i ] = pattern;
 			// bait formation slot: random direction, radius biased outward (a hollow-ish ball)

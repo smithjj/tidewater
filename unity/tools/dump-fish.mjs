@@ -14,7 +14,7 @@ const { SPECIES } = await import( root + '/src/world/fish/FishSpecies.js' );
 const { fishGeometry, splitFishGeometry } = await import( root + '/src/world/fish/FishGeometry.js' );
 const { iceGeometry, leafGeometry, lobsterGeometry, FishProps } = await import( root + '/src/world/fish/FishProps.js' );
 const { Group } = await import( root + '/src/engine/index.js' );
-const { rayGeometry, eagleRayGeometry, turtleGeometry } = await import( root + '/src/world/fish/CreatureGeometry.js' );
+const { stingrayGeometry, eagleRayGeometry, turtleGeometry } = await import( root + '/src/world/fish/CreatureGeometry.js' );
 
 const cases = [];
 const bin = [];
@@ -52,12 +52,11 @@ for ( const k of fishes ) {
 }
 
 // the rays and the turtle of the swimming schools (CreatureGeometry.js)
-for ( let lod = 0; lod < 2; lod ++ ) {
+for ( let lod = 0; lod < 4; lod ++ ) {
 
-	add( `creature:stingray:${ lod }`, rayGeometry( { lod, eagle: false } ) );
-	add( `creature:eagleRay:${ lod }`, rayGeometry( { lod, eagle: true } ) );
-	add( `creature:eagleModel:${ lod }`, eagleRayGeometry( { lod } ) ); // the modelled eagle ray (EagleRayData)
-	add( `creature:turtle:${ lod }`, turtleGeometry( { lod } ) );
+	add( `creature:stingray:${ lod }`, stingrayGeometry( { lod } ) ); // the modelled stingray (StingrayData)
+	add( `creature:eagleRay:${ lod }`, eagleRayGeometry( { lod } ) ); // the modelled eagle ray (EagleRayData)
+	if ( lod < 2 ) add( `creature:turtle:${ lod }`, turtleGeometry( { lod } ) );
 
 }
 

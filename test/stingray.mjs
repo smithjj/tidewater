@@ -1,8 +1,8 @@
-// The modelled eagle ray (assets/eagle-ray.glb, baked into src/world/fish/EagleRayData.js by
-// tools/creatures/bake-eagle-ray.mjs): all four levels of detail decode into well-formed fish-frame geometry
+// The modelled southern stingray (assets/stingray-family.glb, baked into src/world/fish/StingrayData.js by
+// tools/creatures/bake-stingray-family.mjs): all four levels of detail decode into well-formed fish-frame geometry
 // (nose +z, span 1) of the same size, each lighter than the last.
-//   node test/eagle-ray.mjs
-import { eagleRayGeometry } from '../src/world/fish/CreatureGeometry.js';
+//   node test/stingray.mjs
+import { stingrayGeometry } from '../src/world/fish/CreatureGeometry.js';
 import { PART } from '../src/world/fish/FishGeometry.js';
 
 let fails = 0;
@@ -38,22 +38,22 @@ const stats = ( g ) => {
 
 };
 
-const lods = [ 0, 1, 2, 3 ].map( ( lod ) => stats( eagleRayGeometry( { lod } ) ) ), [ lod0, lod1, lod2, lod3 ] = lods;
+const lods = [ 0, 1, 2, 3 ].map( ( lod ) => stats( stingrayGeometry( { lod } ) ) ), [ lod0, lod1, lod2, lod3 ] = lods;
 for ( const [ name, s ] of lods.map( ( l, i ) => [ 'lod ' + i, l ] ) ) {
 
 	check( s.finite, `${ name }: positions and normals are finite` );
-	check( Math.abs( s.max[ 0 ] - 0.5 ) < 0.01 && Math.abs( s.min[ 0 ] + 0.5 ) < 0.01, `${ name }: the span is 1 (x ${ s.min[ 0 ].toFixed( 3 ) } .. ${ s.max[ 0 ].toFixed( 3 ) })` );
-	check( Math.abs( s.max[ 2 ] - 0.5 ) < 0.01 && s.min[ 2 ] < - 0.9 && s.min[ 2 ] > - 1.2, `${ name }: snout at z = 0.5, tail tip at z = ${ s.min[ 2 ].toFixed( 2 ) } (the thin end of the whip is decimated away a little)` );
+	check( Math.abs( s.max[ 0 ] - 0.5 ) < 0.02 && Math.abs( s.min[ 0 ] + 0.5 ) < 0.02, `${ name }: the span is 1 (x ${ s.min[ 0 ].toFixed( 3 ) } .. ${ s.max[ 0 ].toFixed( 3 ) })` );
+	check( Math.abs( s.max[ 2 ] - 0.5 ) < 0.01 && s.min[ 2 ] < - 1.55 && s.min[ 2 ] > - 1.8, `${ name }: snout at z = 0.5, tail tip at z = ${ s.min[ 2 ].toFixed( 2 ) }` );
 	check( s.parts[ PART.DISC ] > 0 && s.parts[ PART.WHIP ] > 0, `${ name }: disc ${ s.parts[ PART.DISC ] } and whip / fin ${ s.parts[ PART.WHIP ] } vertices` );
 	check( s.dzMax > 0.99 && s.dzMax <= 1, `${ name }: the flap reach runs to 1 at the wing tip (${ s.dzMax.toFixed( 3 ) })` );
 	check( s.wSign / s.wN > 0.5, `${ name }: the back is +1, the belly -1 (agreement with the surface normal ${ ( s.wSign / s.wN ).toFixed( 2 ) })` );
-	check( s.uMax > 1.3 && s.uMax < 1.7, `${ name }: x grows to ${ s.uMax.toFixed( 2 ) } along the tail` );
+	check( s.uMax > 2.0 && s.uMax < 2.4, `${ name }: x grows to ${ s.uMax.toFixed( 2 ) } along the tail` );
 
 }
 
-check( lod0.tris > 8000 && lod0.tris < 11000, `lod 0 is ${ lod0.tris } triangles` );
-check( lod1.tris > 1200 && lod1.tris < 1700, `lod 1 is ${ lod1.tris } triangles` );
-check( lod2.tris > 350 && lod2.tris < 700, `lod 2 is ${ lod2.tris } triangles` );
-check( lod3.tris > 140 && lod3.tris < 400, `lod 3 is ${ lod3.tris } triangles` );
-console.log( fails ? `eagle-ray: ${ fails } FAILED` : 'eagle-ray: all passed' );
+check( lod0.tris > 5000 && lod0.tris < 6500, `lod 0 is ${ lod0.tris } triangles` );
+check( lod1.tris > 900 && lod1.tris < 1300, `lod 1 is ${ lod1.tris } triangles` );
+check( lod2.tris > 300 && lod2.tris < 550, `lod 2 is ${ lod2.tris } triangles` );
+check( lod3.tris > 200 && lod3.tris < 400, `lod 3 is ${ lod3.tris } triangles` );
+console.log( fails ? `stingray: ${ fails } FAILED` : 'stingray: all passed' );
 process.exit( fails ? 1 : 0 );

@@ -614,6 +614,10 @@ function surface( prop, lodFade ) {
 		// white belly
 		let top = w > 0.0;
 		let eagleK = select( 0.0, 1.0, pat == ${ PT( 'eagleRay' ) } );
+		// the three stingrays of the model (moss olive, silty taupe, kelp slate), by the fish's seed (0 .. 0.9): tints of the species colour
+		let sv = floor( seed / 0.3 );
+		let tintV = select( select( vec3f( 1.0 ), vec3f( 0.44, 0.83, 1.3 ), sv > 1.5 ), vec3f( 0.77, 1.05, 0.69 ), sv < 0.5 );
+		let tint = mix( tintV, vec3f( 1.0 ), eagleK );
 		let qq = vec2f( Lp.x, Lp.z ) * 20.0;
 		let cell = floor( qq );
 		let jit = ( vec2f( fishHash( cell + 1.7 ), fishHash( cell + 5.3 ) ) - 0.5 ) * 0.4;
@@ -621,10 +625,10 @@ function surface( prop, lodFade ) {
 		let ring = abs( length( fract( qq ) - 0.5 - jit ) - rad );
 		let spots = ( 1.0 - smoothstep( 0.035, 0.075, ring ) ) * step( 0.45, fishHash( cell ) );
 		let mottle = fishVnoise( vec2f( Lp.x, Lp.z ) * 60.0 ) * 0.25 + n2 * 0.2 + 0.7;
-		var dorsal = mix( back * mottle, mix( back, vec3f( 0.75, 0.78, 0.8 ), spots * 0.85 ), eagleK );
+		var dorsal = mix( back * tint * mottle, mix( back, vec3f( 0.75, 0.78, 0.8 ), spots * 0.85 ), eagleK );
 		dorsal = mix( dorsal, edgeC, smoothstep( 0.8, 1.0, t ) * 0.4 * ( 1.0 - eagleK ) );
 		c = select( belly, dorsal, top );
-		c = select( c, finC, P == ${ PA( 'WHIP' ) } );
+		c = select( c, finC * tint, P == ${ PA( 'WHIP' ) } );
 		metal = 0.0;
 		rough = r2.w;
 	} else if ( P == ${ PA( 'CARAPACE' ) } ) {

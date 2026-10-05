@@ -87,6 +87,7 @@ namespace Tidewater.World.Fish
 		public Action<Vector3, Vector3, int, double> sprayEmit;
 		public readonly List<FishGroup> groups = new List<FishGroup>();
 		public int n;
+		int stingrays; // stingrays placed so far (their colourings go round)
 		public List<double[]> dropPath;
 		public List<FishGroup> baitGroups;
 		public FishGroup[] escort;
@@ -145,6 +146,7 @@ namespace Tidewater.World.Fish
 			shallowC = new byte[ N ]; // cached: shallow water or breakers ahead
 			tmpA = new float[ N * 9 ]; // boids accumulators: separation, alignment, cohesion
 			tmpC = new ushort[ N ]; // neighbour counts
+			stingrays = 0;
 			foreach ( var g in groups ) initGroup( g );
 
 			batch = new FishBatch( models.Count * 4, N );
@@ -158,10 +160,10 @@ namespace Tidewater.World.Fish
 		{
 			if ( name == "stingray" || name == "eagleRay" )
 			{
-				bool eagle = name == "eagleRay";
-				var g1 = CreatureGeometry.rayGeometry( 1, eagle );
-				// the eagle ray is the modelled asset close up (two levels of detail), the procedural ray far off
-				return eagle ? new[] { CreatureGeometry.eagleRayGeometry( 0 ), CreatureGeometry.eagleRayGeometry( 1 ), g1, g1 } : new[] { CreatureGeometry.rayGeometry( 0, eagle ), g1, g1, g1 };
+				// the modelled rays (assets/stingray-family.glb, assets/eagle-ray.glb), four levels of detail each
+				var rays = new BufferGeometry[ 4 ];
+				for ( int lod = 0; lod < 4; lod ++ ) rays[ lod ] = name == "eagleRay" ? CreatureGeometry.eagleRayGeometry( lod ) : CreatureGeometry.stingrayGeometry( lod );
+				return rays;
 			}
 
 			if ( name == "turtle" )
@@ -412,6 +414,8 @@ namespace Tidewater.World.Fish
 				phase[ i ] = ( float ) ( r.Next() * TAU );
 				speedMul[ i ] = ( float ) ( 0.85 + r.Next() * 0.3 );
 				seed[ i ] = ( float ) r.Next();
+				// the stingrays take the three colourings of the model in turn (the shader picks it from the seed in thirds)
+				if ( sp.model == "stingray" ) seed[ i ] = ( float ) ( ( ( stingrays ++ % 3 ) + 0.05 + 0.9 * seed[ i ] ) / 3 );
 				kind[ i ] = kind0;
 				pattern[ i ] = ( byte ) pat;
 				// bait formation slot: random direction, radius biased outward (a hollow-ish ball)

@@ -551,6 +551,10 @@ FishOut FishSurface( FishIn I_ )
 		// rays: sandy, finely mottled back (stingray) or black with white rings (eagle ray); white belly
 		bool top = w > 0.0;
 		float eagleK = pat == PT_EAGLERAY ? 1.0 : 0.0;
+		// the three stingrays of the model (moss olive, silty taupe, kelp slate), by the fish's seed (0 .. 0.9): tints of the species colour
+		float sv = floor( seed / 0.3 );
+		float3 tintV = sv < 0.5 ? float3( 0.77, 1.05, 0.69 ) : ( sv > 1.5 ? float3( 0.44, 0.83, 1.3 ) : float3( 1.0, 1.0, 1.0 ) );
+		float3 tint = lerp( tintV, float3( 1.0, 1.0, 1.0 ), eagleK );
 		float2 qq = float2( Lp.x, Lp.z ) * 20.0;
 		float2 cell = floor( qq );
 		float2 jit = ( float2( fishHash( cell + 1.7 ), fishHash( cell + 5.3 ) ) - 0.5 ) * 0.4;
@@ -558,10 +562,10 @@ FishOut FishSurface( FishIn I_ )
 		float ring = abs( length( frac( qq ) - 0.5 - jit ) - rad );
 		float spots = ( 1.0 - sm( 0.035, 0.075, ring ) ) * step( 0.45, fishHash( cell ) );
 		float mottle = fishVnoise( float2( Lp.x, Lp.z ) * 60.0 ) * 0.25 + n2 * 0.2 + 0.7;
-		float3 dorsal = lerp( back * mottle, lerp( back, float3( 0.75, 0.78, 0.8 ), spots * 0.85 ), eagleK );
+		float3 dorsal = lerp( back * tint * mottle, lerp( back, float3( 0.75, 0.78, 0.8 ), spots * 0.85 ), eagleK );
 		dorsal = lerp( dorsal, edgeC, sm( 0.8, 1.0, t ) * 0.4 * ( 1.0 - eagleK ) );
 		c = top ? dorsal : belly;
-		c = P == PA_WHIP ? finC : c;
+		c = P == PA_WHIP ? finC * tint : c;
 		metal = 0.0;
 		rough = r2.w;
 	}

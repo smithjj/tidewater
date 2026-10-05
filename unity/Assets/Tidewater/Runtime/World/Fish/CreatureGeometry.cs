@@ -87,129 +87,41 @@ namespace Tidewater.World.Fish
 		static readonly Func<int, double, double[]> zero = ( i, t ) => new double[] { 0, 0 };
 		static readonly Func<int, double, double[]> tailData = ( i, t ) => new double[] { 0, 1 };
 
-		// southern stingray: rhombic disc that undulates; spotted eagle ray: pointed, swept wings that flap, a protruding head and a very long tail;
-		// the eagle's outline is the planform of the modelled ray (eagleRayGeometry), which it replaces close up: this one is the far level of detail
-		public static BufferGeometry rayGeometry( int lod = 0, bool eagle = false )
+		// The rays are the modelled assets (assets/eagle-ray.glb and assets/stingray-family.glb, baked by tools/creatures/bake-eagle-ray.mjs and
+		// bake-stingray-family.mjs into EagleRayData.js and StingrayData.js, here EagleRayData.cs and StingrayData.cs, four levels of detail each): the
+		// sculpted disc (Part.DISC: the margins undulate or flap in the vertex shader), the straightened whip and the fins (Part.WHIP), with the game's
+		// own eyes at the model's eye positions. Frame as the other creatures: nose +z, snout at z = 0.5, span 1, aData.x = 0.5 - z.
+		static BufferGeometry bakedRayGeometry( string[] lods, double scale, double whipRoot, double whipK, double[][] eyes, int lod )
 		{
-			var A = new Acc();
-			int nA = lod != 0 ? 20 : 44, nR = lod != 0 ? 4 : 9;
-			// disc outline (right half, x >= 0, from the snout clockwise to the tail), radius at angle a (0 = straight ahead, PI / 2 = the right wing
-			// tip) found by intersecting the polygon
-			double[][] half = eagle ?
-				new[] { new[] { 0, 0.27 }, new[] { 0.06, 0.265 }, new[] { 0.078, 0.22 }, new[] { 0.094, 0.17 }, new[] { 0.151, 0.12 }, new[] { 0.238, 0.07 }, new[] { 0.308, 0.02 }, new[] { 0.371, - 0.03 }, new[] { 0.433, - 0.08 }, new[] { 0.487, - 0.13 }, new[] { 0.5, - 0.171 }, new[] { 0.475, - 0.23 }, new[] { 0.083, - 0.28 }, new[] { 0, - 0.29 } } :
-				new[] { new[] { 0, 0.43 }, new[] { 0.08, 0.37 }, new[] { 0.3, 0.17 }, new[] { 0.47, 0.02 }, new[] { 0.5, - 0.03 }, new[] { 0.44, - 0.12 }, new[] { 0.26, - 0.3 }, new[] { 0.12, - 0.4 }, new[] { 0, - 0.42 } };
-			var poly = new List<double[]>( half );
-			// half.slice( 1, -1 ).reverse().map( mirror )
-			for ( int i = half.Length - 2; i >= 1; i -- ) poly.Add( new[] { - half[ i ][ 0 ], half[ i ][ 1 ] } );
-			Func<double, double> outline = ( a ) =>
-			{
-				double dx = Math.Sin( a ), dz = Math.Cos( a );
-				double best = 0;
-				for ( int i = 0; i < poly.Count; i ++ )
-				{
-					var p = poly[ i ]; var q = poly[ ( i + 1 ) % poly.Count ];
-					// ray (0,0) + t (dx, dz) against the segment p q
-					double ex = q[ 0 ] - p[ 0 ], ez = q[ 1 ] - p[ 1 ];
-					double den = dx * ez - dz * ex;
-					if ( Math.Abs( den ) < 1e-9 ) continue;
-					double t = ( p[ 0 ] * ez - p[ 1 ] * ex ) / den;
-					double u = ( p[ 0 ] * dz - p[ 1 ] * dx ) / den;
-					if ( t > 0 && u >= 0 && u <= 1 ) best = Math.Max( best, t );
-				}
-
-				return best;
-			};
-
-			double cz = eagle ? 0.23 : 0.07; // disc centre (the disc sits at the front of the total length)
-			double thick = eagle ? 0.07 : 0.06;
-			foreach ( int side in new[] { 1, - 1 } )
-			{
-				var rows = new List<int[]>();
-				int centre = A.v( 0, side * thick * ( side > 0 ? 1 : 0.4 ), cz, 0.5 - cz, Part.DISC, 0, side );
-				for ( int k = 1; k <= nR; k ++ )
-				{
-					double s = ( double ) k / nR;
-					var row = new int[ nA ];
-					for ( int j = 0; j < nA; j ++ )
-					{
-						double a = ( double ) j / nA * TAU;
-						double r = outline( a ) * s;
-						double x = Math.Sin( a ) * r, z = cz + Math.Cos( a ) * r * ( eagle ? 1 : 1 );
-						// body dome over the middle, thin margins
-						double body = Math.Exp( - ( x * x ) / ( eagle ? 0.012 : 0.02 ) - Math.Pow( ( z - cz ) / 0.28, 2 ) );
-						double y = side * ( thick * body * ( side > 0 ? 1 : 0.45 ) + 0.004 * ( 1 - s ) );
-						row[ j ] = A.v( x, y, z, 0.5 - z, Part.DISC, Math.Abs( x ) / 0.5, side );
-					}
-
-					rows.Add( row );
-				}
-
-				for ( int j = 0; j < nA; j ++ )
-				{
-					int j1 = ( j + 1 ) % nA;
-					if ( side > 0 ) A.idx.AddRange( new[] { centre, rows[ 0 ][ j ], rows[ 0 ][ j1 ] } );
-					else A.idx.AddRange( new[] { centre, rows[ 0 ][ j1 ], rows[ 0 ][ j ] } );
-					for ( int k = 0; k < nR - 1; k ++ )
-					{
-						int a = rows[ k ][ j ], b = rows[ k ][ j1 ], c = rows[ k + 1 ][ j1 ], d = rows[ k + 1 ][ j ];
-						if ( side > 0 ) A.idx.AddRange( new[] { a, d, b, b, d, c } );
-						else A.idx.AddRange( new[] { a, b, d, b, c, d } );
-					}
-				}
-			}
-
-			// eyes on top
-			if ( lod == 0 )
-			{
-				foreach ( int s in new[] { 1, - 1 } )
-				{
-					double ex = s * ( eagle ? 0.09 : 0.06 ), ez = cz + ( eagle ? 0.13 : 0.16 );
-					tube( A, new[] { new[] { ex, thick * 0.7, ez + 0.012, 0.004 }, new[] { ex, thick * 0.85, ez, 0.013 }, new[] { ex, thick * 0.9, ez - 0.012, 0.004 } }, 6, Part.EYE, zero );
-				}
-			}
-
-			// tail: long whip (the eagle ray's is three times the disc length)
-			double tl = eagle ? 1.0 : 0.62;
-			double tz0 = cz - ( eagle ? 0.29 : 0.4 );
-			var tp = new List<double[]>();
-			int nT = lod != 0 ? 4 : 10;
-			for ( int i = 0; i <= nT; i ++ )
-			{
-				double t = ( double ) i / nT;
-				tp.Add( new[] { 0, 0.01 - t * 0.01, tz0 - t * tl, ( eagle ? 0.014 : 0.026 ) * ( 1 - t ) + 0.002, 0.8 } );
-			}
-
-			tube( A, tp.ToArray(), lod != 0 ? 3 : 5, Part.WHIP, tailData );
-			return A.build();
-		}
-
-		// The spotted eagle ray from the modelled asset (assets/eagle-ray.glb baked by tools/creatures/bake-eagle-ray.mjs into EagleRayData.js, here
-		// EagleRayData.cs): the sculpted disc with its duckbill head (Part.DISC: the margins flap in the vertex shader), the straightened whip, the
-		// dorsal and pelvic fins (Part.WHIP), with the game's own eyes at the model's eye positions. Two levels of detail (0: 8,000 triangles in the
-		// disc, 1: 1,200); the procedural rayGeometry( lod, true ) is the far level. Frame as the other rays: nose +z, snout at z = 0.5, span 1.
-		public static BufferGeometry eagleRayGeometry( int lod = 0 )
-		{
-			var bytes = Convert.FromBase64String( EagleRayData.lods[ Math.Min( lod, EagleRayData.lods.Length - 1 ) ] );
+			var bytes = Convert.FromBase64String( lods[ Math.Min( lod, lods.Length - 1 ) ] );
 			int nV = ( int ) BitConverter.ToUInt32( bytes, 0 ), nT = ( int ) BitConverter.ToUInt32( bytes, 4 );
 			var A = new Acc();
 			int o = 8;
 			for ( int i = 0; i < nV; i ++ )
 			{
-				double x = BitConverter.ToInt16( bytes, o ) / EagleRayData.scale, y = BitConverter.ToInt16( bytes, o + 2 ) / EagleRayData.scale, z = BitConverter.ToInt16( bytes, o + 4 ) / EagleRayData.scale;
+				double x = BitConverter.ToInt16( bytes, o ) / scale, y = BitConverter.ToInt16( bytes, o + 2 ) / scale, z = BitConverter.ToInt16( bytes, o + 4 ) / scale;
 				int part = bytes[ o + 6 ]; int w = ( sbyte ) bytes[ o + 7 ];
 				o += 8;
 				bool disc = part == ( int ) Part.DISC;
 				// the whip and fins: x measured from where they leave the disc (the wave's envelope grows with x: the root stays put)
-				double u = disc ? 0.5 - z : Math.Max( 0, 0.5 - z - EagleRayData.whipRoot ) * EagleRayData.whipK;
+				double u = disc ? 0.5 - z : Math.Max( 0, 0.5 - z - whipRoot ) * whipK;
 				A.v( x, y, z, u, part, disc ? Math.Min( 1, Math.Abs( x ) / 0.5 ) : 0, disc ? w : 1 );
 			}
 
 			for ( int i = 0; i < nT * 3; i ++ ) A.idx.Add( BitConverter.ToUInt16( bytes, o + i * 2 ) );
 			if ( lod == 0 )
-				foreach ( var e in EagleRayData.eyes )
+				foreach ( var e in eyes )
 					tube( A, new[] { new[] { e[ 0 ], e[ 1 ] + 0.012, e[ 2 ] + 0.012, 0.004 }, new[] { e[ 0 ], e[ 1 ] + 0.016, e[ 2 ], 0.013 }, new[] { e[ 0 ], e[ 1 ] + 0.012, e[ 2 ] - 0.012, 0.004 } }, 6, Part.EYE, zero );
 			return A.build();
 		}
+
+		// The spotted eagle ray: the duckbill head, a whip three times the disc length, the dorsal and pelvic fins (8,000 triangles in the disc at
+		// level 0, then 1,200, 350 and 140).
+		public static BufferGeometry eagleRayGeometry( int lod = 0 ) => bakedRayGeometry( EagleRayData.lods, EagleRayData.scale, EagleRayData.whipRoot, EagleRayData.whipK, EagleRayData.eyes, lod );
+
+		// The southern stingray: the blunt rhombic disc, a whip two and a quarter times its length, the pelvic fins (5,000 triangles in the disc at
+		// level 0, then 900, 300 and 200). The three colourings of the glb are the fish material's.
+		public static BufferGeometry stingrayGeometry( int lod = 0 ) => bakedRayGeometry( StingrayData.lods, StingrayData.scale, StingrayData.whipRoot, StingrayData.whipK, StingrayData.eyes, lod );
 
 		// Green sea turtle (carapace length ~0.72 of the total length 1, head forward).
 		public static BufferGeometry turtleGeometry( int lod = 0 )

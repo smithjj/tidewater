@@ -51,7 +51,7 @@ namespace Tidewater.EditorTools
 					int lod = int.Parse( p[ 2 ] ); bool dead = p[ 3 ] == "dead";
 					g = FishGeometry.fishGeometry( FishSpecies.SPECIES[ p[ 1 ] ], new FishGeoOpts { lod = lod, pose = dead ? "dead" : "swim", eyes = dead ? ( bool? ) ( lod == 0 ) : null } );
 				}
-				else if ( p[ 0 ] == "creature" ) g = p[ 1 ] == "turtle" ? CreatureGeometry.turtleGeometry( int.Parse( p[ 2 ] ) ) : p[ 1 ] == "eagleModel" ? CreatureGeometry.eagleRayGeometry( int.Parse( p[ 2 ] ) ) : CreatureGeometry.rayGeometry( int.Parse( p[ 2 ] ), p[ 1 ] == "eagleRay" );
+				else if ( p[ 0 ] == "creature" ) g = p[ 1 ] == "turtle" ? CreatureGeometry.turtleGeometry( int.Parse( p[ 2 ] ) ) : p[ 1 ] == "eagleRay" ? CreatureGeometry.eagleRayGeometry( int.Parse( p[ 2 ] ) ) : CreatureGeometry.stingrayGeometry( int.Parse( p[ 2 ] ) );
 					else g = FishProps.geometryOf( p[ 0 ], p[ 1 ].Length > 0 ? p[ 1 ] : null, int.Parse( p[ 2 ] ) );
 
 				var pos = g.getAttribute( "position" ).array; var nrm = g.getAttribute( "normal" ).array; var dat = g.getAttribute( "aData" ).array;

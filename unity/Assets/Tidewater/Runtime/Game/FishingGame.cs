@@ -8,7 +8,7 @@ using UnityEngine;
 using Engine3 = Tidewater.Engine.Vector3;
 
 // The fishing half of src/game/Game.js on top of the ported world:
-//   R          take out / put away the rod (on foot, on the pier, on the boat's deck)
+//   R          take out / put away the rod (on foot, on the pier, on the boat's deck, or seated at the mini boat's helm in first person)
 //   hold LMB   wind up, release to cast (hold longer = farther)
 //   LMB        strike when a fish takes the bobber ("!"); then hold LMB to reel, let go to ease off
 //   RMB        reel an empty line back in
@@ -99,10 +99,16 @@ namespace Tidewater.Game
 			rod.setGear( g.castM, g.reelSpeed );
 		}
 
-		// the player can fish on foot and on the boat's deck, not swimming, at the helm or in the free camera
+		// the player can fish on foot and on the boat's deck, and seated at the deckless mini boat's helm in the first-person view (the rod hangs in front of the eye);
+		// not swimming, at another helm or in the free camera
 		bool CanFish
 		{
-			get { var p = host.player; return ! host.freeCam && ( p.mode == "walk" || p.mode == "deck" ); }
+			get
+			{
+				var p = host.player;
+				bool seated = p.mode == "boat" && p.boat.boatModel.deck == null && p.cam.firstPerson;
+				return ! host.freeCam && ( p.mode == "walk" || p.mode == "deck" || seated );
+			}
 		}
 
 		double hour => game.clock.hour;
@@ -215,6 +221,8 @@ namespace Tidewater.Game
 
 		// a vendor must not also take this frame's E (Game.updateVendors)
 		public bool blocksVendors => fight != null || cardDismissed || catchOpen;
+
+		public bool SeatedWithRod => lastCan && rod.equipped;
 
 		// what the player is told when nothing else has a prompt (Game.prompt)
 		public Prompt Prompt()

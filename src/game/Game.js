@@ -30,7 +30,7 @@ const hourLabel = ( h ) => {
 };
 
 // The fishing game on top of the world:
-//   R          take out / put away the rod (on foot, on the pier, on the boat's deck)
+//   R          take out / put away the rod (on foot, on the pier, on the boat's deck, or seated at the mini boat's helm in first person)
 //   hold LMB   wind up, release to cast (hold longer = farther)
 //   LMB        strike when a fish takes the bobber ("!"); then hold LMB to reel, let go to ease off
 //   RMB        reel an empty line back in
@@ -208,7 +208,9 @@ export class Game {
 	get canFish() {
 
 		const app = this.app, p = app.player;
-		return ! app.freeCam && ( p.mode === 'walk' || p.mode === 'deck' ) && ! ( app.ui && app.ui.ui && app.ui.ui._photo );
+		// the deckless mini boat has no deck to walk, so the rod comes out at the helm, in the first-person view the rod hangs in
+		const seated = p.mode === 'boat' && ! p.boat.model.lines && p.camMode === 'first';
+		return ! app.freeCam && ( p.mode === 'walk' || p.mode === 'deck' || seated ) && ! ( app.ui && app.ui.ui && app.ui.ui._photo );
 
 	}
 
@@ -389,6 +391,14 @@ export class Game {
 
 		// E closes the catch card; at the helm it must not also leave it (read by Player.updateBoat next frame)
 		p.blockLeaveHelm = this._haulCard > 0 || !! ( this.hud && this.hud.catchOpen );
+
+		if ( p.mode === 'boat' && can && rod.equipped ) {
+
+			// seated with the rod out: the fishing prompts, and the way out of the seat
+			const fp = this.prompt();
+			if ( fp ) p.prompt = Object.assign( {}, fp, { text: `${ fp.text }   ·   ${ inp.label( 'interact' ) }  leave helm` } );
+
+		}
 
 		const aboard = p.mode === 'boat' || p.mode === 'deck';
 		// the catch card's live fish portrait (or one queued thumbnail)

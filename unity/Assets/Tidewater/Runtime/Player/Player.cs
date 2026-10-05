@@ -693,6 +693,9 @@ namespace Tidewater.Player
 			double wheel = inp.consumeWheel();
 
 			if ( inp.actHit( "boatCamera" ) ) cam.toggle();
+			// the deckless mini boat: R takes the rod out from the seat, which needs the first-person view (the rod hangs in front of the eye)
+			bool seatFishing = b.boatModel.deck == null;
+			if ( seatFishing && inp.actHit( "rod" ) ) cam.firstPerson = true;
 			// (E also closes the catch card a haul leaves up: Game sets blockLeaveHelm while it is open)
 			if ( inp.actHit( "interact" ) && ! blockLeaveHelm ) { leaveHelm(); return; }
 
@@ -702,7 +705,7 @@ namespace Tidewater.Player
 			double throttle = fwd >= 0 ? fwd * ( inp.act( "sprint" ) ? 1 : 0.7 ) : fwd * 0.6;
 			double steer = - inp.axis( "strafe" );
 			b.setInput( throttle, steer, dt );
-			prompt = new Prompt { action = "interact", text = "Leave helm   ·   " + inp.label( "boatCamera" ) + "  camera" };
+			prompt = new Prompt { action = "interact", text = "Leave helm   ·   " + inp.label( "boatCamera" ) + "  camera" + ( seatFishing ? "   ·   " + inp.label( "rod" ) + "  rod" : "" ) };
 
 			// keep the player attached (for audio / queries)
 			b.toWorld( b.boatModel.helmEye, position );

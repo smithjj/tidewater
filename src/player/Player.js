@@ -765,6 +765,9 @@ export class Player {
 		const wheel = inp.consumeWheel();
 
 		if ( inp.actHit( 'boatCamera' ) ) this.camMode = this.camMode === 'first' ? 'third' : 'first';
+		// the deckless mini boat: R takes the rod out from the seat, which needs the first-person view (the rod hangs in front of the eye)
+		const seatFishing = ! b.model.lines;
+		if ( seatFishing && inp.actHit( 'rod' ) ) this.camMode = 'first';
 		// (E also closes the catch card a haul leaves up: Game sets blockLeaveHelm while it is open)
 		if ( inp.actHit( 'interact' ) && ! this.blockLeaveHelm ) {
 
@@ -779,7 +782,7 @@ export class Player {
 		const throttle = fwd >= 0 ? fwd * ( inp.act( 'sprint' ) ? 1 : 0.7 ) : fwd * 0.6;
 		const steer = - inp.axis( 'strafe' );
 		b.setInput( throttle, steer, dt );
-		this.prompt = { action: 'interact', text: `Leave helm   ·   ${ inp.label( 'boatCamera' ) }  camera` };
+		this.prompt = { action: 'interact', text: `Leave helm   ·   ${ inp.label( 'boatCamera' ) }  camera` + ( seatFishing ? `   ·   ${ inp.label( 'rod' ) }  rod` : '' ) };
 
 		// keep the player attached (for audio / queries)
 		b.toWorld( b.model.helmEye, this.position );

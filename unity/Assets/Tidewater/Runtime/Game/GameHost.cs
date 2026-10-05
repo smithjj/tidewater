@@ -281,6 +281,12 @@ namespace Tidewater.Game
 			// prompts when the player has nothing to say
 			trap.ApplyPrompt( p, inp );
 			if ( p.prompt == null ) p.prompt = fishing.Prompt();
+			else if ( p.mode == "boat" && fishing.SeatedWithRod )
+			{
+				// seated with the rod out: the fishing prompts, and the way out of the seat
+				var fp = fishing.Prompt();
+				if ( fp != null ) p.prompt = new Prompt { action = fp.action, key = fp.key, text = fp.text + "   ·   " + host.input.label( "interact" ) + "  leave helm" };
+			}
 		}
 
 		// fuel burn at the helm (the engine stops when the tank is dry); the fish finder comes with the HUD

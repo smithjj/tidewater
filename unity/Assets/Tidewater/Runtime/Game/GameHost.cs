@@ -32,6 +32,8 @@ namespace Tidewater.Game
 		public Weather weather { get; private set; }     // the sea-state walk (null until the world is built)
 		public FishingGame fishing { get; private set; } // the rod, the bite, the fight and the catch card (null until the world is built)
 		public TrapGame trap { get; private set; }       // the trap line: pots set and hauled from the working boat (Traps.js, Game.js; null until the world is built)
+		public readonly BoatGauges gauges = new BoatGauges(); // bottom left at the helm: throttle, rpm and speed, compass (UI.setBoatGauges)
+		public readonly DepthSounder depth = new DepthSounder(); // left while diving: the sounding tape (UI.setDepth)
 		public readonly MinimapView minimap = new MinimapView(); // lower right: the island, the markers; N opens the large map (Minimap.js)
 		public Guide guide { get; private set; }         // the first-play intro and the one-time tips (Guide.js; null until the world is built)
 		public FishGuide fishGuide { get; private set; } // the J fish guide (FishGuide.js; null until the world is built)
@@ -61,6 +63,7 @@ namespace Tidewater.Game
 			if ( trap != null ) trap.Dispose();
 			if ( fishGuide != null ) fishGuide.Dispose();
 			minimap.Dispose();
+			gauges.Dispose();
 			// the Editor's sea state slider works again once the game is gone
 			if ( weather != null && OceanRenderer.instance != null ) OceanRenderer.instance.weatherDriven = false;
 		}
@@ -263,6 +266,8 @@ namespace Tidewater.Game
 
 			// the minimap (Game.update: after the rest; the catch card owns the screen while it is up, the map steps aside)
 			minimap.Tick( dt, this, host, fishing.catchOpen );
+			gauges.Tick( dt, this );
+			depth.Tick( dt, this );
 			if ( guide != null ) guide.Update( dt );
 
 			UpdateBoat( dt, p );
@@ -340,6 +345,8 @@ namespace Tidewater.Game
 			GUI.skin.font = UIFonts.Inter; // the plain labels and buttons (the web UI's body face)
 			bool hudOn = showHud && ! photoMode; // (photo mode: only its hint)
 			if ( hudOn ) minimap.OnGUI();
+			if ( hudOn ) gauges.OnGUI();
+			if ( hudOn ) depth.OnGUI();
 			if ( hudOn && fishing != null ) fishing.OnGUI();
 			if ( hudOn && hud != null ) hud.OnGUI();
 			if ( hudOn && fishGuide != null ) fishGuide.OnGUI();

@@ -262,7 +262,12 @@ namespace Tidewater.Game
 			if ( inp.actHit( "controls" ) && ! intro ) { if ( settings.photo ) settings.SetPhoto( false ); controls.Toggle(); }
 			if ( ! intro && inp.actHit( "cooler" ) ) ToggleInventory();
 			if ( ! intro && inp.actHit( "codex" ) ) fishGuide.Toggle();
-			if ( inp.actHit( "cancel" ) && ! settings.Cancel() ) { ToggleInventory( false ); CloseStand(); fishGuide.Toggle( false ); controls.Toggle( false ); }
+			if ( inp.actHit( "cancel" ) )
+			{
+				if ( ! settings.Cancel() ) { ToggleInventory( false ); CloseStand(); fishGuide.Toggle( false ); controls.Toggle( false ); }
+				// Esc always frees the mouse (the browser does that itself when it ends a pointer lock; the Editor too, a built player does not): the settings rail needs the pointer
+				inp.ReleaseLock();
+			}
 			fishGuide.Tick( dt );
 			hud.Tick( dt );
 			controls.Tick( dt );

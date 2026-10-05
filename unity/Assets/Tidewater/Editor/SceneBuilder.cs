@@ -28,6 +28,12 @@ namespace Tidewater.EditorTools
 			var vil = GameObject.Find( "Village" ) ?? new GameObject( "Village" );
 			if ( vil.GetComponent<Tidewater.World.Village.VillageView>() == null ) vil.AddComponent<Tidewater.World.Village.VillageView>();
 
+			// the island vegetation (palms, understory, bananas, broadleaf plants): built from the terrain once its village exists
+			var veg = GameObject.Find( "Vegetation" ) ?? new GameObject( "Vegetation" );
+			if ( veg.GetComponent<Tidewater.World.Vegetation.VegetationView>() == null ) veg.AddComponent<Tidewater.World.Vegetation.VegetationView>();
+			var rocksGo = GameObject.Find( "Rocks" ) ?? new GameObject( "Rocks" );
+			if ( rocksGo.GetComponent<Tidewater.World.Rocks.RocksView>() == null ) rocksGo.AddComponent<Tidewater.World.Rocks.RocksView>();
+
 			// the local lights (lanterns, lamp posts, path lights, lit windows) of the village: a pool of HDRP lights picked per camera
 			var ll = GameObject.Find( "Local Lights" ) ?? new GameObject( "Local Lights" );
 			if ( ll.GetComponent<Tidewater.World.LocalLightsView>() == null ) ll.AddComponent<Tidewater.World.LocalLightsView>();
@@ -79,6 +85,9 @@ namespace Tidewater.EditorTools
 			var cam = Camera.main;
 			cam.transform.SetPositionAndRotation( new Vector3( 60, 12, - 150 ), Quaternion.Euler( 3, 0, 0 ) );
 			cam.farClipPlane = 6000;
+			// thin and fine detail (the pier's bracing, the plank grain, the sand) shimmers under TAA in motion: the high quality filter and a gentler sharpen keep it calm
+			var camData = cam.GetComponent<UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData>();
+			if ( camData != null ) { camData.antialiasing = UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData.AntialiasingMode.TemporalAntialiasing; camData.TAAQuality = UnityEngine.Rendering.HighDefinition.HDAdditionalCameraData.TAAQualityLevel.High; camData.taaSharpenStrength = 0.2f; }
 			GameObjectUtility.RemoveMonoBehavioursWithMissingScript( cam.gameObject ); // (the old throwaway fly camera)
 
 			// the player (Player.js + the free camera on F) drives the camera in play mode

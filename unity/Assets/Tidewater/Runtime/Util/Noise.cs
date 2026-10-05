@@ -26,6 +26,7 @@ namespace Tidewater.Util
 		public static double Round( double x ) => Math.Floor( x + 0.5 );
 
 		public static double Hypot( double a, double b ) => Math.Sqrt( a * a + b * b );
+		public static double Hypot3( double a, double b, double c ) => Math.Sqrt( a * a + b * b + c * c );
 	}
 
 	// mulberry32( seed ): returns a closure in JS, an object here

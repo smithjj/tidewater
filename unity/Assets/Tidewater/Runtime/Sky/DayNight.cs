@@ -128,6 +128,8 @@ namespace Tidewater.Sky
 			if ( sun != null ) sunData = sun.GetComponent<HDAdditionalLightData>();
 			// the sun's disc: radius 0.004675 * 1.15 rad (SkyMath.SUN_ANGULAR_RADIUS), as a diameter in degrees
 			if ( sunData != null ) sunData.angularDiameter = ( float ) ( 2 * SkyMath.SUN_ANGULAR_RADIUS * 180 / System.Math.PI );
+			// the sun's shadow map: the scene's light came with a 512 texel override per cascade, so shadow edges were blocky and crawled / popped as the cascades moved; the pipeline's 2048 level instead
+			if ( sunData != null ) { sunData.SetShadowResolutionOverride( false ); sunData.SetShadowResolutionLevel( 2 ); }
 			if ( moon == null )
 			{
 				var t = transform.Find( "Moon" );
@@ -267,6 +269,13 @@ namespace Tidewater.Sky
 			if ( stars != null ) driverSky.spaceEmissionTexture.Override( stars );
 
 			// PostFX.js auto exposure: metered on the centre-weighted log average of the scene, adapting at 1.6 / s toward more exposure and 1.1 / s toward less
+			// the sun's cascades blend into each other over the outer fifth of each (the default is a hard switch between resolutions, which pops as the camera moves)
+			var driverShadows = driverProfile.Add<HDShadowSettings>( false );
+			driverShadows.active = true;
+			driverShadows.cascadeShadowBorder0.Override( 0.2f );
+			driverShadows.cascadeShadowBorder1.Override( 0.2f );
+			driverShadows.cascadeShadowBorder2.Override( 0.2f );
+
 			driverExposure = driverProfile.Add<Exposure>( false );
 			driverExposure.active = true;
 			driverExposure.mode.Override( ExposureMode.CurveMapping );

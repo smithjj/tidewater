@@ -27,6 +27,7 @@ namespace Tidewater.World
 		public Tidewater.World.Village.Village village { get; private set; }
 		public TerrainGPU gpu { get; private set; }
 		public CDLOD lod { get; private set; }
+		public System.Collections.Generic.List<Tidewater.World.Rocks.RockInstance> rocks { get; private set; } // the scattered rocks ( RockPlacement ); they collide
 		public ShoreFieldData shoreField { get; private set; }
 
 		const int Batch = 1023;
@@ -62,7 +63,11 @@ namespace Tidewater.World
 			colliders = new Colliders();
 			village = new Tidewater.World.Village.Village( data, colliders );
 			double villageMs = sw.Elapsed.TotalMilliseconds - genMs;
+			rocks = Tidewater.World.Rocks.RockPlacement.Place( data, village );
+			Tidewater.World.Rocks.RockPlacement.AddColliders( rocks, colliders );
 			foreach ( var vv in FindObjectsByType<Tidewater.World.Village.VillageView>( FindObjectsSortMode.None ) ) vv.Rebuild();
+			foreach ( var vg in FindObjectsByType<Tidewater.World.Vegetation.VegetationView>( FindObjectsSortMode.None ) ) vg.Rebuild();
+			foreach ( var rv in FindObjectsByType<Tidewater.World.Rocks.RocksView>( FindObjectsSortMode.None ) ) rv.Rebuild();
 			// the wave travel-time field the shore waves follow (App.js: res 512, the world's swell direction)
 			shoreField = ShoreField.Compute( data, 512, WorldLayout.SwellDirX, WorldLayout.SwellDirZ );
 			gpu = new TerrainGPU( data, shoreField );
@@ -89,7 +94,7 @@ namespace Tidewater.World
 		void Release()
 		{
 			if ( gpu != null ) gpu.Destroy();
-			gpu = null; data = null; colliders = null; village = null; lod = null; shoreField = null;
+			gpu = null; data = null; colliders = null; village = null; lod = null; shoreField = null; rocks = null;
 		}
 
 		// travelling gust field offset (the same integration as Vegetation's vegGustOffset)

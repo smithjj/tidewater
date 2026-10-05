@@ -117,6 +117,7 @@ rendering engine, no framework.
 | X | Drop or weigh the anchor, aboard a boat (an orange buoy and a minimap marker show where it lies) |
 | J | Fish guide: what you have learned about each species |
 | F | Free camera |
+| G | Visit the wildlife: the camera goes to the eagle ray, the stingrays and the turtle in turn and follows each one (mouse orbits, wheel zooms, F flies on from there, Esc leaves) |
 | L | Flashlight |
 | T | Run or pause the day |
 | M | Mute |

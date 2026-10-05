@@ -255,6 +255,8 @@ namespace Tidewater.Game
 			// the intro owns the keys while it is up (Guide.js: capture phase), F1 asks for it again
 			bool intro = guide != null && guide.open;
 			// the interface commands (AppUI.update -> UI.command): the panel, photo mode and the sheet; the intro owns the keys while it is up
+			// (the panel and the sheet are hidden during a wildlife visit: opening one ends it)
+			if ( wildlife.active && ( inp.actHit( "settings" ) || inp.actHit( "controls" ) ) ) wildlife.Stop();
 			if ( ! intro && inp.actHit( "settings" ) ) settings.Command( "settings" );
 			if ( ! intro && inp.actHit( "photo" ) ) settings.Command( "photo" );
 			if ( inp.actHit( "controls" ) && ! intro ) { if ( settings.photo ) settings.SetPhoto( false ); controls.Toggle(); }

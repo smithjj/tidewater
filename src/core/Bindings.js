@@ -69,6 +69,7 @@ export const ACTIONS = [
 	{ id: 'flashlight', label: 'Flashlight', group: 'Interface', kind: 'button', menu: 'block', help: 'Flashlight', kb: [ 'KeyL' ], pad: [ 'DDown' ] },
 	{ id: 'mute', label: 'Mute', group: 'Interface', kind: 'button', menu: 'block', help: 'Mute', kb: [ 'KeyM' ], pad: [ 'DLeft' ] },
 	{ id: 'freeCam', label: 'Free camera', group: 'Interface', kind: 'button', menu: 'block', help: 'Free camera<small>Developer camera</small>', kb: [ 'KeyF' ], pad: [] },
+	{ id: 'wildlife', label: 'Visit the wildlife', group: 'Interface', kind: 'button', menu: 'block', help: 'Visit the wildlife<small>Eagle ray, stingrays, turtle: again for the next</small>', kb: [ 'KeyG' ], pad: [] },
 ];
 
 const _byId = new Map( ACTIONS.map( ( a ) => [ a.id, a ] ) );

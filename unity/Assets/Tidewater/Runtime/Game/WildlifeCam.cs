@@ -5,15 +5,15 @@ using Tidewater.World.Fish;
 using UnityEngine;
 using Engine3 = Tidewater.Engine.Vector3;
 
-// The wildlife camera (Unity only, no JS counterpart): G visits the animals in turn, the eagle ray, the stingrays and the turtle, and G again goes on to the next. The camera flies
+// The wildlife camera (the JS has the same one, src/player/WildlifeVisit.js; keep them together): G visits the animals in turn, the eagle ray, the stingrays and the turtle, and G again goes on to the next. The camera flies
 // to a spot behind and beside the animal and stays with it as it swims (so it works under water and at the surface); the mouse orbits it, the wheel zooms, F leaves it to fly
 // freely from there, Esc (or the free camera) ends the visit. The player stays where they were; the interface is hidden, as in photo mode, apart from a caption.
-// G is not in the bindings table: that table is held identical to the JS one (BindingsOracle), so this key is read on its own (GameInput.EXTRA_KEYS).
+// G is the "wildlife" action in the bindings table, so it can be rebound and is on the controls sheet. While a visit is on the fish are calm (FishSchools.calm): the sim treats a camera
+// under water as a diver, and the animal would swim away from it.
 namespace Tidewater.Game
 {
 	public sealed class WildlifeCam
 	{
-		public const string KEY = "KeyG";
 		static readonly string[] MODELS = { "eagleRay", "stingray", "turtle" };
 		static readonly Dictionary<string, string> NAMES = new Dictionary<string, string> { { "eagleRay", "Eagle ray" }, { "stingray", "Southern stingray" }, { "turtle", "Green turtle" } };
 
@@ -24,7 +24,8 @@ namespace Tidewater.Game
 		FishGroup target;
 		int fish;                         // the animal's index in the schools' arrays
 		float fade;
-		double orbitYaw = 2.6, orbitPitch = 0.22, zoom = 1, heading;
+		const double BEHIND = 0.5;        // where each visit starts from: a little round to the left of straight behind the animal
+		double orbitYaw = BEHIND, orbitPitch = 0.22, zoom = 1, heading;
 		readonly Engine3 tp = new Engine3(), _fwd = new Engine3(), _up = new Engine3( 0, 1, 0 );
 		string caption = "";
 
@@ -42,8 +43,7 @@ namespace Tidewater.Game
 		{
 			var inp = host.input;
 			if ( active && ( host.freeCam || ( inp.actHit( "cancel" ) ) ) ) { Stop(); return; }
-			if ( host.freeCam || inp.menuMode || inp.capturing || ( game.settings != null && game.settings.open ) ) return;
-			if ( ! inp.hit( KEY ) ) return;
+			if ( host.freeCam || ! inp.actHit( "wildlife" ) ) return;
 			var view = FishSchoolsView.instance;
 			List( view != null ? view.schools : null );
 			if ( animals.Count == 0 ) { game.Toast( "No wildlife about", 2.2f ); return; }
@@ -60,7 +60,7 @@ namespace Tidewater.Game
 			tp.set( s.pos[ fish * 3 ], s.pos[ fish * 3 + 1 ], s.pos[ fish * 3 + 2 ] );
 			heading = Math.Atan2( s.vel[ fish * 3 + 2 ], s.vel[ fish * 3 ] );
 			if ( s.vel[ fish * 3 ] == 0 && s.vel[ fish * 3 + 2 ] == 0 ) heading = Math.Atan2( target.heading.z, target.heading.x );
-			zoom = 1;
+			zoom = 1; orbitYaw = BEHIND; orbitPitch = 0.22;
 			active = true;
 			Place( host, 1, 0 );
 		}
@@ -77,7 +77,7 @@ namespace Tidewater.Game
 			if ( ! active || target == null || listed == null ) return;
 			var inp = host.input;
 			var look = inp.consumeLook();
-			orbitYaw -= look.x * 0.0035;
+			orbitYaw += look.x * 0.0035; // the view turns the way the mouse goes: the camera swings round the other way
 			orbitPitch = Math.Max( - 0.5, Math.Min( 1.2, orbitPitch + look.y * 0.0035 ) );
 			zoom = Math.Max( 0.5, Math.Min( 4, zoom * Math.Pow( 1.12, inp.consumeWheel() ) ) );
 			Place( host, 1 - Math.Exp( - dt * 6 ), dt );
@@ -121,7 +121,8 @@ namespace Tidewater.Game
 			float u = UIKit.U, a = UIScale.Ease( fade );
 			var title = UIKit.Style( UIFonts.InterSemi, 14, TextAnchor.MiddleCenter ); title.normal.textColor = Tint( UIKit.INK, a );
 			var hint = UIKit.Style( UIFonts.Inter, 11.5f, TextAnchor.MiddleCenter ); hint.normal.textColor = Tint( UIKit.INK3, a );
-			string h = $"G next animal  ·  mouse look, wheel zoom  ·  F fly freely  ·  Esc leave";
+			var inp = GameHost.instance.Host.input;
+			string h = $"{inp.label( "wildlife" )} next animal  ·  mouse look, wheel zoom  ·  {inp.label( "freeCam" )} fly freely  ·  {inp.label( "cancel" )} leave";
 			float w = Mathf.Max( title.CalcSize( new GUIContent( caption ) ).x, hint.CalcSize( new GUIContent( h ) ).x ) + 40 * u, ht = 56 * u;
 			var r = new Rect( ( Screen.width - w ) / 2, Screen.height - UIScale.Edge - ht + ( 1 - a ) * 10 * u, w, ht );
 			UIKit.Glass( r, 16 * u, a );

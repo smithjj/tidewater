@@ -354,7 +354,16 @@ export class AppUI {
 		// the interface commands (settings panel, photo mode, the control sheet, back) are actions now,
 		// so they can be rebound and reached from a pad. UI.command() ignores them behind the start
 		// overlay, exactly as the old raw key handler did.
-		for ( const name of [ 'settings', 'photo', 'controls', 'cancel' ] ) if ( app.input.actHit( name ) ) ui.command( name );
+		for ( const name of [ 'settings', 'photo', 'controls', 'cancel' ] ) {
+
+			if ( ! app.input.actHit( name ) ) continue;
+			// the panel and the sheet are hidden during a wildlife visit: opening one ends it
+			if ( app.visit.active && ( name === 'settings' || name === 'controls' ) ) app.visit.stop();
+			ui.command( name );
+
+		}
+
+		ui.setVisit( app.visit.active ? app.visit.caption : null );
 		if ( app.freeCam ) {
 
 			ui.setMode( 'Free camera' );

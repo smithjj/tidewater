@@ -60,6 +60,7 @@ import { PostFX } from './post/PostFX.js';
 import { AirHaze } from './post/AirHaze.js';
 import { FlyCamera } from './player/FlyCamera.js';
 import { Player } from './player/Player.js';
+import { WildlifeVisit } from './player/WildlifeVisit.js';
 import { Game } from './game/Game.js';
 import { installDebugGame } from './game/Debug.js';
 import { STAND } from './game/FishStand.js';
@@ -377,6 +378,11 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 			query: this.query, spray: this.spray, csm: this.csm,
 		} );
 		this.freeCam = qs.has( 'fly' );
+		// G: the camera visits the eagle ray, the stingrays and the turtle in turn (and leaves the fish calm)
+		this.visit = new WildlifeVisit( {
+			camera, input: this.input, schools: () => this.reef.fish, terrain: this.terrainData,
+			waterHeight: () => this.cameraWaterHeight ?? 0, toast: ( text ) => { if ( this.ui ) this.ui.ui.toast( text ); },
+		} );
 
 		// ---------------------------------------------------------------- post
 		await progress( 0.34, 'Preparing the shaders…' );
@@ -698,6 +704,7 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 
 		// ---- player / boat (boat physics first so the cameras follow this frame's pose)
 		if ( this.input.actHit( 'freeCam' ) ) this.setFreeCam( ! this.freeCam );
+		this.visit.handle( this.freeCam );
 		if ( this.input.actHit( 'pauseTime' ) ) this.toggleTime();
 		if ( ! this._flashSeeded ) {
 
@@ -737,7 +744,13 @@ fn terrainWetness( xz: vec2f, h: f32 ) -> vec2f {
 		this.boatSpray.update( dt );
 		this.wake.update( dt );
 		if ( this.freeCam ) this.fly.update( dt );
-		else this.player.update( dt );
+		else if ( this.visit.active ) {
+
+			// the visit has the view: the player stands still (a boat at the helm is let go of and coasts to a stop)
+			if ( this.player.mode === 'boat' || this.player.mode === 'deck' ) this.player.boat.setInput( 0, 0, dt );
+			this.visit.update( dt );
+
+		} else this.player.update( dt );
 		this.game.update( dt );
 		this.updateSun();
 

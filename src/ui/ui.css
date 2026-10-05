@@ -518,6 +518,7 @@ body {
 }
 
 .tw-root.is-photo .tw-hud,
+.tw-root.is-visit .tw-hud,
 .tw-root.is-starting .tw-hud {
 	opacity: 0;
 	visibility: hidden;
@@ -1162,6 +1163,51 @@ body {
 
 .tw-photo-hint.is-on {
 	opacity: 1;
+}
+
+/* wildlife visit: the animal's name and the keys, at the foot of the picture (gone in photo mode) */
+.tw-visit {
+	position: absolute;
+	left: 50%;
+	bottom: var(--tw-4);
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	gap: calc(4 * var(--tw-u));
+	padding: calc(9 * var(--tw-u)) calc(20 * var(--tw-u));
+	border-radius: calc(16 * var(--tw-u));
+	background: rgba(8, 12, 18, 0.45);
+	-webkit-backdrop-filter: blur(10px);
+	backdrop-filter: blur(10px);
+	pointer-events: none;
+	opacity: 0;
+	transform: translateX(-50%);
+	transition: opacity 300ms var(--tw-ease);
+}
+
+.tw-root.is-visit:not(.is-photo) .tw-visit {
+	opacity: 1;
+}
+
+.tw-visit-name {
+	font-size: var(--tw-fs-lg, 14px);
+	font-weight: 600;
+	color: var(--tw-ink);
+}
+
+.tw-visit-keys {
+	display: flex;
+	flex-wrap: wrap;
+	justify-content: center;
+	gap: calc(4 * var(--tw-u)) calc(14 * var(--tw-u));
+	font-size: var(--tw-fs-sm);
+	color: var(--tw-ink-2);
+}
+
+.tw-visit-keys span {
+	display: inline-flex;
+	align-items: center;
+	gap: var(--tw-1, 6px);
 }
 
 /* ── settings panel ────────────────────────────────────────────────────── */
@@ -2541,7 +2587,12 @@ body {
 .tw-root.is-photo .tw-rail,
 .tw-root.is-photo .tw-help,
 .tw-root.is-photo .tw-menu,
-.tw-root.is-photo .tw-tip {
+.tw-root.is-photo .tw-tip,
+.tw-root.is-visit .tw-panel,
+.tw-root.is-visit .tw-rail,
+.tw-root.is-visit .tw-help,
+.tw-root.is-visit .tw-menu,
+.tw-root.is-visit .tw-tip {
 	opacity: 0 !important;
 	visibility: hidden !important;
 	pointer-events: none !important;

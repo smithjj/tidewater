@@ -2214,7 +2214,15 @@ export class UI {
 		this.photoHint = h( 'div', 'tw-photo-hint' );
 		this.photoHint.innerHTML = `<kbd>${ esc( this.label( 'photo', 'P' ) ) }</kbd><span>Exit photo mode</span>`;
 
-		this.root.append( hud, this.photoHint );
+		// the wildlife visit's caption (setVisit); like the photo hint it survives the interface giving way
+		this.visitEl = h( 'div', 'tw-visit' );
+		this.visitEl.innerHTML = '<div class="tw-visit-name"></div><div class="tw-visit-keys"></div>';
+		this.visitName = this.visitEl.firstChild;
+		this.visitKeys = this.visitEl.lastChild;
+		this._visit = false;
+		this._updateVisitKeys();
+
+		this.root.append( hud, this.photoHint, this.visitEl );
 
 	}
 
@@ -2452,6 +2460,7 @@ export class UI {
 
 		this.refreshHelp();
 		this._updateFooter();
+		this._updateVisitKeys();
 		if ( ! this._start && this.startEl ) {
 
 			this.startEl.remove();
@@ -3440,6 +3449,51 @@ export class UI {
 	get photoMode() {
 
 		return this._photo;
+
+	}
+
+	// The wildlife visit: the caption (null when there is none) and the interface giving way, as in photo mode.
+	setVisit( caption ) {
+
+		const on = caption !== null && caption !== undefined;
+		if ( on !== this._visit ) {
+
+			this._visit = on;
+			this.root.classList.toggle( 'is-visit', on );
+			if ( on ) {
+
+				this._closeMenu();
+				this._hideTip();
+				const a = document.activeElement;
+				if ( a && this.root.contains( a ) ) a.blur();
+
+			}
+
+			this._overUI = false;
+
+		}
+
+		if ( on && caption !== this._visitCaption ) {
+
+			this._visitCaption = caption;
+			this.visitName.textContent = caption;
+
+		}
+
+	}
+
+	get visiting() {
+
+		return this._visit;
+
+	}
+
+	_updateVisitKeys() {
+
+		if ( ! this.visitKeys ) return;
+		const k = ( action, fallback ) => `<kbd>${ esc( this.label( action, fallback ) ) }</kbd>`;
+		this.visitKeys.innerHTML = `<span>${ k( 'wildlife', 'G' ) }Next animal</span><span>Mouse look · wheel zoom</span>`
+			+ `<span>${ k( 'freeCam', 'F' ) }Fly freely</span><span>${ k( 'cancel', 'Esc' ) }Leave</span>`;
 
 	}
 

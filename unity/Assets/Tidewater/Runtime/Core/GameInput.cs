@@ -23,8 +23,6 @@ namespace Tidewater.Core
 
 		public readonly Bindings bindings = new Bindings();
 		public readonly HashSet<string> keys = new HashSet<string>(), pressed = new HashSet<string>();
-		// keys the Unity port reads that are not in the bindings table (that table is held identical to the JS one): polled here, read with hit()
-		public static readonly string[] EXTRA_KEYS = { Tidewater.Game.WildlifeCam.KEY };
 		readonly HashSet<string> held = new HashSet<string>();             // keys a tool holds (merged into `keys`)
 		readonly HashSet<string> mousePressed = new HashSet<string>(), mouseReleased = new HashSet<string>();
 		public readonly Engine.Vector2 look = new Engine.Vector2(), padLook = new Engine.Vector2(); // mouse deltas; the pad adds to padLook
@@ -175,10 +173,6 @@ namespace Tidewater.Core
 						if ( k.wasPressedThisFrame ) { pressed.Add( e.v ); useKeyboard(); }
 					}
 			}
-
-			if ( kb != null )
-				foreach ( var c in EXTRA_KEYS )
-					if ( KeyFor( c, out var xk ) && kb[ xk ].wasPressedThisFrame ) { pressed.Add( c ); useKeyboard(); }
 
 			if ( mouse != null )
 			{

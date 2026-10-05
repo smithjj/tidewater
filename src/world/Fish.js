@@ -168,6 +168,7 @@ export class FishSchools {
 		this.rng = mulberry32( seed );
 		this.time = 0;
 		this.spray = null; // set by the owner (Spray.js): splashes of leaping mullet
+		this.calm = false; // the wildlife visit (WildlifeVisit.js): the camera still wakes the groups around it, but frightens nothing
 		this.group = new THREE.Group();
 		this.group.name = 'Fish';
 		parent.add( this.group );
@@ -640,7 +641,7 @@ export class FishSchools {
 		this.dt = dt || 1 / 60;
 		if ( this.whale && this.whale.ready ) ( this.whaleWater || ( this.whaleWater = new WhaleWater() ) ).update( this.whale, dt, this.spray );
 		let threat = null;
-		if ( player ) {
+		if ( player && ! this.calm ) {
 
 			if ( player.y < - 0.1 ) threat = player;
 			else {

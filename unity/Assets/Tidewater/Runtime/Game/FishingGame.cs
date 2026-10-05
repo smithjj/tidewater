@@ -62,6 +62,10 @@ namespace Tidewater.Game
 		public Landing landing;               // while the caught fish swings in view
 		public bool cardDismissed;            // this frame's E / click belonged to the card
 		public bool catchOpen { get; private set; }
+		// the card of a trap haul: not part of the landing flow, so it times out on its own (HAUL_CARD_S), or E / click / Esc takes it away early (Game._haulCard)
+		const double HAUL_CARD_S = 7;
+		LastCatch haulInfo; double haulT;
+		public bool haulCardOpen => haulInfo != null;
 		bool lastCan;
 
 		// the sound hooks (forwarded to the current SoundScape, if any)
@@ -110,7 +114,7 @@ namespace Tidewater.Game
 			// the Editor destroys the scene objects it made when Play starts; build them again
 			if ( ! view.Alive ) { view.Dispose(); view = FishingRodView.Create( parent ); }
 			if ( ! display.Alive ) { display.Dispose(); display = new CatchDisplay( parent ); }
-			if ( ! card.Alive ) { card.Dispose(); card = new CatchCard( parent ); if ( catchOpen && landing != null && landing.card != null ) ShowCard( landing ); }
+			if ( ! card.Alive ) { card.Dispose(); card = new CatchCard( parent ); if ( catchOpen && landing != null && landing.card != null ) ShowCard( landing.card ); else if ( haulInfo != null ) ShowCard( haulInfo ); }
 			cardDismissed = false;
 			bool can = CanFish;
 			lastCan = can;
@@ -132,7 +136,7 @@ namespace Tidewater.Game
 			// the cast / reel button and its edges (the pad trigger and the left mouse both land here)
 			bool lmb = inp.act( "rodUse" );
 			bool lDown = inp.actHit( "rodUse" ), lUp = inp.actReleased( "rodUse" ), rDown = inp.actHit( "rodIn" );
-			bool panelOpen = game.inventoryOpen || game.openVendor != null;
+			bool panelOpen = game.inventoryOpen || game.openVendor != null || haulInfo != null;
 
 			if ( rod.equipped && ! panelOpen )
 			{
@@ -168,7 +172,7 @@ namespace Tidewater.Game
 				double yaw = Math.Atan2( c.x - m.x, c.z - m.z );
 				if ( L.card != null )
 				{
-					if ( ! L.shown && rod.t > 0.3 ) { L.shown = true; catchOpen = true; ShowCard( L ); }
+					if ( ! L.shown && rod.t > 0.3 ) { L.shown = true; catchOpen = true; ShowCard( L.card ); }
 					if ( L.shown )
 					{
 						// a slow turn so both flanks show
@@ -191,6 +195,18 @@ namespace Tidewater.Game
 				}
 			}
 			else if ( landing != null || display.shown != null ) EndLanding();
+
+			// a catch card from a haul dismisses itself: it times out on its own, or E / click / Esc takes it away early
+			if ( haulInfo != null )
+			{
+				haulT += dt;
+				card.Tick( dt );
+				if ( haulT >= HAUL_CARD_S || inp.actHit( "interact" ) || inp.actHit( "cancel" ) || lDown )
+				{
+					EndHaulCard();
+					cardDismissed = true; // this frame's E / click belonged to the card
+				}
+			}
 
 			p.busy = rod.lineInWater || rod.state == "windup";
 			// E closes the catch card; at the helm it must not also leave it (read by Player.updateBoat next frame)
@@ -451,6 +467,7 @@ namespace Tidewater.Game
 			}
 
 			if ( catchOpen && landing != null && landing.card != null ) card.OnGUI( ( float ) Math.Max( 0, 1 - landing.cardT / CATCH_CARD_S ), host.input.label( "rodUse" ), host.input.label( "interact" ) );
+			else if ( haulInfo != null ) card.OnGUI( ( float ) Math.Max( 0, 1 - haulT / HAUL_CARD_S ), host.input.label( "rodUse" ), host.input.label( "interact" ) );
 		}
 
 		// .gm-fight: 360u wide, 58u above the prompt line; the call, the line out, the tension bar and the fish's stamina
@@ -500,10 +517,25 @@ namespace Tidewater.Game
 
 		static string Fmt( double v, string f = "F2" ) => v.ToString( f, System.Globalization.CultureInfo.InvariantCulture );
 
-		// GameHUD.showCatch: the card's text (the note about the log, the price) and its start; the card itself (CatchCard) draws the layout and the fish portrait
-		void ShowCard( Landing L )
+		// the catch card of a trap haul (Game.haulTrap: hud.showCatch( lastCatch, 7000 )): the best of the haul, with no fish on a line
+		public void ShowHaulCard( LastCatch info )
 		{
-			var info = L.card; var st = game.state;
+			if ( info == null ) return;
+			haulInfo = info; haulT = 0; catchOpen = true;
+			ShowCard( info );
+		}
+
+		void EndHaulCard()
+		{
+			haulInfo = null; haulT = 0;
+			card.Hide();
+			if ( landing == null ) catchOpen = false;
+		}
+
+		// GameHUD.showCatch: the card's text (the note about the log, the price) and its start; the card itself (CatchCard) draws the layout and the fish portrait
+		void ShowCard( LastCatch info )
+		{
+			var st = game.state;
 			string note;
 			if ( ! info.kept ) note = $"No room in the {( st.upgrades[ "hold" ] > 0 ? "hold" : "cooler" )} · you let it go";
 			else if ( info.record ) note = $"Previous best <color=#f0c46a><b>{Fmt( info.prevBestKg )} kg</b></color> · {info.prevBestCm} cm. Beaten by {Fmt( info.kg - info.prevBestKg )} kg.";

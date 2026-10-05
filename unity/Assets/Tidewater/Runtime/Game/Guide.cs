@@ -12,7 +12,6 @@ using UnityEngine;
 // The seen state is saved under 'tidewater.guide' in the same JSON the browser keeps ({ "intro": true, "rodOut": true, ... }; FileSaveStore writes it beside the game save).
 // The cards and tips keep the JS wording; the HTML is the markup UIKit.Flow reads. Drawn in IMGUI: the card, the dots and the buttons follow the CSS (.gm-guide*, .gm-coach*); the
 // letter spacing of the eyebrows and the glass blur are not ported (see UIKit).
-// Not ported: the 'trap' tip's trigger (it fires when the trap line has a pot to set or haul; hauling in the world is not ported yet, so the tip is held back with it).
 namespace Tidewater.Game
 {
 	public sealed class Guide
@@ -226,6 +225,8 @@ namespace Tidewater.Game
 			// after dark the island changes character: different fish, lamps lit
 			double hour = g.clock.hour;
 			if ( hour > 19.5 || hour < 4.5 ) Tip( "night" );
+			// the trap line: the first time there is a pot to set or haul
+			if ( g.trap != null && g.trap.Prompt( p ) != null ) Tip( "trap" );
 			if ( p.mode == "walk" )
 			{
 				foreach ( var bt in g.OwnedBoats() )

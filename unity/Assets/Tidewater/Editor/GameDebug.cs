@@ -112,6 +112,29 @@ namespace Tidewater.EditorTools
 			return string.Join( ",", st.boats );
 		}
 
+		// the trap line: a licence and n pots aboard (Marta's licence and traps, without paying)
+		public static string Traps( int n = 4 )
+		{
+			var st = Game().state;
+			st.upgrades[ "trapLicence" ] = 1; st.money = System.Math.Max( st.money, 1000 ); st.buyTraps( n ); st.emit();
+			return State();
+		}
+
+		// step aboard the lobster boat: on its deck, or at the helm ("helm"), wherever it lies
+		public static string Aboard( string where = "deck" )
+		{
+			var h = Host();
+			if ( h == null || h.player == null ) return "not built yet (Run first)";
+			Boats( "all" );
+			h.player.boardBoat( h.driver.controller );
+			if ( where == "helm" ) h.player.takeHelm();
+			return State() + $" boat at {h.driver.controller.position.x:F1}, {h.driver.controller.position.z:F1} depth {- h.terrainData.HeightAt( h.driver.controller.position.x, h.driver.controller.position.z ):F1}";
+		}
+
+		// the pot actions (what E does): over the stern / up on the hauler
+		public static string SetPot() { var r = Game().trap.SetTrap(); return r == null ? "refused" : $"set #{r.id} at {r.x:F1}, {r.z:F1}"; }
+		public static string HaulPot() { var r = Game().trap.HaulTrap(); return r == null ? "nothing hauled" : $"hauled {r.Count} animals: " + string.Join( ", ", r.Select( a => $"{a.species} {a.kg:F2}" ) ); }
+
 		public static string Hour( double h ) { Game().clock.Set( h ); return State(); }
 
 		// the sea state: a rung of the ladder, or the name of the one we are on (Debug.js weather)

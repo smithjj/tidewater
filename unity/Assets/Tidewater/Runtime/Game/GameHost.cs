@@ -9,8 +9,8 @@ using UnityEngine;
 
 // Hosts the economy on top of the world (the money half of src/game/Game.js): owns the GameState (the save), the world clock, the two traders and
 // their panels, burns the fuel at the helm, applies the engine upgrade, and rolls the day over at midnight. PlayerHost ticks it after the player,
-// where the JS App calls Game.update. Fishing (the rod, bites, the catch card), the trap line, the anchor, the guide and the minimap are Game.js too
-// and come with their own rows; until the rod is ported, catches come from the Editor tools (GameDebug).
+// where the JS App calls Game.update. Fishing (the rod, bites, the catch card), the trap line, the guide and the minimap are Game.js too
+// and have their own rows (FishingGame, TrapGame, Guide, Minimap); the Editor tools (GameDebug) can also drive them.
 //
 // The purse, the panels, the toasts and the prompts are IMGUI in the web UI's look (GameHUD, UIKit); the settings rail and the start overlay (ui/) are not ported.
 namespace Tidewater.Game
@@ -31,6 +31,7 @@ namespace Tidewater.Game
 		public bool inventoryOpen { get; private set; }  // the cooler panel (I)
 		public Weather weather { get; private set; }     // the sea-state walk (null until the world is built)
 		public FishingGame fishing { get; private set; } // the rod, the bite, the fight and the catch card (null until the world is built)
+		public TrapGame trap { get; private set; }       // the trap line: pots set and hauled from the working boat (Traps.js, Game.js; null until the world is built)
 		public readonly MinimapView minimap = new MinimapView(); // lower right: the island, the markers; N opens the large map (Minimap.js)
 		public Guide guide { get; private set; }         // the first-play intro and the one-time tips (Guide.js; null until the world is built)
 		public FishGuide fishGuide { get; private set; } // the J fish guide (FishGuide.js; null until the world is built)
@@ -54,6 +55,7 @@ namespace Tidewater.Game
 		{
 			if ( instance == this ) instance = null;
 			if ( fishing != null ) fishing.Dispose();
+			if ( trap != null ) trap.Dispose();
 			if ( fishGuide != null ) fishGuide.Dispose();
 			minimap.Dispose();
 			// the Editor's sea state slider works again once the game is gone
@@ -92,6 +94,8 @@ namespace Tidewater.Game
 			h.player.owns = c => state.ownsBoat( BoatId( c ) );
 			fishing?.Dispose();
 			fishing = new FishingGame( this, h, transform );
+			trap?.Dispose();
+			trap = new TrapGame( this, h, lobster, transform );
 			ApplyGear();
 			state.onChange( _ => { ApplyGear(); if ( fishGuide != null ) fishGuide.Refresh(); } ); // (the guide: the log or today's order changed)
 			fishGuide = new FishGuide( this, h.terrainData.HeightAt );
@@ -257,7 +261,11 @@ namespace Tidewater.Game
 			foreach ( var v in _vendors ) v.update( dt, p.mode == "walk" ? p.position : null );
 			UpdateVendors( inp, p );
 
+			// the trap line (the pots ride the sea; setting and hauling are E on the working boat, the cast button at its helm)
+			trap.Update( dt, inp, p );
+
 			// prompts when the player has nothing to say
+			trap.ApplyPrompt( p, inp );
 			if ( p.prompt == null ) p.prompt = fishing.Prompt();
 		}
 

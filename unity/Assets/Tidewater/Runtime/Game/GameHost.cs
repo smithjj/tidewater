@@ -161,6 +161,34 @@ namespace Tidewater.Game
 
 		public void Toast( string text, float seconds = 2.6f ) { if ( host != null ) host.Toast( text, seconds ); else Debug.Log( "[game] " + text ); }
 
+		// ---- resetting the boats (Game.resetBoats)
+		// Aboard: the boat you are on goes back to its berth, upright, at rest (you ride with it). On foot or in the water: every boat that has
+		// capsized is righted and goes back to its berth. Nothing else is touched: a boat anchored where you left it stays there.
+		public List<Tidewater.Player.BoatController> ResetBoats( GameInput inp, Tidewater.Player.Player p )
+		{
+			bool aboard = p.mode == "boat" || p.mode == "deck";
+			var list = new List<Tidewater.Player.BoatController>();
+			if ( aboard ) list.Add( p.boat );
+			else foreach ( var b in new[] { lobster, host?.pelagicDriver?.controller, host?.miniDriver?.controller } ) if ( b != null && b.capsized ) list.Add( b );
+			if ( list.Count == 0 )
+			{
+				Toast( $"No boat is capsized · {( inp.label( "resetBoats" ) is string l && l != "" ? l : "B" )} aboard sends that boat back to its berth", 3.2f );
+				return list;
+			}
+
+			var names = new List<string>();
+			foreach ( var b in list )
+			{
+				b.reset();
+				if ( b.driven ) b.moored = false; // at the helm it is not tied up
+				var d = Gear.Boat( BoatId( b ) );
+				names.Add( d != null ? d.name : "The boat" );
+			}
+
+			Toast( aboard ? $"{names[ 0 ]} back at its berth" : $"{string.Join( " and ", names )} righted and back at the berth", 3f );
+			return list;
+		}
+
 		// ---- the actions the panels and the keys call (Game.buy / buyTraps / refuel / sellAll)
 
 		// which of the three boats a controller is (the ids of Gear.BOATS)
@@ -295,6 +323,7 @@ namespace Tidewater.Game
 			// the trap line (the pots ride the sea; setting and hauling are E on the working boat, the cast button at its helm)
 			trap.Update( dt, inp, p );
 			anchor.Update( dt, inp, p ); // (X: the anchor down or up aboard a boat)
+			if ( inp.actHit( "resetBoats" ) ) ResetBoats( inp, p ); // (B)
 
 			// prompts when the player has nothing to say
 			trap.ApplyPrompt( p, inp );

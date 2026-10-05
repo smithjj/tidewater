@@ -632,7 +632,21 @@ export class BoatController {
 
 	}
 
-	// back to the berth, at rest (safety net if the integration ever blows up)
+	// how upright the hull is: the y of its up axis (1 level, 0 on its side, -1 keel up)
+	get uprightness() {
+
+		return _up.set( 0, 1, 0 ).applyQuaternion( this.quaternion ).y;
+
+	}
+
+	// heeled past 45 degrees: it does not come back by itself
+	get capsized() {
+
+		return this.uprightness < 0.7;
+
+	}
+
+	// back to the berth, upright and at rest (the safety net if the integration ever blows up, and the player's reset: Game.resetBoats)
 	reset() {
 
 		this.position.copy( this.homeDock.position );

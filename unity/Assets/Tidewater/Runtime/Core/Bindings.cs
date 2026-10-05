@@ -82,6 +82,7 @@ namespace Tidewater.Core
 			A( "interact", "Interact", "Interact", "button", "allow", "Interact<small>Board, helm, step ashore, trade, traps on deck</small>", kb: B( "KeyE" ), pad: B( "A" ) ),
 			A( "cooler", "Cooler and fish log", "Interact", "button", "allow", "Cooler and fish log", kb: B( "KeyI", "Tab" ), pad: B( "R3" ) ),
 			A( "anchor", "Anchor", "Interact", "button", "block", "Anchor<small>Drop or weigh, aboard a boat</small>", kb: B( "KeyX" ) ),
+			A( "resetBoats", "Reset boats", "Interact", "button", "block", "Reset boats<small>Right a capsized boat and send it back to its berth; aboard, the boat you are on</small>", kb: B( "KeyB" ) ),
 			A( "boatCamera", "Boat camera", "Interact", "button", "block", "Boat camera<small>1st / 3rd person</small>", kb: B( "KeyV" ), pad: B( "L3" ) ),
 
 			// ---- interface

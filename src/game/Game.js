@@ -379,6 +379,7 @@ export class Game {
 		this.updateTraps( inp, p );
 		// the anchor (X, aboard either boat) and what it looks like
 		if ( inp.actHit( 'anchor' ) ) this.toggleAnchor();
+		if ( inp.actHit( 'resetBoats' ) ) this.resetBoats();
 		this.anchorHint( dt, p );
 		if ( this.anchors ) this.anchors.update( p.boats, dt );
 
@@ -570,6 +571,34 @@ export class Game {
 		if ( this.app.audio && this.app.audio.splash ) this.app.audio.splash( 0.6 );
 		this.toast( `Anchor down · ${ Math.round( r.rode ) } m of line`, 2800 );
 		return r;
+
+	}
+
+	// ---- resetting the boats
+	// Aboard: the boat you are on goes back to its berth, upright, at rest (you ride with it). On foot or in the water: every boat that has
+	// capsized is righted and goes back to its berth. Nothing else is touched: a boat anchored where you left it stays there.
+	resetBoats() {
+
+		const app = this.app, p = app.player;
+		const aboard = p.mode === 'boat' || p.mode === 'deck';
+		const list = aboard ? [ p.boat ] : [ app.lobsterCtl, app.pelagicCtl, app.miniCtl ].filter( ( b ) => b && b.capsized );
+		if ( ! list.length ) {
+
+			this.toast( `No boat is capsized · ${ app.input.label( 'resetBoats' ) } aboard sends that boat back to its berth`, 3200 );
+			return [];
+
+		}
+
+		for ( const b of list ) {
+
+			b.reset();
+			if ( b.driven ) b.moored = false; // at the helm it is not tied up
+
+		}
+
+		const names = list.map( ( b ) => BOATS[ this.boatId( b ) ]?.name || 'The boat' );
+		this.toast( aboard ? `${ names[ 0 ] } back at its berth` : `${ names.join( ' and ' ) } righted and back at the berth`, 3000 );
+		return list;
 
 	}
 

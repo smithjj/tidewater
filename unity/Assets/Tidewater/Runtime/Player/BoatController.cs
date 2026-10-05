@@ -639,7 +639,13 @@ namespace Tidewater.Player
 			return ok( position ) && ok( velocity ) && ok( angular ) && double.IsFinite( quaternion.w );
 		}
 
-		// back to the berth, at rest (safety net if the integration ever blows up)
+		// how upright the hull is: the y of its up axis (1 level, 0 on its side, -1 keel up)
+		public double uprightness => _up.set( 0, 1, 0 ).applyQuaternion( quaternion ).y;
+
+		// heeled past 45 degrees: it does not come back by itself
+		public bool capsized => uprightness < 0.7;
+
+		// back to the berth, upright and at rest (the safety net if the integration ever blows up, and the player's reset: GameHost.ResetBoats)
 		public void reset()
 		{
 			position.copy( homeDock.position );
